@@ -71,6 +71,7 @@ impl Manifest {
 
         let packages = PackagesSection {
             workspaces: vec!["apps/*".to_string(), "packages/*".to_string()],
+            catalog: IndexMap::new(),
             root: PackageDefinition {
                 dependencies: IndexMap::new(),
                 dev_dependencies: {
@@ -79,7 +80,10 @@ impl Manifest {
                     dev.insert("eslint".to_string(), "9.3.0".to_string());
                     dev
                 },
+                optional_dependencies: IndexMap::new(),
                 scripts: IndexMap::new(),
+                engines: IndexMap::new(),
+                pnpm: PnpmConfig::default(),
             },
             app: vec![AppPackageDefinition {
                 pattern: "apps/*".to_string(),
@@ -222,6 +226,8 @@ pub struct PackagesSection {
     #[serde(default)]
     pub workspaces: Vec<String>,
     #[serde(default)]
+    pub catalog: IndexMap<String, String>,
+    #[serde(default)]
     pub root: PackageDefinition,
     #[serde(rename = "app", default)]
     pub app: Vec<AppPackageDefinition>,
@@ -233,8 +239,14 @@ pub struct PackageDefinition {
     pub dependencies: IndexMap<String, String>,
     #[serde(rename = "devDependencies", default)]
     pub dev_dependencies: IndexMap<String, String>,
+    #[serde(rename = "optionalDependencies", default)]
+    pub optional_dependencies: IndexMap<String, String>,
     #[serde(default)]
     pub scripts: IndexMap<String, String>,
+    #[serde(default)]
+    pub engines: IndexMap<String, String>,
+    #[serde(default)]
+    pub pnpm: PnpmConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -246,6 +258,26 @@ pub struct AppPackageDefinition {
     pub dev_dependencies: IndexMap<String, String>,
     #[serde(default)]
     pub scripts: IndexMap<String, String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PnpmConfig {
+    #[serde(default)]
+    pub overrides: IndexMap<String, String>,
+    #[serde(rename = "peerDependencyRules", default)]
+    pub peer_dependency_rules: PeerDependencyRules,
+    #[serde(rename = "onlyBuiltDependencies", default)]
+    pub only_built_dependencies: Vec<String>,
+    #[serde(rename = "allowedScripts", default)]
+    pub allowed_scripts: IndexMap<String, bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PeerDependencyRules {
+    #[serde(rename = "ignoreMissing", default)]
+    pub ignore_missing: Vec<String>,
+    #[serde(rename = "allowedVersions", default)]
+    pub allowed_versions: IndexMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
