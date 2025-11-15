@@ -1,9 +1,8 @@
 use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use serde_json::json;
-use std::collections::HashMap;
 
-use crate::config::WorkspaceConfig;
+use crate::manifest::{MANIFEST_FILE, Manifest};
 
 pub struct TemplateEngine {
     hbs: Handlebars<'static>,
@@ -13,7 +12,6 @@ impl TemplateEngine {
     pub fn new() -> Result<Self> {
         let mut hbs = Handlebars::new();
 
-        // Register templates (embedded for now, later from files)
         hbs.register_template_string("justfile", JUSTFILE_TEMPLATE)?;
         hbs.register_template_string("package_json", PACKAGE_JSON_TEMPLATE)?;
         hbs.register_template_string("pnpm_workspace", PNPM_WORKSPACE_TEMPLATE)?;
@@ -22,237 +20,194 @@ impl TemplateEngine {
         Ok(TemplateEngine { hbs })
     }
 
-    pub fn render_justfile(&self, config: &WorkspaceConfig) -> Result<String> {
-        let data = self.prepare_justfile_data(config)?;
+    pub fn render_justfile(&self, manifest: &Manifest) -> Result<String> {
+        let data = self.prepare_justfile_data(manifest)?;
         self.hbs
             .render("justfile", &data)
             .context("Failed to render justfile")
     }
 
-    pub fn render_package_json(&self, config: &WorkspaceConfig) -> Result<String> {
-        let data = self.prepare_package_json_data(config)?;
+    pub fn render_package_json(&self, manifest: &Manifest) -> Result<String> {
+        let data = self.prepare_package_json_data(manifest)?;
         self.hbs
             .render("package_json", &data)
             .context("Failed to render package.json")
     }
 
-    pub fn render_pnpm_workspace(&self, config: &WorkspaceConfig) -> Result<String> {
-        let data = self.prepare_pnpm_workspace_data(config)?;
+    pub fn render_pnpm_workspace(&self, manifest: &Manifest) -> Result<String> {
+        let data = self.prepare_pnpm_workspace_data(manifest)?;
         self.hbs
             .render("pnpm_workspace", &data)
             .context("Failed to render pnpm-workspace.yaml")
     }
 
-    pub fn render_docker_compose(&self, config: &WorkspaceConfig) -> Result<String> {
-        let data = self.prepare_docker_compose_data(config)?;
+    pub fn render_docker_compose(&self, manifest: &Manifest) -> Result<String> {
+        let data = self.prepare_docker_compose_data(manifest)?;
         self.hbs
             .render("docker_compose", &data)
             .context("Failed to render docker-compose.yml")
     }
 
-    fn prepare_justfile_data(&self, config: &WorkspaceConfig) -> Result<serde_json::Value> {
-        let apps: Vec<HashMap<String, String>> = config
-            .workspaces
-            .apps
-            .iter()
-            .map(|app| {
-                let name = WorkspaceConfig::get_app_name(app);
-                let app_type = config.get_app_type(app).unwrap_or_else(|| "node".to_string());
-                let mut map = HashMap::new();
-                map.insert("name".to_string(), name);
-                map.insert("type".to_string(), app_type);
-                map
-            })
-            .collect();
-
-        let libs: Vec<HashMap<String, String>> = config
-            .workspaces
-            .libs
-            .iter()
-            .map(|lib| {
-                let name = WorkspaceConfig::get_lib_name(lib);
-                let mut map = HashMap::new();
-                map.insert("name".to_string(), name);
-                map.insert("type".to_string(), "typescript".to_string());
-                map
-            })
-            .collect();
-
+    fn prepare_justfile_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
         Ok(json!({
-            "project": config.name,
-            "workspace": config.workspace_service(),
-            "apps": apps,
-            "libs": libs,
+            "project": manifest.workspace.name,
+            "workspace": manifest.workspace.service,
+            "manifest": MANIFEST_FILE,
+            "has_verify_rule": manifest.rule.contains_key("verify"),
+            "has_ci_rule": manifest.rule.contains_key("ci"),
         }))
     }
 
-    fn prepare_package_json_data(&self, config: &WorkspaceConfig) -> Result<serde_json::Value> {
+    fn prepare_package_json_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
+        let root = &manifest.packages.root;
         Ok(json!({
-            "name": config.name,
-            "version": "0.0.0",
-            "private": true,
-            "catalog": config.catalog,
+            "name": manifest.workspace.name,
+            "package_manager": manifest.workspace.package_manager,
+            "dependencies": root.dependencies,
+            "dev_dependencies": root.dev_dependencies,
+            "scripts": root.scripts,
         }))
     }
 
-    fn prepare_pnpm_workspace_data(&self, config: &WorkspaceConfig) -> Result<serde_json::Value> {
-        let mut packages = Vec::new();
-
-        for app in &config.workspaces.apps {
-            let name = WorkspaceConfig::get_app_name(app);
-            packages.push(format!("apps/{}", name));
-        }
-
-        for lib in &config.workspaces.libs {
-            let name = WorkspaceConfig::get_lib_name(lib);
-            packages.push(format!("libs/{}", name));
-        }
+    fn prepare_pnpm_workspace_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
+        let packages = if manifest.packages.workspaces.is_empty() {
+            manifest
+                .dev
+                .apps
+                .iter()
+                .map(|name| format!("apps/{}", name))
+                .collect()
+        } else {
+            manifest.packages.workspaces.clone()
+        };
 
         Ok(json!({
             "packages": packages,
-            "catalog": config.catalog,
+            "manifest": MANIFEST_FILE,
         }))
     }
 
-    fn prepare_docker_compose_data(&self, config: &WorkspaceConfig) -> Result<serde_json::Value> {
+    fn prepare_docker_compose_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
+        let services: Vec<serde_json::Value> = manifest
+            .service
+            .iter()
+            .map(|(name, svc)| {
+                json!({
+                    "name": name,
+                    "image": svc.image,
+                    "port": svc.port,
+                    "command": svc.command,
+                    "volumes": svc.volumes,
+                    "env": svc.env,
+                })
+            })
+            .collect();
+
+        let named_volumes: Vec<String> = manifest
+            .workspace
+            .volumes
+            .iter()
+            .filter_map(|mount| mount.split(':').next().map(|v| v.to_string()))
+            .collect();
+
         Ok(json!({
-            "project": config.name,
-            "workspace_service": config.workspace_service(),
-            "base_image": config.docker.base_image.clone().unwrap_or_else(|| "node:22-alpine".to_string()),
-            "workdir": config.docker.workdir.clone().unwrap_or_else(|| "/app".to_string()),
-            "volumes": config.docker.workspace.volumes,
+            "project": manifest.workspace.name,
+            "workspace_service": manifest.workspace.service,
+            "workspace_image": manifest.workspace.image,
+            "workdir": manifest.workspace.workdir,
+            "extra_mounts": manifest.workspace.volumes,
+            "depends_on": manifest.dev.depends_on,
+            "services": services,
+            "named_volumes": named_volumes,
         }))
     }
 }
 
-// Embedded templates (will be moved to template files later)
-
-const JUSTFILE_TEMPLATE: &str = r#"# Auto-generated by airis-workspace from workspace.yaml
-# DO NOT EDIT - Regenerate with: airis-workspace init --force
+const JUSTFILE_TEMPLATE: &str = r#"# Auto-generated by airis init
+# DO NOT EDIT - change MANIFEST.toml instead.
 
 project := "{{project}}"
+manifest := "{{manifest}}"
 workspace := "{{workspace}}"
 
-# Default recipe (show help)
+set shell := ["bash", "-c"]
+
 default:
     @just --list
 
-# ============================================
-# Docker Management
-# ============================================
-
-# Start all services
 up:
-    @echo "🚀 Starting Docker services..."
+    @echo "🚀 Starting workspace + infra from {{manifest}}..."
     docker compose up -d
-    @echo "✅ Services started"
+    just dev-all
 
-# Stop all services
 down:
+    @echo "🧹 Stopping containers..."
     docker compose down --remove-orphans
 
-# Install dependencies (in Docker)
-install:
-    @echo "📦 Installing dependencies in Docker..."
-    docker compose exec {{workspace}} pnpm install
-    @echo "✅ Dependencies installed"
-
-# Enter workspace shell
 workspace:
     docker compose exec -it {{workspace}} sh
 
-# Show logs
+install:
+    docker compose exec {{workspace}} pnpm install
+
 logs:
     docker compose logs -f
 
-# Show container status
 ps:
     docker compose ps
 
-# Clean artifacts
 clean:
     rm -rf ./node_modules ./dist ./.next ./build ./target
     find . -name ".DS_Store" -delete 2>/dev/null || true
 
-# ============================================
-# TypeScript Library Commands
-# ============================================
+dev-all:
+    apps="$(airis manifest dev-apps)"
+    if [ -z "$$apps" ]; then
+        echo "⚠️  No dev apps defined in MANIFEST.toml (.dev.apps)";
+        exit 0;
+    fi
+    echo "$$apps" | while read -r app; do
+        [ -z "$$app" ] && continue
+        echo "▶️  docker compose exec {{workspace}} pnpm --filter $$app dev"
+        docker compose exec {{workspace}} pnpm --filter "$$app" dev &
+    done
+    wait
 
-# Dev TypeScript library
-dev-ts name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} dev
+{{#if has_verify_rule}}
+verify:
+    cmds="$(airis manifest rule verify)"
+    if [ -z "$$cmds" ]; then
+        echo "⚠️  [rule.verify] is empty in MANIFEST.toml";
+        exit 1;
+    fi
+    echo "$$cmds" | while read -r cmd; do
+        [ -z "$$cmd" ] && continue
+        echo ">> $$cmd"
+        eval "$$cmd"
+    done
+{{/if}}
 
-# Build TypeScript library
-build-ts name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} build
-
-# Test TypeScript library
-test-ts name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} test
-
-# ============================================
-# Next.js Commands
-# ============================================
-
-# Dev Next.js app
-dev-next name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} dev
-
-# Build Next.js app
-build-next name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} build
-
-# Start Next.js production
-start-next name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} start
-
-# ============================================
-# Node Service Commands
-# ============================================
-
-# Dev Node service
-dev-node name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} dev
-
-# Build Node service
-build-node name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} build
-
-# Start Node service
-start-node name:
-    docker compose exec {{workspace}} pnpm --filter \{{name}} start
-
-# ============================================
-# Rust Commands (Cargo only, no pnpm)
-# ============================================
-
-# Build Rust project
-build-rust name:
-    cargo build --manifest-path \{{name}}/Cargo.toml
-
-# Build Rust release
-release-rust name:
-    cargo build --release --manifest-path \{{name}}/Cargo.toml
-
-# Run Rust project
-run-rust name:
-    cargo run --manifest-path \{{name}}/Cargo.toml
-
-# ============================================
-# Docker-First Guards (Prevent Host Pollution)
-# ============================================
+{{#if has_ci_rule}}
+ci:
+    cmds="$(airis manifest rule ci)"
+    if [ -z "$$cmds" ]; then
+        echo "⚠️  [rule.ci] is empty in MANIFEST.toml";
+        exit 1;
+    fi
+    echo "$$cmds" | while read -r cmd; do
+        [ -z "$$cmd" ] && continue
+        echo ">> $$cmd"
+        eval "$$cmd"
+    done
+{{/if}}
 
 [private]
 guard tool:
     @echo "❌ ERROR: '\{{tool}}' は直接使えません"
     @echo ""
-    @echo "Docker-Firstアーキテクチャでは、以下を使ってください:"
-    @echo "  TypeScript: just dev-ts <name>"
-    @echo "  Next.js:    just dev-next <name>"
-    @echo "  Node:       just dev-node <name>"
-    @echo "  Rust:       just build-rust <name>"
-    @echo ""
-    @echo "または: just workspace → pnpm <cmd>"
+    @echo "Docker-first ルールに従い、以下を利用してください:"
+    @echo "  just dev-all         # MANIFEST.toml のアプリを起動"
+    @echo "  just workspace       # workspace コンテナに入る"
     @exit 1
 
 pnpm *args:
@@ -263,75 +218,98 @@ npm *args:
 
 yarn *args:
     @just guard yarn
-
-# ============================================
-# Shortcuts (Project-Specific)
-# ============================================
-{{#each apps}}
-
-# Dev {{name}} ({{type}})
-dev-{{name}}:{{#if (eq type "nextjs")}} (dev-next "{{name}}"){{else if (eq type "node")}} (dev-node "{{name}}"){{else if (eq type "typescript")}} (dev-ts "{{name}}"){{else}} (dev-node "{{name}}"){{/if}}
-{{/each}}
 "#;
 
 const PACKAGE_JSON_TEMPLATE: &str = r#"{
   "name": "{{name}}",
-  "version": "{{version}}",
-  "private": {{private}},
-  "packageManager": "pnpm@10.12.0",
-  "pnpm": {
-    "catalog": {
-{{#each catalog}}
-      "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "{{package_manager}}",
+  "dependencies": {
+{{#each dependencies}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
 {{/each}}
-    }
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "vitest": "catalog:"
+{{#each dev_dependencies}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+  "scripts": {
+{{#each scripts}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
   },
   "_generated": {
-    "by": "airis-workspace",
-    "from": "workspace.yaml",
-    "warning": "⚠️  DO NOT EDIT - Regenerate with 'airis generate'"
+    "by": "airis init",
+    "from": "MANIFEST.toml",
+    "warning": "⚠️  DO NOT EDIT - Update MANIFEST.toml then rerun `airis init`"
   }
 }
 "#;
 
-const PNPM_WORKSPACE_TEMPLATE: &str = r#"# Auto-generated by airis-workspace
-# DO NOT EDIT - Regenerate with: airis-workspace init --force
+const PNPM_WORKSPACE_TEMPLATE: &str = r#"# Auto-generated by airis init
+# DO NOT EDIT - change MANIFEST.toml instead.
 
 packages:
 {{#each packages}}
   - "{{this}}"
 {{/each}}
-
-catalog:
-{{#each catalog}}
-  {{@key}}: {{this}}
-{{/each}}
 "#;
 
-const DOCKER_COMPOSE_TEMPLATE: &str = r#"# Auto-generated by airis-workspace from workspace.yaml
-# DO NOT EDIT - Regenerate with: airis-workspace init --force
+const DOCKER_COMPOSE_TEMPLATE: &str = r#"# Auto-generated by airis init
+# DO NOT EDIT - change MANIFEST.toml instead.
 
 name: {{project}}
 
 services:
   {{workspace_service}}:
-    image: {{base_image}}
+    container_name: {{workspace_service}}
+    image: {{workspace_image}}
     working_dir: {{workdir}}
     volumes:
       - ./:{{workdir}}
-{{#each volumes}}
-      - {{this}}:{{../workdir}}/{{this}}
+{{#each extra_mounts}}
+      - {{this}}
 {{/each}}
     command: sh -c "corepack enable && corepack prepare pnpm@latest --activate && sleep infinity"
     stdin_open: true
     tty: true
+{{#if depends_on}}
+    depends_on:
+{{#each depends_on}}
+      - {{this}}
+{{/each}}
+{{/if}}
 
-volumes:
+{{#each services}}
+  {{name}}:
+    image: {{image}}
+{{#if port}}
+    ports:
+      - "{{port}}:{{port}}"
+{{/if}}
+{{#if command}}
+    command: {{command}}
+{{/if}}
+{{#if volumes}}
+    volumes:
 {{#each volumes}}
+      - {{this}}
+{{/each}}
+{{/if}}
+{{#if env}}
+    environment:
+{{#each env}}
+      {{@key}}: "{{this}}"
+{{/each}}
+{{/if}}
+{{/each}}
+
+{{#if named_volumes}}
+volumes:
+{{#each named_volumes}}
   {{this}}:
 {{/each}}
+{{/if}}
 "#;

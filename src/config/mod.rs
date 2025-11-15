@@ -190,19 +190,20 @@ impl Default for WorkspaceConfig {
 }
 
 impl WorkspaceConfig {
+    #[allow(dead_code)]
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let content = fs::read_to_string(path.as_ref())
             .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
 
-        let config: WorkspaceConfig = serde_yaml::from_str(&content)
-            .with_context(|| "Failed to parse workspace.yaml")?;
+        let config: WorkspaceConfig =
+            serde_yaml::from_str(&content).with_context(|| "Failed to parse workspace.yaml")?;
 
         Ok(config)
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let yaml = serde_yaml::to_string(self)
-            .with_context(|| "Failed to serialize workspace config")?;
+        let yaml =
+            serde_yaml::to_string(self).with_context(|| "Failed to serialize workspace config")?;
 
         fs::write(path.as_ref(), yaml)
             .with_context(|| format!("Failed to write {:?}", path.as_ref()))?;
@@ -211,6 +212,7 @@ impl WorkspaceConfig {
     }
 
     /// Get workspace service name
+    #[allow(dead_code)]
     pub fn workspace_service(&self) -> String {
         self.docker
             .workspace
@@ -220,6 +222,7 @@ impl WorkspaceConfig {
     }
 
     /// Get app name from WorkspaceApp
+    #[allow(dead_code)]
     pub fn get_app_name(app: &WorkspaceApp) -> String {
         match app {
             WorkspaceApp::Simple(name) => name.clone(),
@@ -228,16 +231,16 @@ impl WorkspaceConfig {
     }
 
     /// Get app type from WorkspaceApp
+    #[allow(dead_code)]
     pub fn get_app_type(&self, app: &WorkspaceApp) -> Option<String> {
         match app {
-            WorkspaceApp::Simple(name) => {
-                self.apps.get(name).map(|c| c.app_type.clone())
-            }
+            WorkspaceApp::Simple(name) => self.apps.get(name).map(|c| c.app_type.clone()),
             WorkspaceApp::Detailed { app_type, .. } => Some(app_type.clone()),
         }
     }
 
     /// Get lib name from WorkspaceLib
+    #[allow(dead_code)]
     pub fn get_lib_name(lib: &WorkspaceLib) -> String {
         match lib {
             WorkspaceLib::Simple(name) => name.clone(),

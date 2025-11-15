@@ -18,7 +18,7 @@ Stop fighting with dependencies, broken builds, and cross-platform issues. AIris
 
 ### ✅ After
 - **Docker-first enforced**: `just pnpm` → Error with helpful message
-- **Single source of truth**: `workspace.yaml` → auto-generate everything
+- **Single source of truth**: `MANIFEST.toml` → auto-generate everything
 - **LLM-friendly**: Clear error messages, MCP server integration
 - **Cross-platform**: macOS/Linux/Windows via Docker
 - **Rust special case**: Local builds for Apple Silicon GPU support
@@ -53,10 +53,24 @@ cargo install airis
 ### Create New Workspace
 ```bash
 mkdir my-monorepo && cd my-monorepo
-airis init
-airis generate
+airis init          # Creates MANIFEST.toml + derived files
 just up
 ```
+
+### Migrate Existing Project
+```bash
+cd your-existing-monorepo
+airis init          # Auto-detects apps/libs/compose files, generates manifest.toml
+                    # Safely moves files to correct locations (no overwrites)
+just up
+```
+
+**What `airis init` does for existing projects**:
+1. Scans `apps/` and `libs/` directories
+2. Detects docker-compose.yml locations
+3. Generates `manifest.toml` with detected configuration
+4. Moves files to optimal locations (creates backups, never overwrites)
+5. Generates justfile, package.json, etc.
 
 ---
 
@@ -64,7 +78,8 @@ just up
 
 ```
 my-monorepo/
-├── workspace.yaml        # Single source of truth
+├── MANIFEST.toml         # Single source of truth
+├── workspace.yaml        # Auto-generated metadata
 ├── justfile              # Auto-generated (DO NOT EDIT)
 ├── package.json          # Auto-generated (DO NOT EDIT)
 ├── pnpm-workspace.yaml   # Auto-generated
@@ -83,24 +98,27 @@ my-monorepo/
 
 ## 💡 Core Concepts
 
-### 1. Single Manifest (`workspace.yaml`)
+### 1. Single Manifest (`MANIFEST.toml`)
 
 ```yaml
-version: 1
-mode: docker-first
+[workspace]
+name = "my-monorepo"
+package_manager = "pnpm@10.22.0"
+service = "workspace"
+image = "node:22-alpine"
+workdir = "/app"
+volumes = ["workspace-node-modules:/app/node_modules"]
 
-catalog:
-  react: 19.0.0
-  next: 15.4.0
+[dev]
+apps = ["dashboard", "duplicate-finder"]
+depends_on = ["supabase"]
 
-apps:
-  dashboard:
-    type: nextjs
-    runtime: docker
+[service.supabase]
+image = "supabase/postgres"
+port = 5432
 
-  duplicate-finder:
-    type: rust
-    runtime: local  # GPU support
+[rule.verify]
+commands = ["just lint", "just test-all"]
 ```
 
 ### 2. Docker-First Enforcement
@@ -128,8 +146,7 @@ $ just pnpm install
 
 ### Workspace Management
 ```bash
-airis init              # Create workspace.yaml
-airis generate          # Generate justfile, package.json, etc.
+airis init              # Create or optimize MANIFEST + derived files
 airis validate          # Check configuration
 airis doctor            # Diagnose environment
 ```
@@ -156,12 +173,11 @@ airis build duplicate-finder --docker  # Force Docker build (no GPU)
 
 ### ✅ Implemented
 - [x] Rust CLI skeleton
-- [x] Just template (from makefile-global)
-- [x] Example workspace.yaml
+- [x] Manifest-driven templates
+- [x] Example MANIFEST.toml
+- [x] `airis init` (create + re-sync derived files)
 
 ### 🚧 In Progress
-- [ ] `airis init` command
-- [ ] `airis generate` (justfile, package.json)
 - [ ] `airis validate` (config validation)
 
 ### 📋 Planned

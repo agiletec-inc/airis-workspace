@@ -11,7 +11,7 @@ keywords = ["monorepo", "docker", "workspace", "cli", "prototyping"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
-name = "airis-workspace"
+name = "airis"
 path = "src/main.rs"
 
 [dependencies]

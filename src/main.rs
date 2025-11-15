@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod manifest;
 mod templates;
 
 use anyhow::Result;
@@ -16,26 +17,67 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Generate workspace.yaml from existing project (Makefile, package.json, etc.)
-    Generate {
-        /// Force regeneration even if workspace.yaml exists
+    /// Initialize MANIFEST.toml + workspace metadata
+    Init {
+        /// Overwrite existing MANIFEST/workspace files
         #[arg(short, long)]
         force: bool,
     },
 
-    /// Initialize workspace files from workspace.yaml (justfile, docker-compose.yml, etc.)
-    Init,
+    /// Query MANIFEST.toml data (used by justfile)
+    Manifest {
+        #[command(subcommand)]
+        action: ManifestCommands,
+    },
+
+    /// Command guard management
+    Guards {
+        #[command(subcommand)]
+        action: GuardsCommands,
+    },
 
     /// Validate workspace configuration
     Validate,
+}
+
+#[derive(Subcommand)]
+enum GuardsCommands {
+    /// Install command guards (.airis/bin/*)
+    Install,
+}
+
+#[derive(Subcommand)]
+enum ManifestCommands {
+    /// Print newline-separated list of dev apps
+    #[command(name = "dev-apps")]
+    DevApps,
+
+    /// Print newline-separated commands registered under [rule.<name>]
+    #[command(name = "rule")]
+    Rule {
+        /// Rule name inside MANIFEST.toml (e.g. verify, ci)
+        name: String,
+    },
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Generate { force } => commands::generate::run_generate_config(force)?,
-        Commands::Init => commands::init::run()?,
+        Commands::Init { force } => commands::init::run(force)?,
+        Commands::Manifest { action } => {
+            use commands::manifest_cmd::{self, ManifestAction};
+
+            let manifest_action = match action {
+                ManifestCommands::DevApps => ManifestAction::DevApps,
+                ManifestCommands::Rule { name } => ManifestAction::Rule { name },
+            };
+
+            manifest_cmd::run(manifest_action)?;
+        }
+        Commands::Guards { action } => match action {
+            GuardsCommands::Install => commands::guards::install()?,
+        },
         Commands::Validate => {
             println!("⚠️  Validate command not yet implemented");
         }

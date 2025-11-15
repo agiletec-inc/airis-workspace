@@ -1,0 +1,88 @@
+# Airis Workspace Example Manifest
+# This file demonstrates the full capabilities of Airis Manifest format
+
+version = 1
+name = "example-monorepo"
+mode = "docker-first"
+
+# Catalog: Version policies (not hardcoded numbers)
+# airis workspace sync-deps resolves these to actual versions
+[catalog.react]
+policy = "latest"
+
+[catalog.next]
+policy = "latest"
+
+[catalog.typescript]
+policy = "latest"
+
+[catalog.vitest]
+policy = "latest"
+
+# Workspace definition
+[workspaces]
+apps = [
+  "corporate-site",
+  "airis-dashboard",
+  "airis-auto-call",
+  "focustoday-web",
+]
+libs = [
+  "ui",
+  "env-config",
+  "security",
+]
+
+# App configurations
+[apps.corporate-site]
+path = "apps/corporate-site"
+type = "nextjs"
+port = 3000
+
+[apps.airis-dashboard]
+path = "apps/airis-dashboard"
+type = "nextjs"
+port = 3100
+
+[apps.airis-auto-call]
+path = "apps/airis-auto-call"
+type = "nextjs"
+port = 3200
+
+[apps.focustoday-web]
+path = "apps/focustoday-web"
+type = "nextjs"
+port = 3400
+
+# Docker workspace configuration
+[docker]
+baseImage = "node:24-bookworm"
+workdir = "/app"
+
+[docker.workspace]
+service = "workspace"
+volumes = ["node_modules"]
+
+# Development autostart apps
+[dev]
+autostart = [
+  "corporate-site",
+  "airis-dashboard",
+  "airis-auto-call",
+  "focustoday-web",
+]
+
+# Dev Stack Orchestration
+# airis init auto-detects these paths from your existing project
+[orchestration.dev]
+workspace = "workspace/docker-compose.yml"
+supabase = [
+  "supabase/docker-compose.yml",
+  "supabase/docker-compose.override.yml",
+]
+traefik = "traefik/docker-compose.yml"
+
+# Just configuration
+[just]
+output = "justfile.generated"
+features = ["docker-first-guard", "type-specific-commands"]

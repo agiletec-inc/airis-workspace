@@ -14,8 +14,8 @@ airis-workspace/
 │   ├── main.rs              # CLI entry point
 │   ├── commands/
 │   │   ├── mod.rs           # Command module exports
-│   │   ├── init.rs          # Initialize workspace
-│   │   └── generate.rs      # Generate files from config
+│   │   ├── init.rs          # Initialize / sync workspace
+│   │   └── generate.rs      # Sync derived files from MANIFEST
 │   ├── config/
 │   │   └── mod.rs           # WorkspaceConfig schema
 │   └── templates/
@@ -35,10 +35,15 @@ airis-workspace/
 
 ### CLI Binary
 - **Path**: `src/main.rs`
-- **Binary name**: `airis-workspace`
+- **Binary name**: `airis`
 - **Commands**:
-  - `init [--force]` - Create workspace.yaml + auto-generate files
+  - `init [--force]` - Create or re-sync MANIFEST + derived files
   - `validate` - Validate workspace configuration (not implemented)
+  - `workspace sync-deps` - **NEW**: Resolve catalog policies to versions (planned)
+    - Query npm registry for `latest`/`lts` versions
+    - Write resolved versions to package.json `pnpm.catalog`
+  - `manifest dev-apps` - Print dev.apps list (used by justfile)
+  - `manifest rule <name>` - Print rule commands (used by justfile)
 
 ### Key Dependencies
 - `clap` 4.5 - CLI argument parsing (derive macros)
@@ -59,7 +64,9 @@ airis-workspace/
   - `version: u8` - Config format version
   - `name: String` - Project name
   - `mode: Mode` - Docker-first | hybrid | strict
-  - `catalog: IndexMap<String, String>` - Dependency versions (pnpm catalog)
+  - `catalog: IndexMap<String, CatalogEntry>` - **NEW**: Version policies (not hardcoded numbers)
+    - Each entry: `policy = "latest" | "lts" | "^X.Y.Z"`
+    - Resolved to actual versions by `airis workspace sync-deps`
   - `workspaces: Workspaces` - Apps and libs
   - `apps: IndexMap<String, AppConfig>` - App-specific config
   - `docker: DockerConfig` - Docker settings
@@ -85,38 +92,36 @@ airis-workspace/
 ---
 
 ### `src/commands/init.rs` (111 lines)
-**Purpose**: Initialize workspace with default configuration
+**Purpose**: Initialize or optimize workspace files from MANIFEST.toml
 
 **Exported Functions**:
 - `run(force: bool) -> Result<()>`
-  1. Check if workspace.yaml exists (bail unless --force)
-  2. Detect Makefile presence
-  3. Create default WorkspaceConfig with:
-     - React 19.0.0, Next.js 15.4.0, TypeScript 5.8.0, Vitest 2.0.0
-     - Apps: dashboard (nextjs), api (node)
-  4. Auto-call `generate::run("all")`
-  5. Remove Makefile if present
+  1. Detect current directory name for default project
+  2. Load existing `MANIFEST.toml` unless `--force` is supplied
+  3. Create and save a default manifest when missing or forced
+  4. Invoke `generate::sync_from_manifest` to refresh workspace.yaml + templates
 
 **Internal Functions**:
-- `create_default_config()` - Generate default workspace.yaml structure
+- *(none)* – logic is contained inside `run`
 
 **Tests**: 1 unit test for default config creation
 
 ---
 
 ### `src/commands/generate.rs` (119 lines)
-**Purpose**: Generate justfile, package.json, pnpm-workspace.yaml from workspace.yaml
+**Purpose**: Shared helper that writes workspace.yaml, docker-compose.yml, justfile, package.json, and pnpm-workspace.yaml from a `Manifest`
 
 **Exported Functions**:
-- `run(target: &str) -> Result<()>`
-  - Targets: `"all"` | `"justfile"` | `"package"` | `"pnpm"`
-  - Loads workspace.yaml
-  - Calls TemplateEngine to render files
+- `sync_from_manifest(manifest: &Manifest) -> Result<()>`
+  - Saves workspace.yaml via `WorkspaceConfig`
+  - Renders templates through `TemplateEngine`
+  - Prints summary + next steps
 
 **Internal Functions**:
-- `generate_justfile(config, engine)` - Render justfile
-- `generate_package_json(config, engine)` - Render package.json
-- `generate_pnpm_workspace(config, engine)` - Render pnpm-workspace.yaml
+- `generate_justfile(manifest, engine)` - Render justfile
+- `generate_package_json(manifest, engine)` - Render package.json
+- `generate_pnpm_workspace(manifest, engine)` - Render pnpm-workspace.yaml
+- `generate_docker_compose(manifest, engine)` - Render docker-compose.yml
 
 **Tests**: 1 unit test for justfile generation
 
@@ -248,11 +253,11 @@ cargo install --path .
 # Create test directory
 mkdir test-workspace && cd test-workspace
 
-# Initialize workspace
+# Initialize workspace / sync derived files
 airis-workspace init
 
 # Verify generated files
-ls -la  # Should see: workspace.yaml, justfile, package.json, pnpm-workspace.yaml
+ls -la  # Should see: MANIFEST.toml, workspace.yaml, justfile, package.json, pnpm-workspace.yaml
 
 # Test Docker workflow
 just up
@@ -261,14 +266,11 @@ just workspace  # Enter container shell
 
 ### Making Changes
 ```bash
-# Edit workspace.yaml (e.g., add new app)
-vim workspace.yaml
+# Edit MANIFEST.toml (e.g., add new app)
+vim MANIFEST.toml
 
-# Regenerate files
-airis-workspace generate all
-
-# Or regenerate specific file
-airis-workspace generate justfile
+# Re-sync derived files
+airis-workspace init
 ```
 
 ---
@@ -299,8 +301,7 @@ airis-workspace generate justfile
 **Implemented**:
 - ✅ CLI skeleton (clap)
 - ✅ Configuration schema (WorkspaceConfig)
-- ✅ `init` command (create workspace.yaml + auto-generate)
-- ✅ `generate` command (justfile, package.json, pnpm-workspace.yaml)
+- ✅ `init` command (create + re-sync MANIFEST + derived files)
 - ✅ Template engine (Handlebars)
 - ✅ Docker-first guards in justfile
 

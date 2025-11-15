@@ -1,117 +1,102 @@
-use anyhow::{Context, Result};
-use colored::Colorize;
-use std::fs;
+use std::env;
 use std::path::Path;
 
-use crate::config::WorkspaceConfig;
-use crate::templates::TemplateEngine;
+use anyhow::{Context, Result};
+use colored::Colorize;
 
-/// Initialize workspace files from workspace.yaml
-pub fn run() -> Result<()> {
-    let workspace_file = Path::new("workspace.yaml");
+use crate::commands::{discover, generate};
+use crate::manifest::{Manifest, MANIFEST_FILE};
 
-    if !workspace_file.exists() {
-        anyhow::bail!(
-            "❌ workspace.yaml not found. Run 'airis-workspace generate' first."
-        );
-    }
+/// Initialize or optimize MANIFEST-driven workspace files
+pub fn run(force: bool) -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+    let project_name = env::current_dir()
+        .ok()
+        .and_then(|dir| dir.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "my-monorepo".to_string());
 
-    println!("{}", "🔨 Loading workspace.yaml...".bright_blue());
-    let config = WorkspaceConfig::load(workspace_file)?;
+    let manifest = if manifest_path.exists() && !force {
+        println!("{}", "📖 Loading existing MANIFEST.toml...".bright_blue());
+        Manifest::load(manifest_path)?
+    } else {
+        // Check if this is an existing project with apps/libs
+        let current_dir = env::current_dir()?;
+        let has_apps = current_dir.join("apps").exists();
+        let has_libs = current_dir.join("libs").exists();
 
-    let engine = TemplateEngine::new()?;
+        if has_apps || has_libs {
+            println!(
+                "{}",
+                "🔍 Existing project detected! Auto-discovering structure..."
+                    .bright_blue()
+            );
+            println!();
+
+            // Discover project structure
+            let discovered = discover::discover_project(&current_dir)?;
+
+            println!();
+            println!(
+                "{}",
+                "📝 Generating MANIFEST.toml from discovered structure..."
+                    .bright_blue()
+            );
+
+            // Create manifest from discovered structure
+            let manifest = create_manifest_from_discovery(&project_name, discovered);
+            manifest
+                .save(manifest_path)
+                .context("Failed to write MANIFEST.toml")?;
+            manifest
+        } else {
+            // New project - use default template
+            let action = if manifest_path.exists() {
+                "♻️  Re-initializing MANIFEST.toml template..."
+            } else {
+                "📝 Generating MANIFEST.toml template..."
+            };
+            println!("{}", action.bright_blue());
+            let manifest = Manifest::default_with_project(&project_name);
+            manifest
+                .save(manifest_path)
+                .context("Failed to write MANIFEST.toml")?;
+            manifest
+        }
+    };
+
+    println!("{}", "🧩 Optimizing workspace files...".bright_blue());
+    generate::sync_from_manifest(&manifest)?;
 
     println!();
-    generate_docker_compose(&config, &engine)?;
-    generate_justfile(&config, &engine)?;
-    generate_package_json(&config, &engine)?;
-    generate_pnpm_workspace(&config, &engine)?;
-
-    println!();
-    println!("{}", "✅ Generated all files:".green());
-    println!("   - docker-compose.yml");
-    println!("   - justfile");
-    println!("   - package.json");
-    println!("   - pnpm-workspace.yaml");
-
-    println!();
+    println!("{}", "✅ Workspace synced from MANIFEST.toml".green());
     println!("{}", "Next steps:".bright_yellow());
-    println!("  1. Review generated files");
-    println!("  2. Run: just up");
-
-    println!();
-    println!("{}", "🎉 Setup complete!".bright_green());
-    println!("   Run: just up");
+    println!("  1. Review generated MANIFEST.toml");
+    println!("  2. Edit if needed (apps, libs, catalog policies)");
+    println!("  3. Re-run `airis init` to re-sync files");
+    println!("  4. Run `just up`");
 
     Ok(())
 }
 
-fn generate_justfile(config: &WorkspaceConfig, engine: &TemplateEngine) -> Result<()> {
-    let output = config
-        .just
-        .output
-        .clone()
-        .unwrap_or_else(|| "justfile".to_string());
+fn create_manifest_from_discovery(
+    project_name: &str,
+    discovered: discover::DiscoveredProject,
+) -> Manifest {
+    use crate::manifest::*;
 
-    let content = engine.render_justfile(config)?;
+    let mut manifest = Manifest::default_with_project(project_name);
 
-    fs::write(&output, content)
-        .with_context(|| format!("Failed to write {}", output))?;
+    // Set apps from discovered
+    manifest.dev.apps = discovered
+        .apps
+        .iter()
+        .map(|app| app.name.clone())
+        .collect();
 
-    Ok(())
+    // TODO: Add discovered apps to manifest.apps section with proper configuration
+    // TODO: Add discovered libs
+    // TODO: Add catalog from discovered package.json
+
+    manifest
 }
 
-fn generate_package_json(config: &WorkspaceConfig, engine: &TemplateEngine) -> Result<()> {
-    let content = engine.render_package_json(config)?;
-
-    fs::write("package.json", content)
-        .context("Failed to write package.json")?;
-
-    Ok(())
-}
-
-fn generate_pnpm_workspace(config: &WorkspaceConfig, engine: &TemplateEngine) -> Result<()> {
-    let content = engine.render_pnpm_workspace(config)?;
-
-    fs::write("pnpm-workspace.yaml", content)
-        .context("Failed to write pnpm-workspace.yaml")?;
-
-    Ok(())
-}
-
-fn generate_docker_compose(config: &WorkspaceConfig, engine: &TemplateEngine) -> Result<()> {
-    let content = engine.render_docker_compose(config)?;
-
-    fs::write("docker-compose.yml", content)
-        .context("Failed to write docker-compose.yml")?;
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::Mode;
-    use indexmap::IndexMap;
-
-    #[test]
-    fn test_generate_justfile() {
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "19.0.0".to_string());
-
-        let config = WorkspaceConfig {
-            version: 1,
-            name: "test".to_string(),
-            mode: Mode::DockerFirst,
-            catalog,
-            ..Default::default()
-        };
-
-        let engine = TemplateEngine::new().unwrap();
-        let result = engine.render_justfile(&config);
-        assert!(result.is_ok());
-
-        let content = result.unwrap();
-        assert!(content.contains("project := \"test\""));
-    }
-}
