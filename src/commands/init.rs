@@ -95,6 +95,30 @@ fn create_manifest_from_discovery(
         .map(|app| app.name.clone())
         .collect();
 
+    // Add app configurations with type and port
+    for app in &discovered.apps {
+        let rel_path = app.path.strip_prefix(root).ok()
+            .and_then(|p| p.to_str())
+            .map(|s| s.to_string());
+
+        let app_type_str = match app.app_type {
+            discover::AppType::NextJs => Some("nextjs".to_string()),
+            discover::AppType::Node => Some("node".to_string()),
+            discover::AppType::Rust => Some("rust".to_string()),
+            discover::AppType::Python => Some("python".to_string()),
+            discover::AppType::Unknown => None,
+        };
+
+        manifest.apps.insert(
+            app.name.clone(),
+            AppConfig {
+                path: rel_path,
+                app_type: app_type_str,
+                port: app.port,
+            },
+        );
+    }
+
     // Infer workspace patterns from discovered apps and libs
     let mut workspace_patterns = HashSet::new();
 

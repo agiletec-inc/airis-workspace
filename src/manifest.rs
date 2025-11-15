@@ -16,6 +16,8 @@ pub struct Manifest {
     #[serde(default)]
     pub dev: DevSection,
     #[serde(default)]
+    pub apps: IndexMap<String, AppConfig>,
+    #[serde(default)]
     pub service: IndexMap<String, ServiceConfig>,
     #[serde(default)]
     pub rule: IndexMap<String, RuleConfig>,
@@ -95,6 +97,7 @@ impl Manifest {
                 volumes: vec!["workspace-node-modules:/app/node_modules".to_string()],
             },
             dev: DevSection::default(),
+            apps: IndexMap::new(),
             service: IndexMap::new(),
             rule,
             packages,
@@ -174,6 +177,16 @@ pub struct DevSection {
     pub apps: Vec<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AppConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub app_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
