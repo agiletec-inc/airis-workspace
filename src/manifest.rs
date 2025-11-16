@@ -290,17 +290,6 @@ impl Default for CatalogEntry {
 }
 
 impl CatalogEntry {
-    /// Returns the resolved version string (for already-resolved entries)
-    /// or the policy/follow target (for unresolved entries)
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &str {
-        match self {
-            CatalogEntry::Follow(f) => &f.follow,
-            CatalogEntry::Policy(p) => p.as_str(),
-            CatalogEntry::Version(v) => v.as_str(),
-        }
-    }
-
     /// Get the follow target if this is a Follow entry
     pub fn follow_target(&self) -> Option<&str> {
         match self {
