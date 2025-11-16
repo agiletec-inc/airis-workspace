@@ -8,6 +8,9 @@ use std::process::Command;
 use crate::manifest::{CatalogEntry, Manifest};
 
 pub fn run() -> Result<()> {
+    println!("⚠️  DEPRECATED: 'airis sync-deps' is deprecated.");
+    println!("   Use 'airis init' instead - it now resolves catalog versions automatically.");
+    println!();
     println!("🔄 Syncing dependencies from manifest.toml...");
 
     // Load manifest
@@ -134,7 +137,8 @@ fn visit_package(
     Ok(())
 }
 
-fn resolve_version(package: &str, policy: &str) -> Result<String> {
+/// Resolve a version policy to an actual version number
+pub fn resolve_version(package: &str, policy: &str) -> Result<String> {
     match policy {
         "latest" => get_npm_latest(package),
         "lts" => get_npm_lts(package),
@@ -149,7 +153,7 @@ fn resolve_version(package: &str, policy: &str) -> Result<String> {
     }
 }
 
-fn get_npm_latest(package: &str) -> Result<String> {
+pub fn get_npm_latest(package: &str) -> Result<String> {
     let output = Command::new("npm")
         .args(&["view", package, "version"])
         .output()
@@ -167,7 +171,7 @@ fn get_npm_latest(package: &str) -> Result<String> {
     Ok(format!("^{}", version))
 }
 
-fn get_npm_lts(package: &str) -> Result<String> {
+pub fn get_npm_lts(package: &str) -> Result<String> {
     // For LTS, we use the "dist-tags.latest" approach
     // In the future, could check for actual LTS tags
     get_npm_latest(package)

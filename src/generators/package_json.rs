@@ -10,6 +10,7 @@ use crate::manifest::ProjectDefinition;
 pub fn generate_project_package_json(
     project: &ProjectDefinition,
     workspace_root: &Path,
+    resolved_catalog: &IndexMap<String, String>,
 ) -> Result<()> {
     let project_path = project
         .path
@@ -18,9 +19,9 @@ pub fn generate_project_package_json(
 
     let package_json_path = workspace_root.join(project_path).join("package.json");
 
-    // Build dependencies with catalog references
-    let dependencies = convert_deps_to_catalog(&project.deps);
-    let dev_dependencies = convert_deps_to_catalog(&project.dev_deps);
+    // Build dependencies with resolved catalog versions
+    let dependencies = resolve_deps_from_catalog(&project.deps, resolved_catalog);
+    let dev_dependencies = resolve_deps_from_catalog(&project.dev_deps, resolved_catalog);
 
     // Generate package name (e.g., @workspace/project-name)
     let package_name = format!("@workspace/{}", project.name);
@@ -58,14 +59,21 @@ pub fn generate_project_package_json(
     Ok(())
 }
 
-/// Convert deps map to catalog references
-/// "react" = "catalog" -> "react": "catalog:"
-/// "vite" = "^5.0.0" -> "vite": "^5.0.0"
-fn convert_deps_to_catalog(deps: &IndexMap<String, String>) -> IndexMap<String, String> {
+/// Resolve dependencies from catalog
+/// "react" = "catalog" -> "react": "^19.2.0" (from resolved_catalog)
+/// "vite" = "^5.0.0" -> "vite": "^5.0.0" (unchanged)
+fn resolve_deps_from_catalog(
+    deps: &IndexMap<String, String>,
+    resolved_catalog: &IndexMap<String, String>,
+) -> IndexMap<String, String> {
     deps.iter()
         .map(|(name, version)| {
             let resolved_version = if version == "catalog" {
-                "catalog:".to_string()
+                // Look up in resolved catalog
+                resolved_catalog
+                    .get(name)
+                    .cloned()
+                    .unwrap_or_else(|| version.clone())
             } else {
                 version.clone()
             };
@@ -79,14 +87,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_convert_deps_to_catalog() {
+    fn test_resolve_deps_from_catalog() {
         let mut deps = IndexMap::new();
         deps.insert("react".to_string(), "catalog".to_string());
         deps.insert("vite".to_string(), "^5.0.0".to_string());
 
-        let result = convert_deps_to_catalog(&deps);
+        let mut catalog = IndexMap::new();
+        catalog.insert("react".to_string(), "^19.2.0".to_string());
 
-        assert_eq!(result.get("react").unwrap(), "catalog:");
+        let result = resolve_deps_from_catalog(&deps, &catalog);
+
+        assert_eq!(result.get("react").unwrap(), "^19.2.0");
         assert_eq!(result.get("vite").unwrap(), "^5.0.0");
     }
 }
