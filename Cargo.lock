@@ -22,6 +22,7 @@ dependencies = [
  "handlebars",
  "indexmap",
  "predicates",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml",

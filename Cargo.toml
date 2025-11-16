@@ -1,6 +1,6 @@
 [package]
 name = "airis"
-version = "1.0.2"
+version = "1.1.0"
 edition = "2024"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -25,6 +25,7 @@ tokio = { version = "1.40", features = ["full"] }
 serde_json = "1.0"
 handlebars = "6.2"
 indexmap = { version = "2.7", features = ["serde"] }
+regex = "1.11"
 
 [dev-dependencies]
 assert_cmd = "2.0"

@@ -53,6 +53,9 @@ pub struct Manifest {
     /// LLM command remapping (e.g., "npm install" → "airis install")
     #[serde(default)]
     pub remap: IndexMap<String, String>,
+    /// Version management configuration
+    #[serde(default)]
+    pub versioning: VersioningSection,
 }
 
 impl Manifest {
@@ -145,6 +148,7 @@ impl Manifest {
             orchestration: OrchestrationSection::default(),
             commands: IndexMap::new(),
             remap: IndexMap::new(),
+            versioning: VersioningSection::default(),
         }
     }
 
@@ -493,4 +497,80 @@ pub struct OrchestrationDev {
     pub supabase: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
+}
+
+/// Version management configuration
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct VersioningSection {
+    /// Version bump strategy
+    #[serde(default = "default_versioning_strategy")]
+    pub strategy: VersioningStrategy,
+    /// Source of truth version (manually maintained or auto-updated)
+    #[serde(default = "default_version_source")]
+    pub source: String,
+}
+
+impl Default for VersioningSection {
+    fn default() -> Self {
+        VersioningSection {
+            strategy: default_versioning_strategy(),
+            source: default_version_source(),
+        }
+    }
+}
+
+fn default_versioning_strategy() -> VersioningStrategy {
+    VersioningStrategy::Manual
+}
+
+fn default_version_source() -> String {
+    "0.1.0".to_string()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "kebab-case")]
+pub enum VersioningStrategy {
+    /// Manual version bumps only
+    Manual,
+    /// Auto-increment minor version on every commit
+    Auto,
+    /// Use Conventional Commits to determine bump type
+    ConventionalCommits,
+}
+
+impl VersioningSection {
+    /// Parse semver version string into (major, minor, patch)
+    pub fn parse_version(version: &str) -> Result<(u32, u32, u32)> {
+        let parts: Vec<&str> = version.split('.').collect();
+        if parts.len() != 3 {
+            anyhow::bail!("Invalid version format: {}", version);
+        }
+
+        let major = parts[0].parse::<u32>()?;
+        let minor = parts[1].parse::<u32>()?;
+        let patch = parts[2].parse::<u32>()?;
+
+        Ok((major, minor, patch))
+    }
+
+    /// Bump major version (x.0.0)
+    pub fn bump_major(&mut self) -> Result<String> {
+        let (major, _, _) = Self::parse_version(&self.source)?;
+        self.source = format!("{}.0.0", major + 1);
+        Ok(self.source.clone())
+    }
+
+    /// Bump minor version (x.y.0)
+    pub fn bump_minor(&mut self) -> Result<String> {
+        let (major, minor, _) = Self::parse_version(&self.source)?;
+        self.source = format!("{}.{}.0", major, minor + 1);
+        Ok(self.source.clone())
+    }
+
+    /// Bump patch version (x.y.z)
+    pub fn bump_patch(&mut self) -> Result<String> {
+        let (major, minor, patch) = Self::parse_version(&self.source)?;
+        self.source = format!("{}.{}.{}", major, minor, patch + 1);
+        Ok(self.source.clone())
+    }
 }

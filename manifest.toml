@@ -1,11 +1,6 @@
-# Airis Workspace Manifest
-# Single source of truth for workspace configuration
-# All other files (package.json, justfile, etc.) are AUTO-GENERATED from this file
-
 version = 1
 mode = "docker-first"
 
-# Workspace metadata
 [workspace]
 name = "airis-workspace"
 package_manager = "pnpm@10.22.0"
@@ -14,56 +9,20 @@ image = "node:22-alpine"
 workdir = "/app"
 volumes = ["workspace-node-modules:/app/node_modules"]
 
-# Package workspace patterns (for pnpm-workspace.yaml)
-[packages]
-workspaces = ["apps/*", "libs/*", "packages/*"]
+[catalog]
 
-# Dependency catalog (version management)
-# Reference in package.json as "dep": "catalog:"
-# Policies: "latest" | "lts" | "^X.Y.Z" | { follow = "package" }
-[packages.catalog]
-# Frontend - React ecosystem (version pegging)
-react = "latest"
-react-dom = { follow = "react" }
-react-is = { follow = "react" }
+[workspaces]
+apps = []
+libs = []
 
-# Frontend - Next.js
-next = "latest"
+[dev]
+autostart = [
+    "corporate-site",
+    "airis-dashboard",
+    "airis-auto-call",
+    "focustoday-web",
+]
 
-# TypeScript
-typescript = "latest"
-tailwindcss = "latest"
-
-# Backend
-hono = "latest"
-drizzle-orm = "latest"
-
-# Shared
-zod = "latest"
-
-# Dev Dependencies
-vitest = "latest"
-playwright = "latest"
-eslint = "latest"
-prettier = "latest"
-
-# Root package definition
-[packages.root]
-
-[packages.root.dependencies]
-
-[packages.root.dev_dependencies]
-typescript = "5.6.3"
-eslint = "9.10.0"
-prettier = "3.3.0"
-
-[packages.root.scripts]
-dev = "echo 'Run: just dev-<app-name>'"
-build = "echo 'Run: just build-<app-name>'"
-lint = "echo 'Run: just lint'"
-test = "echo 'Run: just test'"
-
-# App configurations
 [apps.corporate-site]
 path = "apps/corporate-site"
 type = "nextjs"
@@ -84,7 +43,6 @@ path = "apps/focustoday-web"
 type = "nextjs"
 port = 3400
 
-# Library configurations
 [libs.ui]
 path = "libs/ui"
 
@@ -94,7 +52,6 @@ path = "libs/env-config"
 [libs.security]
 path = "libs/security"
 
-# Docker configuration
 [docker]
 baseImage = "node:24-bookworm"
 workdir = "/app"
@@ -103,84 +60,117 @@ workdir = "/app"
 service = "workspace"
 volumes = ["node_modules"]
 
-# Development autostart apps
-[dev]
-autostart = [
-  "corporate-site",
-  "airis-dashboard",
-  "airis-auto-call",
-  "focustoday-web",
-]
-
-# Dev Stack Orchestration
-# airis init auto-detects these paths from your existing project
-[orchestration.dev]
-workspace = "workspace/docker-compose.yml"
-supabase = [
-  "supabase/docker-compose.yml",
-  "supabase/docker-compose.override.yml",
-]
-traefik = "traefik/docker-compose.yml"
-
-# Just configuration
 [just]
 output = "justfile"
-features = ["docker-first-guard", "type-specific-commands"]
+features = [
+    "docker-first-guard",
+    "type-specific-commands",
+]
 
-# Service definitions (infra services)
 [service.postgres]
 image = "postgres:16-alpine"
 port = 5432
+volumes = []
+
+[service.postgres.env]
 
 [service.redis]
 image = "redis:7-alpine"
 port = 6379
+volumes = []
 
-# Rules enforcement (lint/test/verify commands)
+[service.redis.env]
+
 [rule.verify]
 commands = [
-  "just lint",
-  "just test-all",
+    "just lint",
+    "just test-all",
 ]
 
 [rule.ci]
 commands = [
-  "just lint",
-  "just test-all",
-  "just typecheck",
+    "just lint",
+    "just test-all",
+    "just typecheck",
 ]
 
-# Command guards (prevent host-level package manager usage)
+[packages]
+workspaces = [
+    "apps/*",
+    "libs/*",
+    "packages/*",
+]
+app = []
+
+[packages.catalog]
+react = "latest"
+next = "latest"
+typescript = "latest"
+tailwindcss = "latest"
+hono = "latest"
+drizzle-orm = "latest"
+zod = "latest"
+vitest = "latest"
+playwright = "latest"
+eslint = "latest"
+prettier = "latest"
+
+[packages.catalog.react-dom]
+follow = "react"
+
+[packages.catalog.react-is]
+follow = "react"
+
+[packages.root.dependencies]
+
+[packages.root.devDependencies]
+
+[packages.root.optionalDependencies]
+
+[packages.root.scripts]
+dev = "echo 'Run: just dev-<app-name>'"
+build = "echo 'Run: just build-<app-name>'"
+lint = "echo 'Run: just lint'"
+test = "echo 'Run: just test'"
+
+[packages.root.engines]
+
+[packages.root.pnpm]
+onlyBuiltDependencies = []
+
+[packages.root.pnpm.overrides]
+
+[packages.root.pnpm.peerDependencyRules]
+ignoreMissing = []
+
+[packages.root.pnpm.peerDependencyRules.allowedVersions]
+
+[packages.root.pnpm.allowedScripts]
+
 [guards]
-deny = ["npm", "yarn", "pnpm", "bun"]
-forbid = ["npm", "yarn", "pnpm", "docker", "docker-compose"]
-danger = ["rm -rf /", "chmod -R 777", "chown -R"]
+deny = [
+    "npm",
+    "yarn",
+    "pnpm",
+    "bun",
+]
+forbid = [
+    "npm",
+    "yarn",
+    "pnpm",
+    "docker",
+    "docker-compose",
+]
+danger = [
+    "rm -rf /",
+    "chmod -R 777",
+    "chown -R",
+]
 
-# User-defined commands (airis run <task>)
-[commands]
-install = "docker compose exec workspace pnpm install"
-up = "docker compose up -d"
-down = "docker compose down"
-shell = "docker compose exec workspace bash"
-dev = "echo '🚀 Starting dev servers...'; docker compose exec workspace pnpm run dev"
-build = "docker compose exec workspace pnpm build"
-test = "docker compose exec workspace pnpm test"
-lint = "docker compose exec workspace pnpm lint"
-clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_modules' -o -name 'dist' -o -name '.next' -o -name 'build' | xargs rm -rf"
+[guards.wrap]
 
-# LLM command remapping (auto-translate banned commands)
-[remap]
-"npm install" = "airis install"
-"pnpm install" = "airis install"
-"yarn install" = "airis install"
-"npm run dev" = "airis dev"
-"pnpm dev" = "airis dev"
-"docker compose up" = "airis up"
-"docker compose up -d" = "airis up"
-"docker compose down" = "airis down"
-"docker exec" = "airis shell"
+[guards.deny_with_message]
 
-# Project definitions (for package.json generation)
 [[project]]
 name = "corporate-site"
 kind = "app"
@@ -202,3 +192,37 @@ typescript = "catalog"
 vite = "catalog"
 vitest = "catalog"
 eslint = "catalog"
+
+[orchestration.dev]
+workspace = "workspace/docker-compose.yml"
+supabase = [
+    "supabase/docker-compose.yml",
+    "supabase/docker-compose.override.yml",
+]
+traefik = "traefik/docker-compose.yml"
+
+[commands]
+install = "docker compose exec workspace pnpm install"
+up = "docker compose up -d"
+down = "docker compose down"
+shell = "docker compose exec workspace bash"
+dev = "echo '🚀 Starting dev servers...'; docker compose exec workspace pnpm run dev"
+build = "docker compose exec workspace pnpm build"
+test = "docker compose exec workspace pnpm test"
+lint = "docker compose exec workspace pnpm lint"
+clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_modules' -o -name 'dist' -o -name '.next' -o -name 'build' | xargs rm -rf"
+
+[remap]
+"npm install" = "airis install"
+"pnpm install" = "airis install"
+"yarn install" = "airis install"
+"npm run dev" = "airis dev"
+"pnpm dev" = "airis dev"
+"docker compose up" = "airis up"
+"docker compose up -d" = "airis up"
+"docker compose down" = "airis down"
+"docker exec" = "airis shell"
+
+[versioning]
+strategy = "conventional-commits"
+source = "1.1.0"

@@ -33,6 +33,12 @@ enum Commands {
         action: GuardsCommands,
     },
 
+    /// Git hooks management
+    Hooks {
+        #[command(subcommand)]
+        action: HooksCommands,
+    },
+
     /// Validate workspace configuration
     Validate,
 
@@ -69,11 +75,32 @@ enum Commands {
 
     /// Clean build artifacts (alias for 'run clean')
     Clean,
+
+    /// Bump version in manifest.toml and Cargo.toml
+    #[command(name = "bump-version")]
+    BumpVersion {
+        /// Bump type (auto-detected if not specified)
+        #[arg(long)]
+        major: bool,
+        #[arg(long)]
+        minor: bool,
+        #[arg(long)]
+        patch: bool,
+        /// Auto-detect from commit message (default)
+        #[arg(long)]
+        auto: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum GuardsCommands {
     /// Install command guards (.airis/bin/*)
+    Install,
+}
+
+#[derive(Subcommand)]
+enum HooksCommands {
+    /// Install Git hooks (pre-commit for version auto-bump)
     Install,
 }
 
@@ -109,6 +136,9 @@ fn main() -> Result<()> {
         Commands::Guards { action } => match action {
             GuardsCommands::Install => commands::guards::install()?,
         },
+        Commands::Hooks { action } => match action {
+            HooksCommands::Install => commands::hooks::install()?,
+        },
         Commands::Validate => {
             println!("⚠️  Validate command not yet implemented");
         }
@@ -122,6 +152,27 @@ fn main() -> Result<()> {
         Commands::Install => commands::run::run("install")?,
         Commands::Build => commands::run::run("build")?,
         Commands::Clean => commands::run::run("clean")?,
+        Commands::BumpVersion {
+            major,
+            minor,
+            patch,
+            auto: _,  // unused but kept for clarity
+        } => {
+            use commands::bump_version::{self, BumpMode};
+
+            let mode = if major {
+                BumpMode::Major
+            } else if minor {
+                BumpMode::Minor
+            } else if patch {
+                BumpMode::Patch
+            } else {
+                // Default to auto
+                BumpMode::Auto
+            };
+
+            bump_version::run(mode)?;
+        }
     }
 
     Ok(())

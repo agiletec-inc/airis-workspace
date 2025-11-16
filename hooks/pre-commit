@@ -1,0 +1,27 @@
+#!/bin/bash
+# airis-workspace pre-commit hook
+# Auto-increments version based on commit message
+
+set -e
+
+# Only run if manifest.toml exists
+if [ ! -f "manifest.toml" ]; then
+    exit 0
+fi
+
+# Check if versioning strategy is not "manual"
+STRATEGY=$(grep 'strategy = ' manifest.toml | sed 's/.*strategy = "\([^"]*\)".*/\1/')
+
+if [ "$STRATEGY" = "manual" ]; then
+    echo "ℹ️  Versioning strategy is 'manual'. Skipping auto-bump."
+    exit 0
+fi
+
+# Run airis bump-version --auto
+echo "🔄 Auto-bumping version..."
+airis bump-version --auto
+
+# Stage updated files
+git add manifest.toml Cargo.toml
+
+echo "✅ Version auto-bumped"
