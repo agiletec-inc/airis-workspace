@@ -43,9 +43,10 @@ pub fn run() -> Result<()> {
                     target_version.clone()
                 } else {
                     anyhow::bail!(
-                        "Cannot resolve '{}': follow target '{}' not yet resolved",
-                        package,
-                        target
+                        "Internal error: follow target '{}' for '{}' should have been resolved earlier. \
+                         This is a bug in airis sync-deps. Please report this issue.",
+                        target,
+                        package
                     );
                 }
             }
@@ -117,7 +118,7 @@ fn visit_package(
         if let Some(target) = entry.follow_target() {
             if !catalog.contains_key(target) {
                 anyhow::bail!(
-                    "Cannot follow '{}': package '{}' not found in catalog",
+                    "Cannot resolve '{}': follow target '{}' not found in [packages.catalog]",
                     package,
                     target
                 );

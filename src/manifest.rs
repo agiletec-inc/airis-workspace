@@ -43,6 +43,8 @@ pub struct Manifest {
     pub packages: PackagesSection,
     #[serde(default)]
     pub guards: GuardsSection,
+    #[serde(default)]
+    pub project: Vec<ProjectDefinition>,
 }
 
 impl Manifest {
@@ -131,6 +133,7 @@ impl Manifest {
             rule,
             packages,
             guards: GuardsSection::default(),
+            project: vec![],
         }
     }
 
@@ -436,4 +439,22 @@ pub struct JustSection {
     pub output: String,
     #[serde(default)]
     pub features: Vec<String>,
+}
+
+/// Project definition for full package.json generation
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ProjectDefinition {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,  // "app" | "lib" | "service"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
+    #[serde(default)]
+    pub scripts: IndexMap<String, String>,
+    #[serde(default)]
+    pub deps: IndexMap<String, String>,
+    #[serde(default)]
+    pub dev_deps: IndexMap<String, String>,
 }
