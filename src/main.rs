@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "airis")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Docker-first monorepo workspace manager", long_about = None)]
 struct Cli {
     #[command(subcommand)]
