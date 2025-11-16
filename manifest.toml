@@ -20,11 +20,17 @@ workspaces = ["apps/*", "libs/*", "packages/*"]
 
 # Dependency catalog (version management)
 # Reference in package.json as "dep": "catalog:"
-# Policies: "latest" | "lts" | "^X.Y.Z"
+# Policies: "latest" | "lts" | "^X.Y.Z" | { follow = "package" }
 [packages.catalog]
-# Frontend
+# Frontend - React ecosystem (version pegging)
 react = "latest"
+react-dom = { follow = "react" }
+react-is = { follow = "react" }
+
+# Frontend - Next.js
 next = "latest"
+
+# TypeScript
 typescript = "latest"
 tailwindcss = "latest"
 

@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use indexmap::IndexMap;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -23,21 +24,44 @@ pub fn run() -> Result<()> {
 
     println!("📦 Found {} catalog entries", catalog.len());
 
-    // Resolve versions
+    // Detect circular dependencies and compute resolution order
+    let resolution_order = compute_resolution_order(catalog)?;
+
+    // Resolve versions in dependency order
     let mut resolved_catalog: IndexMap<String, String> = IndexMap::new();
 
-    for (package, entry) in catalog {
-        let policy_str = entry.as_str();
-        let version = resolve_version(package, policy_str)?;
+    for package in resolution_order {
+        let entry = catalog.get(&package).unwrap();
 
-        // Only show resolution if it changed
-        if entry.needs_resolution() {
-            println!("  {} {} → {}", package, policy_str, version);
-        } else {
-            println!("  {} {}", package, version);
-        }
+        let version = match entry {
+            CatalogEntry::Follow(follow_config) => {
+                // Resolve by following another package
+                let target = &follow_config.follow;
 
-        resolved_catalog.insert(package.clone(), version);
+                if let Some(target_version) = resolved_catalog.get(target) {
+                    println!("  {} (follow {}) → {}", package, target, target_version);
+                    target_version.clone()
+                } else {
+                    anyhow::bail!(
+                        "Cannot resolve '{}': follow target '{}' not yet resolved",
+                        package,
+                        target
+                    );
+                }
+            }
+            CatalogEntry::Policy(policy) => {
+                let policy_str = policy.as_str();
+                let version = resolve_version(&package, policy_str)?;
+                println!("  {} {} → {}", package, policy_str, version);
+                version
+            }
+            CatalogEntry::Version(version) => {
+                println!("  {} {}", package, version);
+                version.clone()
+            }
+        };
+
+        resolved_catalog.insert(package, version);
     }
 
     // Update pnpm-workspace.yaml
@@ -45,6 +69,66 @@ pub fn run() -> Result<()> {
 
     println!("✅ Dependency sync complete!");
     println!("   Run 'pnpm install' to apply changes");
+
+    Ok(())
+}
+
+/// Compute resolution order with circular dependency detection
+fn compute_resolution_order(catalog: &IndexMap<String, CatalogEntry>) -> Result<Vec<String>> {
+    let mut order = Vec::new();
+    let mut visited = HashSet::new();
+    let mut visiting = HashSet::new();
+
+    // Topological sort with cycle detection
+    for package in catalog.keys() {
+        if !visited.contains(package) {
+            visit_package(
+                package,
+                catalog,
+                &mut visited,
+                &mut visiting,
+                &mut order,
+            )?;
+        }
+    }
+
+    Ok(order)
+}
+
+fn visit_package(
+    package: &str,
+    catalog: &IndexMap<String, CatalogEntry>,
+    visited: &mut HashSet<String>,
+    visiting: &mut HashSet<String>,
+    order: &mut Vec<String>,
+) -> Result<()> {
+    if visiting.contains(package) {
+        anyhow::bail!("Circular dependency detected involving '{}'", package);
+    }
+
+    if visited.contains(package) {
+        return Ok(());
+    }
+
+    visiting.insert(package.to_string());
+
+    // If this package follows another, visit that first
+    if let Some(entry) = catalog.get(package) {
+        if let Some(target) = entry.follow_target() {
+            if !catalog.contains_key(target) {
+                anyhow::bail!(
+                    "Cannot follow '{}': package '{}' not found in catalog",
+                    package,
+                    target
+                );
+            }
+            visit_package(target, catalog, visited, visiting, order)?;
+        }
+    }
+
+    visiting.remove(package);
+    visited.insert(package.to_string());
+    order.push(package.to_string());
 
     Ok(())
 }

@@ -263,11 +263,18 @@ pub struct PackagesSection {
 /// - "latest" → resolve to latest npm version
 /// - "lts" → resolve to LTS version
 /// - "^5.0.0" → specific semver (used as-is)
+/// - { follow = "react" } → follow another package's version
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CatalogEntry {
+    Follow(FollowConfig),
     Policy(VersionPolicy),
     Version(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowConfig {
+    pub follow: String,
 }
 
 impl Default for CatalogEntry {
@@ -278,17 +285,31 @@ impl Default for CatalogEntry {
 
 impl CatalogEntry {
     /// Returns the resolved version string (for already-resolved entries)
-    /// or the policy name (for unresolved entries)
+    /// or the policy/follow target (for unresolved entries)
     pub fn as_str(&self) -> &str {
         match self {
+            CatalogEntry::Follow(f) => &f.follow,
             CatalogEntry::Policy(p) => p.as_str(),
             CatalogEntry::Version(v) => v.as_str(),
         }
     }
 
-    /// Check if this entry needs resolution (is a policy)
+    /// Check if this entry needs resolution (is a policy or follow)
     pub fn needs_resolution(&self) -> bool {
-        matches!(self, CatalogEntry::Policy(_))
+        matches!(self, CatalogEntry::Policy(_) | CatalogEntry::Follow(_))
+    }
+
+    /// Check if this entry follows another package
+    pub fn is_follow(&self) -> bool {
+        matches!(self, CatalogEntry::Follow(_))
+    }
+
+    /// Get the follow target if this is a Follow entry
+    pub fn follow_target(&self) -> Option<&str> {
+        match self {
+            CatalogEntry::Follow(f) => Some(&f.follow),
+            _ => None,
+        }
     }
 }
 
