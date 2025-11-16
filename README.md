@@ -72,18 +72,6 @@ cd your-monorepo && airis init
 
 ## 🚀 Quick Start
 
-### Install Just (if not installed)
-```bash
-# macOS
-brew install just
-
-# Linux
-curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash
-
-# Windows
-scoop install just
-```
-
 ### Install AIris Workspace
 ```bash
 # From source (development)
@@ -100,7 +88,7 @@ cargo install airis
 mkdir my-monorepo && cd my-monorepo
 airis init          # Creates manifest.toml + derived files
 airis sync-deps     # Resolve "latest" policies to actual versions
-just up
+airis up            # Start Docker services
 ```
 
 ### Migrate Existing Project
@@ -109,15 +97,17 @@ cd your-existing-monorepo
 airis init          # Auto-detects apps/libs/compose files, generates manifest.toml
                     # Safely moves files to correct locations (no overwrites)
 airis sync-deps     # Update catalog with latest versions
-just up
+airis up            # Start everything
 ```
 
 **What `airis init` does for existing projects**:
 1. Scans `apps/` and `libs/` directories
 2. Detects docker-compose.yml locations
 3. Generates `manifest.toml` with detected configuration
-4. Generates justfile, package.json, pnpm-workspace.yaml
+4. Generates package.json, pnpm-workspace.yaml, justfile (optional)
 5. **Never overwrites existing manifest.toml** (read-only after creation)
+
+**New in v1.0.2**: All operations now via `airis` commands. No `just` dependency required.
 
 ---
 
@@ -239,15 +229,21 @@ airis validate          # Check configuration (planned)
 airis guards install    # Install command guards to block host package managers
 ```
 
-### Development (via Just)
+### Development (v1.0.2+)
 ```bash
-just up                 # Start Docker services
-just install            # Install deps (in Docker)
-just workspace          # Enter container shell
-just dev-all            # Start all autostart apps
-just build              # Build project
-just test               # Run tests
-just clean              # Clean artifacts
+airis up                # Start Docker services
+airis install           # Install deps (in Docker)
+airis shell             # Enter container shell
+airis dev               # Start development servers
+airis build             # Build project
+airis test              # Run tests
+airis clean             # Clean artifacts
+airis down              # Stop services
+```
+
+### Custom Commands
+```bash
+airis run <task>        # Run任意のコマンド from manifest.toml [commands]
 ```
 
 ### Query Manifest

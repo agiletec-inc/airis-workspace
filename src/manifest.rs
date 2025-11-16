@@ -45,6 +45,14 @@ pub struct Manifest {
     pub guards: GuardsSection,
     #[serde(default)]
     pub project: Vec<ProjectDefinition>,
+    #[serde(default)]
+    pub orchestration: OrchestrationSection,
+    /// User-defined commands (airis run <task>)
+    #[serde(default)]
+    pub commands: IndexMap<String, String>,
+    /// LLM command remapping (e.g., "npm install" → "airis install")
+    #[serde(default)]
+    pub remap: IndexMap<String, String>,
 }
 
 impl Manifest {
@@ -134,6 +142,9 @@ impl Manifest {
             packages,
             guards: GuardsSection::default(),
             project: vec![],
+            orchestration: OrchestrationSection::default(),
+            commands: IndexMap::new(),
+            remap: IndexMap::new(),
         }
     }
 
@@ -393,6 +404,14 @@ pub struct GuardsSection {
     /// Commands to deny with custom messages
     #[serde(default)]
     pub deny_with_message: IndexMap<String, String>,
+
+    /// LLM-specific: completely forbid these commands
+    #[serde(default)]
+    pub forbid: Vec<String>,
+
+    /// LLM-specific: dangerous commands (warn humans, block LLMs)
+    #[serde(default)]
+    pub danger: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -457,4 +476,21 @@ pub struct ProjectDefinition {
     pub deps: IndexMap<String, String>,
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+}
+
+/// Orchestration configuration for multi-compose setup
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct OrchestrationSection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev: Option<OrchestrationDev>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct OrchestrationDev {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub supabase: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub traefik: Option<String>,
 }

@@ -1,6 +1,6 @@
 # Airis Manifest Specification
 
-**Version**: 1.0
+**Version**: 1.0.2
 **Format**: TOML
 **File**: `manifest.toml`
 
@@ -13,6 +13,8 @@ Airis Manifest is a declarative configuration format for Docker-first monorepo w
 - **Version Policies**: Use `policy = "latest"` instead of hardcoded version numbers
 - **Auto-Generation**: All derived files are generated from manifest.toml
 - **Docker-First**: Enforce Docker-based development workflow
+- **Command Unification**: All operations through `airis` CLI
+- **LLM Policy Engine**: Control AI behavior via manifest.toml
 
 ---
 
@@ -158,9 +160,98 @@ traefik = "traefik/docker-compose.yml"
 
 ---
 
-### Just Section
+### Commands Section (NEW in v1.0.2)
 
-Configure justfile generation.
+Define user commands executed via `airis run <task>`.
+
+```toml
+[commands]
+install = "docker compose exec workspace pnpm install"
+up = "docker compose up -d"
+down = "docker compose down"
+shell = "docker compose exec workspace bash"
+dev = "echo '🚀 Starting...'; docker compose exec workspace pnpm dev"
+build = "docker compose exec workspace pnpm build"
+test = "docker compose exec workspace pnpm test"
+lint = "docker compose exec workspace pnpm lint"
+clean = "find . -type d -name 'node_modules' -o -name 'dist' | xargs rm -rf"
+```
+
+**Usage**:
+```bash
+airis run up       # Executes commands.up
+airis up           # Shorthand (built-in aliases)
+airis dev          # Shorthand for commands.dev
+```
+
+**Built-in Shorthands**:
+- `airis up` → `airis run up`
+- `airis down` → `airis run down`
+- `airis shell` → `airis run shell`
+- `airis dev` → `airis run dev`
+- `airis test` → `airis run test`
+- `airis install` → `airis run install`
+- `airis build` → `airis run build`
+- `airis clean` → `airis run clean`
+
+---
+
+### Guards Section (NEW in v1.0.2)
+
+Control command execution for humans and LLMs.
+
+```toml
+[guards]
+# Deny these commands (both humans and LLMs)
+deny = ["npm", "yarn", "pnpm", "bun"]
+
+# LLM-specific: completely forbid
+forbid = ["npm", "yarn", "pnpm", "docker", "docker-compose"]
+
+# Dangerous commands (warn humans, block LLMs)
+danger = ["rm -rf /", "chmod -R 777", "chown -R"]
+```
+
+**Behavior**:
+- `deny`: Block for all users with helpful error message
+- `forbid`: LLM-only blocking (via MCP/agent integration)
+- `danger`: Prevent catastrophic commands
+
+---
+
+### Remap Section (NEW in v1.0.2)
+
+Automatically translate banned commands to safe alternatives (LLM-targeted).
+
+```toml
+[remap]
+"npm install" = "airis install"
+"pnpm install" = "airis install"
+"yarn install" = "airis install"
+"npm run dev" = "airis dev"
+"pnpm dev" = "airis dev"
+"docker compose up" = "airis up"
+"docker compose up -d" = "airis up"
+"docker compose down" = "airis down"
+"docker exec" = "airis shell"
+```
+
+**How It Works**:
+1. LLM attempts to run `npm install`
+2. Shell guard reads manifest.toml `[remap]`
+3. Command is translated to `airis install`
+4. Safe Docker-based command executes
+
+**Integration Points**:
+- MCP servers (airis-mcp-gateway)
+- Claude Code / Cursor / Windsurf
+- Custom shell guards
+
+---
+
+### Just Section (Optional)
+
+Configure justfile generation (optional in v1.0.2+).
 
 ```toml
 [just]
@@ -168,9 +259,7 @@ output = "justfile.generated"
 features = ["docker-first-guard", "type-specific-commands"]
 ```
 
-**Features**:
-- `docker-first-guard`: Block host-level `pnpm`/`npm`/`yarn` with helpful errors
-- `type-specific-commands`: Generate type-specific recipes (dev-next, build-rust, etc.)
+**Note**: With `[commands]` section, justfile generation is now optional. You can use `airis` commands directly without `just`.
 
 ---
 

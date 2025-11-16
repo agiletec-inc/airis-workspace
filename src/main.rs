@@ -39,6 +39,36 @@ enum Commands {
     /// Sync dependencies: resolve catalog policies to actual versions
     #[command(name = "sync-deps")]
     SyncDeps,
+
+    /// Run a command defined in manifest.toml [commands]
+    Run {
+        /// Task name from [commands] section
+        task: String,
+    },
+
+    /// Start Docker services (alias for 'run up')
+    Up,
+
+    /// Stop Docker services (alias for 'run down')
+    Down,
+
+    /// Enter workspace shell (alias for 'run shell')
+    Shell,
+
+    /// Run development servers (alias for 'run dev')
+    Dev,
+
+    /// Run tests (alias for 'run test')
+    Test,
+
+    /// Install dependencies (alias for 'run install')
+    Install,
+
+    /// Build all apps (alias for 'run build')
+    Build,
+
+    /// Clean build artifacts (alias for 'run clean')
+    Clean,
 }
 
 #[derive(Subcommand)]
@@ -83,6 +113,15 @@ fn main() -> Result<()> {
             println!("⚠️  Validate command not yet implemented");
         }
         Commands::SyncDeps => commands::sync_deps::run()?,
+        Commands::Run { task } => commands::run::run(&task)?,
+        Commands::Up => commands::run::run("up")?,
+        Commands::Down => commands::run::run("down")?,
+        Commands::Shell => commands::run::run("shell")?,
+        Commands::Dev => commands::run::run("dev")?,
+        Commands::Test => commands::run::run("test")?,
+        Commands::Install => commands::run::run("install")?,
+        Commands::Build => commands::run::run("build")?,
+        Commands::Clean => commands::run::run("clean")?,
     }
 
     Ok(())

@@ -152,8 +152,33 @@ commands = [
 
 # Command guards (prevent host-level package manager usage)
 [guards]
-block = ["npm", "yarn", "pnpm", "bun"]
-message = "❌ Direct package manager usage is blocked. Use 'just install' instead."
+deny = ["npm", "yarn", "pnpm", "bun"]
+forbid = ["npm", "yarn", "pnpm", "docker", "docker-compose"]
+danger = ["rm -rf /", "chmod -R 777", "chown -R"]
+
+# User-defined commands (airis run <task>)
+[commands]
+install = "docker compose exec workspace pnpm install"
+up = "docker compose up -d"
+down = "docker compose down"
+shell = "docker compose exec workspace bash"
+dev = "echo '🚀 Starting dev servers...'; docker compose exec workspace pnpm run dev"
+build = "docker compose exec workspace pnpm build"
+test = "docker compose exec workspace pnpm test"
+lint = "docker compose exec workspace pnpm lint"
+clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_modules' -o -name 'dist' -o -name '.next' -o -name 'build' | xargs rm -rf"
+
+# LLM command remapping (auto-translate banned commands)
+[remap]
+"npm install" = "airis install"
+"pnpm install" = "airis install"
+"yarn install" = "airis install"
+"npm run dev" = "airis dev"
+"pnpm dev" = "airis dev"
+"docker compose up" = "airis up"
+"docker compose up -d" = "airis up"
+"docker compose down" = "airis down"
+"docker exec" = "airis shell"
 
 # Project definitions (for package.json generation)
 [[project]]
