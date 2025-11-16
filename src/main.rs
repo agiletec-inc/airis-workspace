@@ -1,5 +1,6 @@
 mod commands;
 mod config;
+mod generators;
 mod manifest;
 mod templates;
 

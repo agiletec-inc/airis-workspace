@@ -154,3 +154,26 @@ commands = [
 [guards]
 block = ["npm", "yarn", "pnpm", "bun"]
 message = "❌ Direct package manager usage is blocked. Use 'just install' instead."
+
+# Project definitions (for package.json generation)
+[[project]]
+name = "corporate-site"
+kind = "app"
+path = "apps/corporate-site"
+framework = "react-vite"
+
+[project.scripts]
+dev = "vite dev"
+build = "vite build"
+lint = "eslint ."
+test = "vitest"
+
+[project.deps]
+react = "catalog"
+react-dom = "catalog"
+
+[project.dev_deps]
+typescript = "catalog"
+vite = "catalog"
+vitest = "catalog"
+eslint = "catalog"

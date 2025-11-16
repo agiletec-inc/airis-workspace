@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
+use std::env;
 
+use crate::generators::package_json::generate_project_package_json;
 use crate::manifest::Manifest;
 use crate::templates::TemplateEngine;
 
@@ -13,12 +15,26 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     generate_package_json(&manifest, &engine)?;
     generate_pnpm_workspace(&manifest, &engine)?;
 
+    // Generate individual project package.json files
+    if !manifest.project.is_empty() {
+        println!();
+        println!("{}", "📦 Generating project package.json files...".bright_blue());
+        let workspace_root = env::current_dir().context("Failed to get current directory")?;
+
+        for project in &manifest.project {
+            generate_project_package_json(project, &workspace_root)?;
+        }
+    }
+
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - docker-compose.yml");
     println!("   - justfile");
     println!("   - package.json");
     println!("   - pnpm-workspace.yaml");
+    if !manifest.project.is_empty() {
+        println!("   - {} project package.json files", manifest.project.len());
+    }
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!("  1. Review justfile/docker-compose.yml");

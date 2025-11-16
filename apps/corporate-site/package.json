@@ -1,0 +1,27 @@
+{
+  "_generated": {
+    "by": "airis init",
+    "from": "manifest.toml",
+    "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
+  },
+  "dependencies": {
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "eslint": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "name": "@workspace/corporate-site",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite dev",
+    "lint": "eslint .",
+    "test": "vitest"
+  },
+  "type": "module",
+  "version": "0.1.0"
+}
