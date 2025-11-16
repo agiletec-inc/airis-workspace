@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'Cargo.toml'
-      - 'manifest.toml'
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
