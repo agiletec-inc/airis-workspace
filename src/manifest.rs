@@ -90,52 +90,108 @@ impl Manifest {
     }
 
     pub fn default_with_project(name: &str) -> Self {
+        // Rule definitions
         let mut rule = IndexMap::new();
         rule.insert(
             "verify".to_string(),
             RuleConfig {
-                commands: vec!["just lint".to_string(), "just test-all".to_string()],
+                commands: vec!["airis lint".to_string(), "airis test".to_string()],
             },
         );
         rule.insert(
             "ci".to_string(),
             RuleConfig {
                 commands: vec![
-                    "just lint".to_string(),
-                    "just test-all".to_string(),
-                    "just typecheck".to_string(),
+                    "airis lint".to_string(),
+                    "airis test".to_string(),
+                    "airis build".to_string(),
                 ],
             },
         );
 
+        // Catalog with common TypeScript/React dependencies
+        let mut catalog = IndexMap::new();
+        catalog.insert("react".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("react-dom".to_string(), CatalogEntry::Follow(FollowConfig { follow: "react".to_string() }));
+        catalog.insert("next".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("typescript".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("tailwindcss".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("zod".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("vitest".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("eslint".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert("prettier".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+
+        // Packages section
         let packages = PackagesSection {
-            workspaces: vec!["apps/*".to_string(), "packages/*".to_string()],
-            catalog: IndexMap::new(),
+            workspaces: vec!["apps/*".to_string(), "libs/*".to_string(), "packages/*".to_string()],
+            catalog,
             root: PackageDefinition {
                 dependencies: IndexMap::new(),
-                dev_dependencies: {
-                    let mut dev = IndexMap::new();
-                    dev.insert("typescript".to_string(), "5.6.2".to_string());
-                    dev.insert("eslint".to_string(), "9.3.0".to_string());
-                    dev
-                },
+                dev_dependencies: IndexMap::new(),
                 optional_dependencies: IndexMap::new(),
-                scripts: IndexMap::new(),
+                scripts: {
+                    let mut scripts = IndexMap::new();
+                    scripts.insert("dev".to_string(), "echo 'Run: airis dev'".to_string());
+                    scripts.insert("build".to_string(), "echo 'Run: airis build'".to_string());
+                    scripts.insert("lint".to_string(), "echo 'Run: airis lint'".to_string());
+                    scripts.insert("test".to_string(), "echo 'Run: airis test'".to_string());
+                    scripts
+                },
                 engines: IndexMap::new(),
                 pnpm: PnpmConfig::default(),
             },
-            app: vec![AppPackageDefinition {
-                pattern: "apps/*".to_string(),
-                dependencies: IndexMap::new(),
-                dev_dependencies: IndexMap::new(),
-                scripts: IndexMap::new(),
-            }],
+            app: vec![],
         };
+
+        // Guards for Docker-first enforcement
+        let guards = GuardsSection {
+            deny: vec![
+                "npm".to_string(),
+                "yarn".to_string(),
+                "pnpm".to_string(),
+                "bun".to_string(),
+            ],
+            wrap: IndexMap::new(),
+            deny_with_message: IndexMap::new(),
+            forbid: vec![
+                "npm".to_string(),
+                "yarn".to_string(),
+                "pnpm".to_string(),
+                "docker".to_string(),
+                "docker-compose".to_string(),
+            ],
+            danger: vec![
+                "rm -rf /".to_string(),
+                "chmod -R 777".to_string(),
+            ],
+        };
+
+        // Remap common commands to airis
+        let mut remap = IndexMap::new();
+        remap.insert("npm install".to_string(), "airis install".to_string());
+        remap.insert("pnpm install".to_string(), "airis install".to_string());
+        remap.insert("yarn install".to_string(), "airis install".to_string());
+        remap.insert("npm run dev".to_string(), "airis dev".to_string());
+        remap.insert("pnpm dev".to_string(), "airis dev".to_string());
+        remap.insert("docker compose up".to_string(), "airis up".to_string());
+        remap.insert("docker compose down".to_string(), "airis down".to_string());
 
         Manifest {
             version: 1,
             mode: Mode::DockerFirst,
-            project: MetaSection::default(),
+            project: MetaSection {
+                id: name.to_string(),
+                binary_name: String::new(),
+                version: "1.0.0".to_string(),
+                description: format!("{} - Docker-first monorepo", name),
+                authors: vec![],
+                license: "MIT".to_string(),
+                homepage: String::new(),
+                repository: String::new(),
+                keywords: vec!["monorepo".to_string(), "docker".to_string(), "typescript".to_string()],
+                categories: vec!["development-tools".to_string()],
+                rust_edition: String::new(),
+            },
             workspace: WorkspaceSection {
                 name: name.to_string(),
                 package_manager: "pnpm@10.22.0".to_string(),
@@ -149,12 +205,19 @@ impl Manifest {
             dev: DevSection::default(),
             apps: IndexMap::new(),
             libs: IndexMap::new(),
-            docker: DockerSection::default(),
+            docker: DockerSection {
+                base_image: "node:22-alpine".to_string(),
+                workdir: "/app".to_string(),
+                workspace: Some(DockerWorkspaceSection {
+                    service: "workspace".to_string(),
+                    volumes: vec!["node_modules".to_string()],
+                }),
+            },
             just: None,
             service: IndexMap::new(),
             rule,
             packages,
-            guards: GuardsSection::default(),
+            guards,
             app: vec![],
             orchestration: OrchestrationSection::default(),
             commands: {
@@ -166,13 +229,17 @@ impl Manifest {
                 cmds.insert("dev".to_string(), "docker compose exec workspace pnpm dev".to_string());
                 cmds.insert("build".to_string(), "docker compose exec workspace pnpm build".to_string());
                 cmds.insert("test".to_string(), "docker compose exec workspace pnpm test".to_string());
+                cmds.insert("lint".to_string(), "docker compose exec workspace pnpm lint".to_string());
                 cmds.insert("clean".to_string(), "rm -rf ./node_modules ./dist ./.next ./build ./target".to_string());
                 cmds.insert("logs".to_string(), "docker compose logs -f".to_string());
                 cmds.insert("ps".to_string(), "docker compose ps".to_string());
                 cmds
             },
-            remap: IndexMap::new(),
-            versioning: VersioningSection::default(),
+            remap,
+            versioning: VersioningSection {
+                strategy: VersioningStrategy::Manual,
+                source: "1.0.0".to_string(),
+            },
             docs: DocsSection::default(),
             ci: CiSection::default(),
         }
