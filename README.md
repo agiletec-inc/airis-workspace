@@ -123,16 +123,6 @@ $ airis init
 
 ### 2. Flexible Runtime: Docker-First with Local Escape Hatches
 
-<!-- GIF Demo: Runtime switching
-     1. Show manifest.toml with runtime = "docker"
-     2. Run command → shows "Running in Docker"
-     3. Change to runtime = "local"
-     4. Run same command → shows "Using local Apple Silicon GPU"
-
-     Place GIF at: assets/airis-runtime-demo.gif
--->
-<!-- ![Switch between Docker and local GPU with one config change](assets/airis-runtime-demo.gif) -->
-
 ```toml
 # manifest.toml
 [apps.api]
