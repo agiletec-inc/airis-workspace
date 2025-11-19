@@ -86,12 +86,19 @@ jobs:
           fi
           echo "📦 Architecture: $ARCH"
 
+      - name: Update Cargo.toml version
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          echo "📝 Updated Cargo.toml to version $VERSION"
+
       - name: Build release binary
         if: steps.check_tag.outputs.exists == 'false'
         run: |
           cargo build --release
           strip target/release/airis
-          tar -czf airis-${{steps.version.outputs.version}}-${{steps.arch.outputs.arch}}.tar.gz -C target/release airis
+          tar -czf airis-${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}.tar.gz -C target/release airis
 
       - name: Calculate SHA256
         if: steps.check_tag.outputs.exists == 'false'
