@@ -5,15 +5,31 @@ mod manifest;
 mod templates;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+
+/// Get version string with dev suffix for non-release builds
+fn get_version() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let is_release = env!("IS_RELEASE");
+    let git_hash = env!("GIT_HASH");
+
+    if is_release == "true" {
+        version.to_string()
+    } else {
+        format!("{}-dev (git: {})", version, git_hash)
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "airis")]
-#[command(version)]
 #[command(about = "Docker-first monorepo workspace manager", long_about = None)]
 struct Cli {
+    /// Print version
+    #[arg(short = 'V', long = "version")]
+    version: bool,
+
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -148,7 +164,19 @@ enum ManifestCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
+    // Handle version flag
+    if cli.version {
+        println!("airis {}", get_version());
+        return Ok(());
+    }
+
+    // Require a command if not printing version
+    let command = cli.command.unwrap_or_else(|| {
+        Cli::command().print_help().unwrap();
+        std::process::exit(0);
+    });
+
+    match command {
         Commands::Init => commands::init::run()?,
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
