@@ -244,11 +244,9 @@ autostart = ["dashboard", "api"]
 [apps.dashboard]
 path = "apps/dashboard"
 type = "nextjs"
-port = 3000
 
 [service.postgres]
 image = "postgres:16-alpine"
-port = 5432
 
 [commands]
 install = "docker compose exec workspace pnpm install"
