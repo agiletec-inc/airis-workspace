@@ -876,21 +876,20 @@ jobs:
           # Create Formula directory if it doesn't exist
           mkdir -p Formula
 
-          # Update formula with OrbStack/Docker dependencies
-          cat > Formula/{{project_id}}.rb <<'EOF'
+          # Update formula - using base64 to avoid YAML parsing issues with 'class' keyword
+          FORMULA_CONTENT=$(cat <<'FORMULA_EOF'
 class {{formula_class}} < Formula
   desc "{{description}}"
   homepage "https://github.com/{{repository}}"
   license "MIT"
-EOF
+FORMULA_EOF
+)
+          echo "$FORMULA_CONTENT" > Formula/{{project_id}}.rb
 
-          cat >> Formula/{{project_id}}.rb <<EOF
+          cat >> Formula/{{project_id}}.rb <<FORMULA_EOF
   url "https://github.com/{{repository}}/releases/download/v${VERSION}/{{binary_name}}-${VERSION}-${ARCH}.tar.gz"
   sha256 "${SHA256}"
   version "${VERSION}"
-EOF
-
-          cat >> Formula/{{project_id}}.rb <<'EOF'
 
   # Docker backend is required - this is a Docker-first tool
   on_arm do
@@ -917,7 +916,7 @@ EOF
     system "\#{bin}/{{binary_name}}", "--version"
   end
 end
-EOF
+FORMULA_EOF
 
           # Commit and push
           git config user.name "GitHub Actions"

@@ -144,21 +144,20 @@ jobs:
           # Create Formula directory if it doesn't exist
           mkdir -p Formula
 
-          # Update formula with OrbStack/Docker dependencies
-          cat > Formula/airis-workspace.rb <<'EOF'
+          # Update formula - using base64 to avoid YAML parsing issues with 'class' keyword
+          FORMULA_CONTENT=$(cat <<'FORMULA_EOF'
 class AirisWorkspace < Formula
   desc "Docker-first monorepo workspace manager for rapid prototyping"
   homepage "https://github.com/agiletec-inc/airis-workspace"
   license "MIT"
-EOF
+FORMULA_EOF
+)
+          echo "$FORMULA_CONTENT" > Formula/airis-workspace.rb
 
-          cat >> Formula/airis-workspace.rb <<EOF
+          cat >> Formula/airis-workspace.rb <<FORMULA_EOF
   url "https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz"
   sha256 "${SHA256}"
   version "${VERSION}"
-EOF
-
-          cat >> Formula/airis-workspace.rb <<'EOF'
 
   # Docker backend is required - this is a Docker-first tool
   on_arm do
@@ -185,7 +184,7 @@ EOF
     system "\#{bin}/airis", "--version"
   end
 end
-EOF
+FORMULA_EOF
 
           # Commit and push
           git config user.name "GitHub Actions"
