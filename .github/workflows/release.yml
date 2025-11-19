@@ -145,8 +145,8 @@ jobs:
           mkdir -p Formula
 
           # Update formula
-          cat > Formula/airis.rb << 'FORMULAEOF'
-          class Airis < Formula
+          cat > Formula/airis-workspace.rb << 'FORMULAEOF'
+          class AirisWorkspace < Formula
             desc "Docker-first monorepo workspace manager for rapid prototyping"
             homepage "https://github.com/agiletec-inc/airis-workspace"
             license "MIT"
@@ -177,15 +177,15 @@ jobs:
           FORMULAEOF
 
           # Replace placeholders with actual values
-          sed -i '' "s|URL_PLACEHOLDER|https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz|g" Formula/airis.rb
-          sed -i '' "s|SHA_PLACEHOLDER|${SHA256}|g" Formula/airis.rb
-          sed -i '' "s|VER_PLACEHOLDER|${VERSION}|g" Formula/airis.rb
+          sed -i '' "s|URL_PLACEHOLDER|https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz|g" Formula/airis-workspace.rb
+          sed -i '' "s|SHA_PLACEHOLDER|${SHA256}|g" Formula/airis-workspace.rb
+          sed -i '' "s|VER_PLACEHOLDER|${VERSION}|g" Formula/airis-workspace.rb
 
           # Commit and push
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add Formula/airis.rb
-          git commit -m "Update airis to v${VERSION}" || echo "No changes to commit"
+          git add Formula/airis-workspace.rb
+          git commit -m "Update airis-workspace to v${VERSION}" || echo "No changes to commit"
           git push origin main || echo "Push failed, check if token has permissions"
 
           echo "✅ Homebrew formula updated to v${VERSION}"
