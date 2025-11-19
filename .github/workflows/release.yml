@@ -20,47 +20,45 @@ jobs:
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: Read version from manifest.toml
+      - name: Determine version bump
         id: version
         run: |
-          # Single Source of Truth: manifest.toml [project].version
-          VERSION=$(grep '^version = ' manifest.toml | grep -v '^version = 1$' | head -1 | sed 's/version = "\(.*\)"/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "📦 Version from manifest.toml [project]: $VERSION"
-
-      - name: Validate Cargo.toml is in sync
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-
-          # Check Cargo.toml matches manifest.toml
-          CARGO_VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-
-          echo "📊 manifest.toml: $VERSION"
-          echo "📊 Cargo.toml: $CARGO_VERSION"
-
-          if [ "$CARGO_VERSION" != "$VERSION" ]; then
-            echo "❌ ERROR: manifest.toml ($VERSION) and Cargo.toml ($CARGO_VERSION) are out of sync"
-            echo "   → Run 'airis bump-version --auto' locally before pushing"
-            exit 1
-          fi
-
-          # Get latest tag
+          # Get highest version tag (sort semantically)
           LATEST_TAG=$(git tag -l 'v*' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
           fi
-          LATEST_VERSION=${LATEST_TAG#v}
+          CURRENT_VERSION=${LATEST_TAG#v}
 
-          echo "📊 Latest tag: $LATEST_VERSION"
+          echo "📦 Current version: $CURRENT_VERSION (from $LATEST_TAG)"
 
-          # Check if version is newer than latest tag
-          if [ "$VERSION" = "$LATEST_VERSION" ]; then
-            echo "❌ ERROR: Version ($VERSION) is same as latest tag ($LATEST_TAG)"
-            echo "   → Run 'airis bump-version --auto' locally before pushing"
-            exit 1
+          # Parse semver
+          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+
+          # Get commit messages since last tag
+          COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
+
+          # Determine bump type based on conventional commits
+          BUMP_TYPE="patch"
+
+          if echo "$COMMITS" | grep -qE '^(feat!:|fix!:|BREAKING CHANGE:)'; then
+            BUMP_TYPE="major"
+          elif echo "$COMMITS" | grep -qE '^feat(\(.+\))?:'; then
+            BUMP_TYPE="minor"
           fi
 
-          echo "✅ Version $VERSION is newer than $LATEST_VERSION and in sync"
+          # Calculate new version
+          if [ "$BUMP_TYPE" = "major" ]; then
+            NEW_VERSION="$((major + 1)).0.0"
+          elif [ "$BUMP_TYPE" = "minor" ]; then
+            NEW_VERSION="${major}.$((minor + 1)).0"
+          else
+            NEW_VERSION="${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+          echo "🚀 Bumping $CURRENT_VERSION → $NEW_VERSION ($BUMP_TYPE)"
 
       - name: Check if already released
         id: check_tag
@@ -113,7 +111,7 @@ jobs:
           # Create release with gh CLI
           gh release create "v${VERSION}" \
             --title "Release v${VERSION}" \
-            --notes "Auto-generated release from CI/CD" \
+            --generate-notes \
             "airis-${VERSION}-${ARCH}.tar.gz"
 
           echo "✅ Release v${VERSION} created successfully!"
@@ -144,24 +142,55 @@ jobs:
           # Create Formula directory if it doesn't exist
           mkdir -p Formula
 
-          # Update formula
-          cat > Formula/airis.rb <<EOF
-          class Airis < Formula
-            desc "Docker-first monorepo workspace manager for rapid prototyping"
-            homepage "https://github.com/agiletec-inc/airis-workspace"
-            url "https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz"
-            sha256 "${SHA256}"
-            version "${VERSION}"
+          # Update formula with OrbStack/Docker dependencies
+          cat > Formula/airis.rb <<'EOF'
+class Airis < Formula
+  desc "Docker-first monorepo workspace manager for rapid prototyping"
+  homepage "https://github.com/agiletec-inc/airis-workspace"
+  license "MIT"
+EOF
 
-            def install
-              bin.install "airis"
-            end
+          cat >> Formula/airis.rb <<EOF
+  url "https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz"
+  sha256 "${SHA256}"
+  version "${VERSION}"
+EOF
 
-            test do
-              system "#{bin}/airis", "--version"
-            end
-          end
-          EOF
+          cat >> Formula/airis.rb <<'EOF'
+
+  # Docker backend is required - airis is a Docker-first tool
+  on_arm do
+    depends_on cask: "orbstack"
+  end
+
+  on_intel do
+    depends_on cask: "docker"
+  end
+
+  def install
+    bin.install "airis"
+  end
+
+  def caveats
+    <<~EOS
+      Airis is a Docker-first monorepo workspace manager.
+
+      Make sure your Docker backend is running before using airis:
+        - Apple Silicon: OrbStack (installed as dependency)
+        - Intel Mac: Docker Desktop (installed as dependency)
+
+      Get started:
+        mkdir my-project && cd my-project
+        airis init
+        airis up
+    EOS
+  end
+
+  test do
+    system "#{bin}/airis", "--version"
+  end
+end
+EOF
 
           # Commit and push
           git config user.name "GitHub Actions"
