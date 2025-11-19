@@ -10,33 +10,33 @@ A blazing-fast CLI built in Rust that enforces Docker-first development with a s
 
 ### The Pain Points
 
-モノレポを運用していると、こんな問題に直面する：
+Running a monorepo comes with these frustrations:
 
-- **バージョン地獄** - ルートの`package.json`と`apps/`配下でReactのバージョンが食い違う。全部手動で更新するのは面倒すぎる
-- **設定ファイル増殖** - `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `justfile`...どれが正で、どれを編集すればいいか分からない
-- **LLMが壊す** - Claude CodeやCursorが「`pnpm install`しておきました」と言ってホスト環境を汚染する
-- **"Works on my machine"** - TypeScriptのビルドが自分の環境では通るのに、他の人の環境では通らない
+- **Version hell** - React version in root `package.json` differs from `apps/`. Manually updating everything is tedious
+- **Config file sprawl** - `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `justfile`... Which one is the source of truth?
+- **LLMs break things** - Claude Code or Cursor says "I ran `pnpm install` for you" and pollutes your host environment
+- **"Works on my machine"** - TypeScript builds pass locally but fail on teammates' machines
 
 ### The Solution: Single Source of Truth
 
-**`manifest.toml` を唯一の設定ファイルにする。他は全部自動生成。**
+**Make `manifest.toml` the only config file. Auto-generate everything else.**
 
 ```
-manifest.toml (これだけ編集)
+manifest.toml (edit this only)
     ↓ airis init
-package.json, pnpm-workspace.yaml, docker-compose.yml, justfile (全部自動生成)
+package.json, pnpm-workspace.yaml, docker-compose.yml, justfile (all auto-generated)
 ```
 
-これにより：
-- バージョンは `manifest.toml` の `[packages.catalog]` で一元管理。`react = "latest"` と書けば、全アプリで同じバージョンに自動解決
-- LLMが `package.json` を壊しても `airis init` で即座に再生成
-- Docker-first を強制するガードで、ホスト環境の汚染を防止
+This gives you:
+- Centralized version management in `[packages.catalog]`. Write `react = "latest"` and all apps get the same resolved version
+- When LLMs break `package.json`, just run `airis init` to regenerate instantly
+- Docker-first guards prevent host environment pollution
 
 ### Why Rust?
 
-- **高速** - `airis init` は数十ミリ秒で完了。毎回のコミット前に実行しても気にならない
-- **シングルバイナリ** - Node.jsやPythonの依存なし。`brew install` で即使える
-- **クロスプラットフォーム** - macOS (Apple Silicon/Intel), Linux, Windowsで同じバイナリ
+- **Fast** - `airis init` completes in tens of milliseconds. Run it before every commit without noticing
+- **Single binary** - No Node.js or Python dependencies. Just `brew install` and go
+- **Cross-platform** - Same binary works on macOS (Apple Silicon/Intel), Linux, and Windows
 
 ---
 
