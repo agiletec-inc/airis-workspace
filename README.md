@@ -2,7 +2,41 @@
 
 **Docker-first monorepo workspace manager for rapid prototyping**
 
-Stop fighting with dependencies, broken builds, and cross-platform issues. AIris Workspace enforces Docker-first development with a single manifest file and automatic generation of all derived files.
+A blazing-fast CLI built in Rust that enforces Docker-first development with a single manifest file and automatic generation of all derived files.
+
+---
+
+## 💡 Why I Built This
+
+### The Pain Points
+
+モノレポを運用していると、こんな問題に直面する：
+
+- **バージョン地獄** - ルートの`package.json`と`apps/`配下でReactのバージョンが食い違う。全部手動で更新するのは面倒すぎる
+- **設定ファイル増殖** - `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `justfile`...どれが正で、どれを編集すればいいか分からない
+- **LLMが壊す** - Claude CodeやCursorが「`pnpm install`しておきました」と言ってホスト環境を汚染する
+- **"Works on my machine"** - TypeScriptのビルドが自分の環境では通るのに、他の人の環境では通らない
+
+### The Solution: Single Source of Truth
+
+**`manifest.toml` を唯一の設定ファイルにする。他は全部自動生成。**
+
+```
+manifest.toml (これだけ編集)
+    ↓ airis init
+package.json, pnpm-workspace.yaml, docker-compose.yml, justfile (全部自動生成)
+```
+
+これにより：
+- バージョンは `manifest.toml` の `[packages.catalog]` で一元管理。`react = "latest"` と書けば、全アプリで同じバージョンに自動解決
+- LLMが `package.json` を壊しても `airis init` で即座に再生成
+- Docker-first を強制するガードで、ホスト環境の汚染を防止
+
+### Why Rust?
+
+- **高速** - `airis init` は数十ミリ秒で完了。毎回のコミット前に実行しても気にならない
+- **シングルバイナリ** - Node.jsやPythonの依存なし。`brew install` で即使える
+- **クロスプラットフォーム** - macOS (Apple Silicon/Intel), Linux, Windowsで同じバイナリ
 
 ---
 
