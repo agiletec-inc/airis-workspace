@@ -90,22 +90,55 @@ cd your-monorepo && airis init
 ```toml
 # manifest.toml
 [packages.catalog]
-react = "latest"      # → Automatically resolves to ^19.2.0
-next = "lts"          # → Resolves to LTS version
-typescript = "^5.0"   # → Used as-is
+# Frontend: Always latest for security patches and best practices
+react = "latest"           # → ^19.2.0
+next = "latest"            # → ^15.1.0
+tailwindcss = "latest"     # → ^4.0.0
+
+# Backend: Stable versions to avoid breaking changes
+express = "lts"            # → LTS version
+typescript = "^5.0"        # → Pinned major version
 ```
 
 ```bash
 $ airis init
 📦 Resolving catalog versions from npm registry...
   ✓ react latest → ^19.2.0
-  ✓ next lts → ^15.1.0
+  ✓ next latest → ^15.1.0
+  ✓ express lts → ^4.21.0
   ✓ typescript ^5.0 → ^5.0
 ```
 
+**Real version numbers are resolved and written to `pnpm-workspace.yaml`.** Tests and builds use actual semver ranges, not string literals like `"latest"`. No more "it works with latest but breaks in CI" issues.
+
 **No more manually updating 20 package.json files when React releases a new version.** Write `"latest"` once, and every app in your monorepo gets the same resolved version.
 
-### 2. Auto Versioning with Conventional Commits
+### 2. Flexible Runtime: Docker-First with Local Escape Hatches
+
+```toml
+# manifest.toml
+[apps.api]
+runtime = "docker"         # Default: runs in container
+
+[apps.ml-inference]
+runtime = "local"          # Escape hatch for GPU workloads
+```
+
+**Why this matters:**
+
+- **Default Docker-first**: Clean host, reproducible builds, no "works on my machine"
+- **Local runtime option**: For Apple Silicon GPU inference (Ollama, MLX), Docker adds latency
+- **Best of both worlds**: Develop with local GPU speed, deploy to Linux containers in production
+
+```bash
+# Local development with Apple Silicon GPU
+$ airis dev ml-inference  # Runs locally, uses Metal GPU
+
+# Production deployment
+$ docker build -t ml-inference .  # Same code, Linux container
+```
+
+### 3. Auto Versioning with Conventional Commits
 
 ```bash
 $ git commit -m "feat: add dark mode"
@@ -120,7 +153,7 @@ $ git commit -m "feat!: breaking API change"
 
 Semantic versioning happens automatically. No more forgetting to bump versions or arguing about what version to use.
 
-### 3. LLM-Proof Monorepo
+### 4. LLM-Proof Monorepo
 
 ```bash
 $ pnpm install
@@ -133,7 +166,7 @@ $ pnpm install
 
 When Claude Code or Cursor tries to run `pnpm install` on your host, it gets blocked with a helpful error. **Your host environment stays clean.**
 
-### 4. Self-Healing Config Files
+### 5. Self-Healing Config Files
 
 ```bash
 # LLM broke your package.json? No problem.
@@ -143,7 +176,7 @@ $ airis init
 
 Since `manifest.toml` is the single source of truth, all derived files can be regenerated instantly. LLMs can't permanently break your config.
 
-### 5. Homebrew Distribution with Auto-Release
+### 6. Homebrew Distribution with Auto-Release
 
 ```bash
 $ git push origin main
