@@ -737,39 +737,4 @@ fn default_target_branch() -> String {
     "main".to_string()
 }
 
-impl VersioningSection {
-    /// Parse semver version string into (major, minor, patch)
-    pub fn parse_version(version: &str) -> Result<(u32, u32, u32)> {
-        let parts: Vec<&str> = version.split('.').collect();
-        if parts.len() != 3 {
-            anyhow::bail!("Invalid version format: {}", version);
-        }
-
-        let major = parts[0].parse::<u32>()?;
-        let minor = parts[1].parse::<u32>()?;
-        let patch = parts[2].parse::<u32>()?;
-
-        Ok((major, minor, patch))
-    }
-
-    /// Bump major version (x.0.0)
-    pub fn bump_major(&mut self) -> Result<String> {
-        let (major, _, _) = Self::parse_version(&self.source)?;
-        self.source = format!("{}.0.0", major + 1);
-        Ok(self.source.clone())
-    }
-
-    /// Bump minor version (x.y.0)
-    pub fn bump_minor(&mut self) -> Result<String> {
-        let (major, minor, _) = Self::parse_version(&self.source)?;
-        self.source = format!("{}.{}.0", major, minor + 1);
-        Ok(self.source.clone())
-    }
-
-    /// Bump patch version (x.y.z)
-    pub fn bump_patch(&mut self) -> Result<String> {
-        let (major, minor, patch) = Self::parse_version(&self.source)?;
-        self.source = format!("{}.{}.{}", major, minor, patch + 1);
-        Ok(self.source.clone())
-    }
-}
+// VersioningSection methods removed - using bump_version.rs instead
