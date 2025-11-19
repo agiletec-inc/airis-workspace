@@ -86,6 +86,13 @@ jobs:
           fi
           echo "📦 Architecture: $ARCH"
 
+      - name: Update Cargo.toml version
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          VERSION=${{steps.version.outputs.version}}
+          sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+          echo "✅ Updated Cargo.toml to v$VERSION"
+
       - name: Build release binary
         if: steps.check_tag.outputs.exists == 'false'
         run: |
