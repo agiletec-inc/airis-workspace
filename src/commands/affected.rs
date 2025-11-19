@@ -224,6 +224,7 @@ fn find_dependents(pkg: &str, graph: &HashMap<String, Vec<String>>, affected: &m
 }
 
 /// List all packages in the workspace
+#[allow(dead_code)]
 pub fn list_packages() -> Result<Vec<String>> {
     let graph = build_dependency_graph()?;
     let mut packages: Vec<String> = graph.keys().cloned().collect();
