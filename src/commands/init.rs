@@ -1,11 +1,36 @@
 use std::env;
 use std::path::Path;
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 
 use crate::commands::{discover, generate};
 use crate::manifest::{Manifest, MANIFEST_FILE};
+
+/// Get git repository root directory
+fn get_git_root() -> Option<String> {
+    Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            String::from_utf8(output.stdout)
+                .ok()
+                .map(|s| s.trim().to_string())
+        })
+}
+
+/// Get project name from git repository root directory name
+fn get_project_name_from_git() -> Option<String> {
+    get_git_root()
+        .and_then(|root| {
+            Path::new(&root)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+        })
+}
 
 /// Initialize or optimize manifest-driven workspace files
 ///
@@ -22,9 +47,13 @@ pub fn run() -> Result<()> {
         Manifest::load(manifest_path)?
     } else {
         // ✅ INITIAL CREATION MODE: Only happens when manifest.toml doesn't exist
-        let project_name = current_dir
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
+        // Priority: git root directory name > current directory name > default
+        let project_name = get_project_name_from_git()
+            .or_else(|| {
+                current_dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+            })
             .unwrap_or_else(|| "my-monorepo".to_string());
 
         let has_apps = current_dir.join("apps").exists();

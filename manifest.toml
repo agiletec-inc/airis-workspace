@@ -256,6 +256,7 @@ mode = "warn"
 [ci]
 enabled = true
 auto_version = true
+# repository and homebrew_tap are auto-detected from git remote
 
 [ci.auto_merge]
 enabled = true

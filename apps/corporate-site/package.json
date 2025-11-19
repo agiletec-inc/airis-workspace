@@ -5,14 +5,14 @@
     "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
   },
   "dependencies": {
-    "react": "catalog:",
-    "react-dom": "catalog:"
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "eslint": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:",
-    "vitest": "catalog:"
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "vite": "catalog",
+    "vitest": "^4.0.10"
   },
   "name": "@workspace/corporate-site",
   "private": true,

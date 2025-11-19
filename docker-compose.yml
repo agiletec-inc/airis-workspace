@@ -5,7 +5,7 @@ name: airis-workspace
 
 services:
   workspace:
-    container_name: workspace
+    container_name: airis-workspace-workspace
     image: node:22-alpine
     working_dir: /app
     volumes:

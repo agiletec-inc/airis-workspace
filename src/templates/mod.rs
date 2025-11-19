@@ -2,8 +2,51 @@ use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use indexmap::IndexMap;
 use serde_json::json;
+use std::process::Command;
 
 use crate::manifest::{MANIFEST_FILE, Manifest};
+
+/// Parse GitHub repository info from git remote URL
+/// Returns (owner, repo) tuple
+fn detect_github_repo() -> Option<(String, String)> {
+    let output = Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let url = String::from_utf8(output.stdout).ok()?.trim().to_string();
+
+    // Parse various GitHub URL formats:
+    // https://github.com/owner/repo.git
+    // git@github.com:owner/repo.git
+    // https://github.com/owner/repo
+    let repo_path = if url.contains("github.com") {
+        if url.starts_with("git@") {
+            // git@github.com:owner/repo.git
+            url.split(':').nth(1)?
+        } else {
+            // https://github.com/owner/repo.git
+            url.split("github.com/").nth(1)?
+        }
+    } else {
+        return None;
+    };
+
+    // Remove .git suffix if present
+    let repo_path = repo_path.trim_end_matches(".git");
+
+    // Split into owner/repo
+    let parts: Vec<&str> = repo_path.split('/').collect();
+    if parts.len() >= 2 {
+        Some((parts[0].to_string(), parts[1].to_string()))
+    } else {
+        None
+    }
+}
 
 pub struct TemplateEngine {
     hbs: Handlebars<'static>,
@@ -38,14 +81,62 @@ impl TemplateEngine {
     }
 
     fn prepare_ci_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
+        // Detect Rust project by checking rust_edition or binary_name
+        let is_rust_project = !manifest.project.rust_edition.is_empty()
+            || !manifest.project.binary_name.is_empty();
+
+        let binary_name = if manifest.project.binary_name.is_empty() {
+            manifest.project.id.clone()
+        } else {
+            manifest.project.binary_name.clone()
+        };
+
+        // Convert binary_name to PascalCase for Ruby class name
+        let formula_class = binary_name
+            .split(|c: char| c == '-' || c == '_')
+            .map(|s| {
+                let mut chars = s.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().chain(chars).collect(),
+                }
+            })
+            .collect::<String>();
+
+        // Auto-detect repository info from git remote if not specified
+        let (detected_owner, detected_repo) = detect_github_repo().unwrap_or_default();
+
+        // Use manifest values if set, otherwise use auto-detected values
+        let repository = manifest
+            .ci
+            .repository
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("{}/{}", detected_owner, detected_repo));
+
+        let homebrew_tap = manifest
+            .ci
+            .homebrew_tap
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| format!("{}/homebrew-tap", detected_owner));
+
+        let has_homebrew = !homebrew_tap.is_empty() && !detected_owner.is_empty();
+
         Ok(json!({
             "project": manifest.workspace.name,
             "auto_merge_enabled": manifest.ci.auto_merge.enabled,
             "source_branch": manifest.ci.auto_merge.from,
             "target_branch": manifest.ci.auto_merge.to,
             "auto_version": manifest.ci.auto_version,
-            "homebrew_tap": manifest.ci.homebrew_tap,
-            "has_homebrew": manifest.ci.homebrew_tap.is_some(),
+            "homebrew_tap": homebrew_tap,
+            "has_homebrew": has_homebrew,
+            "is_rust_project": is_rust_project,
+            "binary_name": binary_name,
+            "formula_class": formula_class,
+            "project_id": manifest.project.id,
+            "description": manifest.project.description,
+            "repository": repository,
         }))
     }
 
@@ -381,7 +472,7 @@ name: {{project}}
 
 services:
   {{workspace_service}}:
-    container_name: {{workspace_service}}
+    container_name: {{project}}-{{workspace_service}}
     image: {{workspace_image}}
     working_dir: {{workdir}}
     volumes:
@@ -446,6 +537,21 @@ on:
 
 jobs:
   test:
+{{#if is_rust_project}}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Build release
+        run: cargo build --release
+{{else}}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -468,6 +574,7 @@ jobs:
 
       - name: Build
         run: pnpm build
+{{/if}}
 
 {{#if auto_merge_enabled}}
   merge-to-{{target_branch}}:
@@ -502,7 +609,7 @@ jobs:
 const RELEASE_YML_TEMPLATE: &str = r#"# Auto-generated by airis init
 # DO NOT EDIT - change manifest.toml instead.
 
-name: Release
+name: Release to Homebrew
 
 on:
   push:
@@ -512,7 +619,11 @@ on:
 
 jobs:
   release:
+{{#if is_rust_project}}
+    runs-on: macos-latest
+{{else}}
     runs-on: ubuntu-latest
+{{/if}}
     permissions:
       contents: write
     steps:
@@ -521,6 +632,10 @@ jobs:
         with:
           fetch-depth: 0
 
+{{#if is_rust_project}}
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+{{else}}
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -529,6 +644,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'pnpm'
+{{/if}}
 
       - name: Determine version bump
         id: version
@@ -581,6 +697,131 @@ jobs:
             echo "✅ Will create release v$\{{steps.version.outputs.version}}"
           fi
 
+{{#if is_rust_project}}
+      - name: Detect architecture
+        if: steps.check_tag.outputs.exists == 'false'
+        id: arch
+        run: |
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ]; then
+            echo "arch=aarch64-apple-darwin" >> $GITHUB_OUTPUT
+          else
+            echo "arch=x86_64-apple-darwin" >> $GITHUB_OUTPUT
+          fi
+          echo "📦 Architecture: $ARCH"
+
+      - name: Build release binary
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          cargo build --release
+          strip target/release/{{binary_name}}
+          tar -czf {{binary_name}}-$\{{steps.version.outputs.version}}-$\{{steps.arch.outputs.arch}}.tar.gz -C target/release {{binary_name}}
+
+      - name: Calculate SHA256
+        if: steps.check_tag.outputs.exists == 'false'
+        id: sha256
+        run: |
+          SHA256=$(shasum -a 256 {{binary_name}}-$\{{steps.version.outputs.version}}-$\{{steps.arch.outputs.arch}}.tar.gz | awk '{print $1}')
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "🔐 SHA256: $SHA256"
+
+      - name: Create GitHub Release
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: $\{{secrets.GITHUB_TOKEN}}
+        run: |
+          VERSION=$\{{steps.version.outputs.version}}
+          ARCH=$\{{steps.arch.outputs.arch}}
+
+          echo "🚀 Creating GitHub Release v${VERSION}..."
+
+          gh release create "v${VERSION}" \
+            --title "Release v${VERSION}" \
+            --generate-notes \
+            "{{binary_name}}-${VERSION}-${ARCH}.tar.gz"
+
+          echo "✅ Release v${VERSION} created successfully!"
+
+{{#if has_homebrew}}
+      - name: Update Homebrew formula
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          HOMEBREW_TAP_TOKEN: $\{{secrets.HOMEBREW_TAP_TOKEN}}
+        run: |
+          set -e
+
+          VERSION=$\{{steps.version.outputs.version}}
+          SHA256=$\{{steps.sha256.outputs.sha256}}
+          ARCH=$\{{steps.arch.outputs.arch}}
+
+          echo "📦 Updating Homebrew formula..."
+          echo "   Version: $VERSION"
+          echo "   SHA256: $SHA256"
+          echo "   Arch: $ARCH"
+
+          # Clone homebrew-tap repository
+          git clone https://$HOMEBREW_TAP_TOKEN@github.com/{{homebrew_tap}}.git
+          cd $(basename {{homebrew_tap}})
+
+          # Ensure we're on main branch
+          git checkout main || git checkout -b main
+
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
+
+          # Update formula with OrbStack/Docker dependencies
+          cat > Formula/{{binary_name}}.rb <<'EOF'
+class {{formula_class}} < Formula
+  desc "{{description}}"
+  homepage "https://github.com/{{repository}}"
+  license "MIT"
+EOF
+
+          cat >> Formula/{{binary_name}}.rb <<EOF
+  url "https://github.com/{{repository}}/releases/download/v${VERSION}/{{binary_name}}-${VERSION}-${ARCH}.tar.gz"
+  sha256 "${SHA256}"
+  version "${VERSION}"
+EOF
+
+          cat >> Formula/{{binary_name}}.rb <<'EOF'
+
+  # Docker backend is required - this is a Docker-first tool
+  on_arm do
+    depends_on cask: "orbstack"
+  end
+
+  on_intel do
+    depends_on cask: "docker"
+  end
+
+  def install
+    bin.install "{{binary_name}}"
+  end
+
+  def caveats
+    <<~EOS
+      Make sure your Docker backend is running before using {{binary_name}}:
+        - Apple Silicon: OrbStack (installed as dependency)
+        - Intel Mac: Docker Desktop (installed as dependency)
+    EOS
+  end
+
+  test do
+    system "\#{bin}/{{binary_name}}", "--version"
+  end
+end
+EOF
+
+          # Commit and push
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Formula/{{binary_name}}.rb
+          git commit -m "Update {{binary_name}} to v${VERSION}" || echo "No changes to commit"
+          git push origin main || echo "Push failed, check if token has permissions"
+
+          echo "✅ Homebrew formula updated to v${VERSION}"
+{{/if}}
+{{else}}
       - name: Install dependencies
         if: steps.check_tag.outputs.exists == 'false'
         run: pnpm install
@@ -600,8 +841,8 @@ jobs:
 
           gh release create "v${VERSION}" \
             --title "Release v${VERSION}" \
-            --notes "Auto-generated release from CI/CD" \
             --generate-notes
 
           echo "✅ Release v${VERSION} created successfully!"
+{{/if}}
 "#;

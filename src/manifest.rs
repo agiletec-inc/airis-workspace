@@ -314,7 +314,33 @@ impl Default for WorkspaceSection {
 }
 
 fn default_workspace_name() -> String {
-    "airis-workspace".to_string()
+    // Try to get git repo root directory name
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(path_str) = String::from_utf8(output.stdout) {
+                let path = std::path::Path::new(path_str.trim());
+                if let Some(name) = path.file_name() {
+                    if let Some(name_str) = name.to_str() {
+                        return name_str.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: use current directory name
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Some(name) = cwd.file_name() {
+            if let Some(name_str) = name.to_str() {
+                return name_str.to_string();
+            }
+        }
+    }
+
+    "workspace".to_string()
 }
 
 fn default_package_manager() -> String {

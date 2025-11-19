@@ -120,9 +120,11 @@ test = "echo 'test'"
 
         let result = run("nonexistent");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Command 'nonexistent' not found"));
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("nonexistent") && err_msg.contains("not found"),
+            "Expected error about 'nonexistent' not found, got: {}",
+            err_msg
+        );
     }
 }

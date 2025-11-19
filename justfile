@@ -8,12 +8,19 @@ workspace := "workspace"
 set shell := ["bash", "-c"]
 
 default:
-    @just --list
+    @echo "Use 'airis <command>' instead of 'just <command>'"
+    @echo ""
+    @echo "Available commands:"
+    @echo "  airis up       - Start Docker containers"
+    @echo "  airis down     - Stop Docker containers"
+    @echo "  airis dev      - Run dev servers"
+    @echo "  airis build    - Build all apps"
+    @echo "  airis test     - Run tests"
+    @echo "  airis shell    - Enter workspace container"
+    @echo "  airis install  - Install dependencies"
 
 up:
-    @echo "🚀 Starting workspace + infra from manifest.toml..."
-    docker compose up -d
-    just dev-all
+    @echo "⚠️  Use 'airis up' instead"
 
 down:
     @echo "🧹 Stopping containers..."
@@ -77,15 +84,18 @@ guard tool:
     @echo "❌ ERROR: '{{tool}}' は直接使えません"
     @echo ""
     @echo "Docker-first ルールに従い、以下を利用してください:"
-    @echo "  just dev-all         # manifest.toml のアプリを起動"
-    @echo "  just workspace       # workspace コンテナに入る"
+    @echo "  airis dev      # 開発サーバーを起動"
+    @echo "  airis shell    # workspace コンテナに入る"
     @exit 1
 
 pnpm *args:
-    @just guard pnpm
+    @echo "❌ Use 'airis install' or 'airis shell' instead"
+    @exit 1
 
 npm *args:
-    @just guard npm
+    @echo "❌ Use 'airis install' or 'airis shell' instead"
+    @exit 1
 
 yarn *args:
-    @just guard yarn
+    @echo "❌ Use 'airis install' or 'airis shell' instead"
+    @exit 1
