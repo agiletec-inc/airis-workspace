@@ -143,48 +143,53 @@ jobs:
           mkdir -p Formula
 
           # Update formula with OrbStack/Docker dependencies
-          cat > Formula/airis.rb <<FORMULA_EOF
-class Airis < Formula
-  desc "Docker-first monorepo workspace manager for rapid prototyping"
-  homepage "https://github.com/agiletec-inc/airis-workspace"
-  license "MIT"
-  url "https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz"
-  sha256 "${SHA256}"
-  version "${VERSION}"
+          cat > Formula/airis.rb << 'EOF'
+          class Airis < Formula
+            desc "Docker-first monorepo workspace manager for rapid prototyping"
+            homepage "https://github.com/agiletec-inc/airis-workspace"
+            license "MIT"
+            url "URL_PLACEHOLDER"
+            sha256 "SHA_PLACEHOLDER"
+            version "VER_PLACEHOLDER"
 
-  # Docker backend is required - airis is a Docker-first tool
-  on_arm do
-    depends_on cask: "orbstack"
-  end
+            # Docker backend is required - airis is a Docker-first tool
+            on_arm do
+              depends_on cask: "orbstack"
+            end
 
-  on_intel do
-    depends_on cask: "docker"
-  end
+            on_intel do
+              depends_on cask: "docker"
+            end
 
-  def install
-    bin.install "airis"
-  end
+            def install
+              bin.install "airis"
+            end
 
-  def caveats
-    <<~EOS
-      Airis is a Docker-first monorepo workspace manager.
+            def caveats
+              <<~EOS
+                Airis is a Docker-first monorepo workspace manager.
 
-      Make sure your Docker backend is running before using airis:
-        - Apple Silicon: OrbStack (installed as dependency)
-        - Intel Mac: Docker Desktop (installed as dependency)
+                Make sure your Docker backend is running before using airis:
+                  - Apple Silicon: OrbStack (installed as dependency)
+                  - Intel Mac: Docker Desktop (installed as dependency)
 
-      Get started:
-        mkdir my-project && cd my-project
-        airis init
-        airis up
-    EOS
-  end
+                Get started:
+                  mkdir my-project && cd my-project
+                  airis init
+                  airis up
+              EOS
+            end
 
-  test do
-    system "\#{bin}/airis", "--version"
-  end
-end
-FORMULA_EOF
+            test do
+              system "#{bin}/airis", "--version"
+            end
+          end
+          EOF
+
+          # Replace placeholders with actual values
+          sed -i '' "s|URL_PLACEHOLDER|https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz|g" Formula/airis.rb
+          sed -i '' "s|SHA_PLACEHOLDER|${SHA256}|g" Formula/airis.rb
+          sed -i '' "s|VER_PLACEHOLDER|${VERSION}|g" Formula/airis.rb
 
           # Commit and push
           git config user.name "GitHub Actions"
