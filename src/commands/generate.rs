@@ -88,6 +88,8 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
+    println!("   - workspace/Dockerfile.dev");
+    println!("   - workspace/docker-compose.yml");
     if manifest.ci.enabled {
         println!("   - .github/workflows/ci.yml");
         println!("   - .github/workflows/release.yml");
@@ -102,8 +104,8 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     }
     println!();
     println!("{}", "Next steps:".bright_yellow());
-    println!("  1. Configure workspace/docker-compose.yml");
-    println!("  2. Run `airis up`");
+    println!("  1. Run `airis up` to start the workspace");
+    println!("  2. Cache directories (.next, .swc, .turbo, node_modules) stay in Docker volumes");
 
     Ok(())
 }
@@ -175,14 +177,21 @@ fn resolve_catalog_versions(
     Ok(resolved)
 }
 
-fn generate_docker_compose(_manifest: &Manifest, _engine: &TemplateEngine) -> Result<()> {
-    // Docker-compose generation is disabled.
-    // The workspace/ directory should contain hand-crafted docker-compose.yml
-    // that is optimized for the monorepo workflow.
-    //
-    // To use airis up, configure orchestration.dev in manifest.toml:
-    //   [orchestration.dev]
-    //   workspace = "workspace/docker-compose.yml"
+fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
+    // Create workspace/ directory if it doesn't exist
+    let workspace_dir = Path::new("workspace");
+    fs::create_dir_all(workspace_dir).context("Failed to create workspace/ directory")?;
+
+    // Generate Dockerfile.dev
+    let dockerfile_path = workspace_dir.join("Dockerfile.dev");
+    let dockerfile_content = engine.render_dockerfile_dev(manifest)?;
+    write_with_backup(&dockerfile_path, &dockerfile_content)?;
+
+    // Generate docker-compose.yml
+    let compose_path = workspace_dir.join("docker-compose.yml");
+    let compose_content = engine.render_docker_compose(manifest)?;
+    write_with_backup(&compose_path, &compose_content)?;
+
     Ok(())
 }
 
