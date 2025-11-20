@@ -43,6 +43,9 @@ enum Commands {
         /// Skip snapshot capture (for CI or repeated runs)
         #[arg(long)]
         no_snapshot: bool,
+        /// Setup .npmrc symlinks for Docker-First enforcement
+        #[arg(long)]
+        setup_npmrc: bool,
     },
 
     /// Query MANIFEST.toml data (used by justfile)
@@ -280,6 +283,23 @@ enum NewCommands {
         #[arg(short, long, default_value = "ts")]
         runtime: String,
     },
+    /// Create a new Supabase Edge Function
+    Edge {
+        /// Name of the new edge function
+        name: String,
+    },
+    /// Create a new Supabase database trigger
+    #[command(name = "supabase-trigger")]
+    SupabaseTrigger {
+        /// Name of the trigger function
+        name: String,
+    },
+    /// Create a new Supabase Realtime handler
+    #[command(name = "supabase-realtime")]
+    SupabaseRealtime {
+        /// Name of the realtime handler
+        name: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -298,7 +318,12 @@ fn main() -> Result<()> {
     });
 
     match command {
-        Commands::Init { snapshot, no_snapshot } => commands::init::run(snapshot, no_snapshot)?,
+        Commands::Init { snapshot, no_snapshot, setup_npmrc } => {
+            commands::init::run(snapshot, no_snapshot)?;
+            if setup_npmrc {
+                commands::init::setup_npmrc()?;
+            }
+        }
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
 
@@ -371,6 +396,15 @@ fn main() -> Result<()> {
                 }
                 NewCommands::Lib { name, runtime } => {
                     commands::new_cmd::run_with_runtime("lib", &name, &runtime)?;
+                }
+                NewCommands::Edge { name } => {
+                    commands::new_cmd::run_with_runtime("edge", &name, "deno")?;
+                }
+                NewCommands::SupabaseTrigger { name } => {
+                    commands::new_cmd::run_with_runtime("supabase-trigger", &name, "plpgsql")?;
+                }
+                NewCommands::SupabaseRealtime { name } => {
+                    commands::new_cmd::run_with_runtime("supabase-realtime", &name, "deno")?;
                 }
             }
         }

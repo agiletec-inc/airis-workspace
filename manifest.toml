@@ -4,7 +4,7 @@ mode = "docker-first"
 [project]
 id = "airis-workspace"
 binary_name = "airis"
-version = "1.11.0"
+version = "1.12.0"
 description = "Docker-first monorepo workspace manager for rapid prototyping"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
@@ -244,7 +244,7 @@ clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_mod
 
 [versioning]
 strategy = "auto"
-source = "1.11.0"
+source = "1.12.0"
 
 [docs]
 targets = []

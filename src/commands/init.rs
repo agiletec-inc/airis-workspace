@@ -46,34 +46,62 @@ fn get_version_from_git_tag() -> Option<String> {
         })
 }
 
-/// Sync version from git tag to manifest.toml and Cargo.toml
-fn sync_version_from_git_tag(manifest: &mut Manifest) -> Result<bool> {
+/// Sync version from git tag to Cargo.toml only
+/// manifest.toml is NEVER modified - it's sacred
+fn sync_cargo_version_from_git_tag() -> Result<()> {
+    use std::fs;
+
     let git_version = match get_version_from_git_tag() {
         Some(v) => v,
-        None => return Ok(false), // No git tags, skip sync
+        None => return Ok(()), // No git tags, skip sync
     };
 
-    // Check if version needs updating
-    let current_version = &manifest.project.version;
-    if current_version == &git_version {
-        return Ok(false); // Already in sync
+    let cargo_path = Path::new("Cargo.toml");
+    if !cargo_path.exists() {
+        return Ok(());
     }
 
-    // Update manifest version
-    let old_version = current_version.clone();
-    manifest.project.version = git_version.clone();
+    let cargo_content = fs::read_to_string(cargo_path)?;
 
-    // Also update versioning.source if it exists
-    manifest.versioning.source = git_version.clone();
+    // Extract current version from Cargo.toml
+    let current_version = cargo_content
+        .lines()
+        .find(|line| line.trim().starts_with("version = "))
+        .and_then(|line| {
+            line.split('=')
+                .nth(1)
+                .map(|v| v.trim().trim_matches('"').to_string())
+        });
 
-    println!(
-        "{} {} → {}",
-        "🔄 Syncing version from git tag:".bright_blue(),
-        old_version.yellow(),
-        git_version.green()
-    );
+    if let Some(current) = current_version {
+        if current == git_version {
+            return Ok(()); // Already in sync
+        }
 
-    Ok(true)
+        // Update Cargo.toml with new version
+        let updated_content = cargo_content
+            .lines()
+            .map(|line| {
+                if line.trim().starts_with("version = ") {
+                    format!("version = \"{}\"", git_version)
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        fs::write(cargo_path, updated_content + "\n")?;
+
+        println!(
+            "{} {} → {}",
+            "🔄 Syncing Cargo.toml version from git tag:".bright_blue(),
+            current.yellow(),
+            git_version.green()
+        );
+    }
+
+    Ok(())
 }
 
 /// Initialize or optimize manifest-driven workspace files
@@ -110,7 +138,7 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         println!();
     }
 
-    let mut manifest = if manifest_path.exists() {
+    let manifest = if manifest_path.exists() {
         // ✅ READ-ONLY MODE: Never modify existing manifest.toml
         println!("{}", "📖 Using existing manifest.toml as source of truth".bright_blue());
         Manifest::load(manifest_path)?
@@ -152,15 +180,10 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         }
     };
 
-    // Sync version from git tag if auto_version is enabled
+    // Sync Cargo.toml version from git tag if auto_version is enabled
+    // NOTE: manifest.toml is NEVER modified - only Cargo.toml is updated
     if manifest.ci.auto_version {
-        let version_updated = sync_version_from_git_tag(&mut manifest)?;
-        if version_updated {
-            // Save updated manifest with new version
-            manifest
-                .save(manifest_path)
-                .context("Failed to save manifest.toml with updated version")?;
-        }
+        sync_cargo_version_from_git_tag()?;
     }
 
     println!("{}", "🧩 Regenerating workspace files from manifest.toml...".bright_blue());
@@ -184,6 +207,116 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
     println!("  1. Edit manifest.toml if needed (apps, libs, catalog)");
     println!("  2. Re-run `airis init` to re-sync generated files");
     println!("  3. Run `airis up` to start development");
+
+    Ok(())
+}
+
+/// Setup .npmrc symlinks for Docker-First enforcement
+/// This creates symlinks in apps/* and libs/* pointing to root .npmrc
+pub fn setup_npmrc() -> Result<()> {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+
+    println!("{}", "🔗 Setting up .npmrc symlinks...".bright_blue());
+    println!();
+
+    let root_npmrc = Path::new(".npmrc");
+    if !root_npmrc.exists() {
+        anyhow::bail!("Root .npmrc not found. Create it first or run airis init.");
+    }
+
+    let mut created = 0;
+    let mut skipped = 0;
+
+    // Process apps directory
+    let apps_dir = Path::new("apps");
+    if apps_dir.exists() {
+        for entry in fs::read_dir(apps_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if !path.is_dir() {
+                continue;
+            }
+
+            // Check if package.json exists (valid app)
+            if !path.join("package.json").exists() {
+                continue;
+            }
+
+            let npmrc_path = path.join(".npmrc");
+            let relative_root = "../../.npmrc";
+
+            if npmrc_path.exists() {
+                // Check if it's already a symlink to root
+                if npmrc_path.is_symlink() {
+                    println!("  {} {} (already linked)", "⏭️".yellow(), npmrc_path.display());
+                    skipped += 1;
+                } else {
+                    // Remove existing file and create symlink
+                    fs::remove_file(&npmrc_path)?;
+                    symlink(relative_root, &npmrc_path)?;
+                    println!("  {} {} (replaced)", "✓".green(), npmrc_path.display());
+                    created += 1;
+                }
+            } else {
+                // Create new symlink
+                symlink(relative_root, &npmrc_path)?;
+                println!("  {} {}", "✓".green(), npmrc_path.display());
+                created += 1;
+            }
+        }
+    }
+
+    // Process libs directory
+    let libs_dir = Path::new("libs");
+    if libs_dir.exists() {
+        for entry in fs::read_dir(libs_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if !path.is_dir() {
+                continue;
+            }
+
+            // Check if package.json exists (valid lib)
+            if !path.join("package.json").exists() {
+                continue;
+            }
+
+            let npmrc_path = path.join(".npmrc");
+            let relative_root = "../../.npmrc";
+
+            if npmrc_path.exists() {
+                if npmrc_path.is_symlink() {
+                    println!("  {} {} (already linked)", "⏭️".yellow(), npmrc_path.display());
+                    skipped += 1;
+                } else {
+                    fs::remove_file(&npmrc_path)?;
+                    symlink(relative_root, &npmrc_path)?;
+                    println!("  {} {} (replaced)", "✓".green(), npmrc_path.display());
+                    created += 1;
+                }
+            } else {
+                symlink(relative_root, &npmrc_path)?;
+                println!("  {} {}", "✓".green(), npmrc_path.display());
+                created += 1;
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "{} Created {} symlinks, skipped {} existing",
+        "✅".green(),
+        created,
+        skipped
+    );
+    println!();
+    println!("{}", "🛡️  Triple-layer defense active:".bright_yellow());
+    println!("  1. .npmrc symlinks (primary)");
+    println!("  2. preinstall hooks (backup)");
+    println!("  3. Root preinstall + monorepo check (fallback)");
 
     Ok(())
 }

@@ -3,7 +3,7 @@
 
 [package]
 name = "airis"
-version = "1.11.0"
+version = "1.12.0"
 edition = "2024"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -33,6 +33,7 @@ indexmap = { version = "2.7", features = ["serde"] }
 regex = "1.11"
 chrono = "0.4"
 sha2 = "0.10"
+glob = "0.3"
 
 [dev-dependencies]
 assert_cmd = "2.0"

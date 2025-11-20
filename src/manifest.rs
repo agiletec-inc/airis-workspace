@@ -408,10 +408,13 @@ fn default_workspace_workdir() -> String {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct DevSection {
-    /// Apps to start in development (preferred over autostart)
+    /// Glob pattern for auto-discovering app docker-compose files (recommended)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apps_pattern: Option<String>,
+    /// Apps to start in development (legacy - prefer apps_pattern)
     #[serde(default)]
     pub apps: Vec<String>,
-    /// Legacy: apps to autostart (use apps instead)
+    /// Legacy: apps to autostart (use apps_pattern instead)
     #[serde(default)]
     pub autostart: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

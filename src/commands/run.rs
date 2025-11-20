@@ -1,5 +1,7 @@
 use anyhow::{bail, Context, Result};
+use chrono;
 use colored::Colorize;
+use glob::glob;
 use indexmap::IndexMap;
 use std::path::Path;
 use std::process::Command;
@@ -108,33 +110,51 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 4. Start apps from [dev].apps (auto-detect docker-compose.yml)
-    if !dev.apps.is_empty() {
+    // 4. Start apps using autodiscovery (apps_pattern) or legacy [dev].apps list
+    let apps_pattern = dev.apps_pattern.as_deref().unwrap_or("apps/*/docker-compose.yml");
+
+    // Collect compose files via glob
+    let mut compose_files: Vec<String> = Vec::new();
+
+    if let Ok(entries) = glob(apps_pattern) {
+        for entry in entries.flatten() {
+            if let Some(path_str) = entry.to_str() {
+                compose_files.push(path_str.to_string());
+            }
+        }
+    }
+
+    // Sort for consistent ordering
+    compose_files.sort();
+
+    if !compose_files.is_empty() {
         println!("{}", "🚀 Starting apps...".cyan().bold());
+        println!("   {} Found {} apps via pattern: {}", "🔍".dimmed(), compose_files.len(), apps_pattern.dimmed());
 
-        for app_name in &dev.apps {
-            let compose_path = format!("apps/{}/docker-compose.yml", app_name);
-            let compose_file = Path::new(&compose_path);
+        for compose_path in &compose_files {
+            // Extract app name from path (apps/foo/docker-compose.yml -> foo)
+            let app_name = Path::new(compose_path)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
 
-            if compose_file.exists() {
-                println!("   {} Starting {}...", "→".dimmed(), app_name.bold());
-                // Try common profile names: airis, app-name, app_name
-                let profile_name = app_name.replace("-", "_");
-                let cmd_with_profile = format!("docker compose -f {} --profile airis --profile {} up -d", compose_path, profile_name);
-                let cmd_default = format!("docker compose -f {} up -d --remove-orphans", compose_path);
+            println!("   {} Starting {}...", "→".dimmed(), app_name.bold());
 
-                // Try with profiles first, then without
-                if !exec_command(&cmd_with_profile).unwrap_or(false) {
-                    if !exec_command(&cmd_default)? {
-                        println!("   {} {} failed to start", "⚠️".yellow(), app_name);
-                    } else {
-                        println!("   {} {} started", "✅".green(), app_name);
-                    }
+            // Try common profile names: airis, app_name
+            let profile_name = app_name.replace("-", "_");
+            let cmd_with_profile = format!("docker compose -f {} --profile airis --profile {} up -d", compose_path, profile_name);
+            let cmd_default = format!("docker compose -f {} up -d --remove-orphans", compose_path);
+
+            // Try with profiles first, then without
+            if !exec_command(&cmd_with_profile).unwrap_or(false) {
+                if !exec_command(&cmd_default)? {
+                    println!("   {} {} failed to start", "⚠️".yellow(), app_name);
                 } else {
                     println!("   {} {} started", "✅".green(), app_name);
                 }
             } else {
-                println!("   {} {} (no docker-compose.yml)", "⏭️".dimmed(), app_name.dimmed());
+                println!("   {} {} started", "✅".green(), app_name);
             }
         }
     }
@@ -147,19 +167,33 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
 fn orchestrated_down(manifest: &Manifest) -> Result<()> {
     let dev = &manifest.dev;
 
-    // 1. Stop apps (reverse order)
-    if !dev.apps.is_empty() {
+    // 1. Stop apps (autodiscovery, reverse order)
+    let apps_pattern = dev.apps_pattern.as_deref().unwrap_or("apps/*/docker-compose.yml");
+
+    let mut compose_files: Vec<String> = Vec::new();
+    if let Ok(entries) = glob(apps_pattern) {
+        for entry in entries.flatten() {
+            if let Some(path_str) = entry.to_str() {
+                compose_files.push(path_str.to_string());
+            }
+        }
+    }
+    compose_files.sort();
+    compose_files.reverse(); // Stop in reverse order
+
+    if !compose_files.is_empty() {
         println!("{}", "🛑 Stopping apps...".cyan().bold());
 
-        for app_name in dev.apps.iter().rev() {
-            let compose_path = format!("apps/{}/docker-compose.yml", app_name);
-            let compose_file = Path::new(&compose_path);
+        for compose_path in &compose_files {
+            let app_name = Path::new(compose_path)
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
 
-            if compose_file.exists() {
-                let cmd = format!("docker compose -f {} down --remove-orphans", compose_path);
-                let _ = exec_command(&cmd);
-                println!("   {} {} stopped", "✅".green(), app_name);
-            }
+            let cmd = format!("docker compose -f {} down --remove-orphans", compose_path);
+            let _ = exec_command(&cmd);
+            println!("   {} {} stopped", "✅".green(), app_name);
         }
     }
 
@@ -298,7 +332,12 @@ fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
 /// Check if orchestration is configured in manifest
 fn has_orchestration(manifest: &Manifest) -> bool {
     let dev = &manifest.dev;
-    dev.supabase.is_some() || !dev.apps.is_empty() || dev.traefik.is_some()
+    // Check for any orchestration config (supabase, traefik, workspace, or apps_pattern)
+    dev.supabase.is_some()
+        || dev.traefik.is_some()
+        || dev.workspace.is_some()
+        || dev.apps_pattern.is_some()
+        || !dev.apps.is_empty() // legacy support
 }
 
 /// Execute a command defined in manifest.toml [commands] section
@@ -457,6 +496,147 @@ pub fn run_exec(service: &str, cmd: &[String]) -> Result<()> {
     if !status.success() {
         bail!("Command failed with exit code: {:?}", status.code());
     }
+
+    Ok(())
+}
+
+/// Build production Docker image for an app
+pub fn run_build_prod(app: &str) -> Result<()> {
+    use std::time::Instant;
+
+    let app_dir = format!("apps/{}", app);
+    let dockerfile = format!("{}/Dockerfile.prod", app_dir);
+
+    if !Path::new(&app_dir).exists() {
+        bail!("❌ App directory {} not found", app_dir);
+    }
+
+    if !Path::new(&dockerfile).exists() {
+        bail!("❌ Dockerfile.prod not found in {}", app_dir);
+    }
+
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+
+    println!("{}", "==================================".bright_blue());
+    println!("{}", "Building Production Image".bright_blue().bold());
+    println!("App: {}", app.cyan());
+    println!("Timestamp: {}", timestamp);
+    println!("{}", "==================================".bright_blue());
+
+    let start = Instant::now();
+
+    // Build with BuildKit
+    let cmd = format!(
+        "DOCKER_BUILDKIT=1 docker build -f {} -t {}:latest -t {}:{} --progress=plain .",
+        dockerfile, app, app, timestamp
+    );
+
+    println!("🚀 Running: {}", cmd.cyan());
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&cmd)
+        .status()
+        .with_context(|| "Failed to execute docker build")?;
+
+    let duration = start.elapsed().as_secs();
+
+    if !status.success() {
+        bail!("Build failed with exit code: {:?}", status.code());
+    }
+
+    // Get image size
+    let size_output = Command::new("docker")
+        .args(["images", &format!("{}:latest", app), "--format", "{{.Size}}"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    println!();
+    println!("{}", "==================================".bright_blue());
+    println!("Build completed in {}s", duration);
+    println!("{}", "==================================".bright_blue());
+    println!();
+    println!("{}", "📊 Build Metrics:".bright_yellow());
+    println!("  Duration: {}s", duration);
+    println!("  Image Size: {}", size_output.trim());
+    println!();
+    println!("{}", "✅ Build successful!".green());
+    println!();
+    println!("{}", "Next steps:".bright_yellow());
+    println!("  1. Test locally: docker run -p 3000:3000 {}:latest", app);
+    println!("  2. Verify health: curl http://localhost:3000/api/health");
+
+    Ok(())
+}
+
+/// Quick build test for standalone output
+pub fn run_build_quick(app: &str) -> Result<()> {
+    let manifest_path = Path::new("manifest.toml");
+
+    if !manifest_path.exists() {
+        bail!(
+            "❌ manifest.toml not found. Run {} first.",
+            "airis init".bold()
+        );
+    }
+
+    let manifest = Manifest::load(manifest_path)
+        .with_context(|| "Failed to load manifest.toml")?;
+
+    let app_dir = format!("apps/{}", app);
+
+    if !Path::new(&app_dir).exists() {
+        bail!("❌ App directory {} not found", app_dir);
+    }
+
+    println!("🔨 Testing production build for {}", app.cyan());
+    println!();
+
+    // Check for standalone output in next.config
+    let next_config = format!("{}/next.config.mjs", app_dir);
+    if Path::new(&next_config).exists() {
+        let config_content = std::fs::read_to_string(&next_config)?;
+        if config_content.contains("output") && config_content.contains("standalone") {
+            println!("{}", "✅ Standalone output configured".green());
+        } else {
+            println!("{}", "⚠️  Warning: Standalone output not found in next.config.mjs".yellow());
+        }
+    }
+
+    // Build in workspace
+    let exec_cmd = format!("exec workspace sh -c 'cd {} && pnpm build'", app_dir);
+    let full_cmd = build_compose_command(&manifest, &exec_cmd);
+
+    println!("🚀 Running: {}", full_cmd.cyan());
+
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(&full_cmd)
+        .status()
+        .with_context(|| "Failed to execute build")?;
+
+    if !status.success() {
+        bail!("Build failed with exit code: {:?}", status.code());
+    }
+
+    println!();
+    println!("{}", "✅ Build completed!".green());
+    println!();
+    println!("{}", "📁 Checking output directory...".bright_yellow());
+
+    // Check standalone output
+    let check_cmd = format!(
+        "exec workspace sh -c 'ls -lh {0}/.next/standalone/ 2>/dev/null || echo \"Standalone output not found\"'",
+        app_dir
+    );
+    let check_full_cmd = build_compose_command(&manifest, &check_cmd);
+
+    let _ = Command::new("sh")
+        .arg("-c")
+        .arg(&check_full_cmd)
+        .status();
 
     Ok(())
 }
