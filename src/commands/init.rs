@@ -177,125 +177,22 @@ fn validate_manifest(manifest: &Manifest) {
     }
 }
 
-/// Sync filesystem changes back into manifest.toml (bidirectional sync)
-fn sync_from_filesystem(manifest: &mut Manifest, root: &Path) -> Result<bool> {
-    let discovered = discover::discover_project(root)?;
-    let mut modified = false;
-
-    // Sync [dev] section from docker-compose files
-    if let Some(workspace) = &discovered.compose_files.workspace {
-        let rel_path = workspace.strip_prefix(root)
-            .ok()
-            .and_then(|p| p.to_str())
-            .map(|s| s.to_string());
-        if manifest.dev.workspace != rel_path {
-            manifest.dev.workspace = rel_path;
-            modified = true;
-        }
-    }
-
-    if !discovered.compose_files.supabase.is_empty() {
-        let supabase_paths: Vec<String> = discovered.compose_files.supabase
-            .iter()
-            .filter_map(|p| {
-                p.strip_prefix(root)
-                    .ok()
-                    .and_then(|rel| rel.to_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
-        if manifest.dev.supabase != Some(supabase_paths.clone()) {
-            manifest.dev.supabase = Some(supabase_paths);
-            modified = true;
-        }
-    }
-
-    if let Some(traefik) = &discovered.compose_files.traefik {
-        let rel_path = traefik.strip_prefix(root)
-            .ok()
-            .and_then(|p| p.to_str())
-            .map(|s| s.to_string());
-        if manifest.dev.traefik != rel_path {
-            manifest.dev.traefik = rel_path;
-            modified = true;
-        }
-    }
-
-    // Sync [apps] section from discovered apps
-    for app in &discovered.apps {
-        let rel_path = app.path.strip_prefix(root)
-            .ok()
-            .and_then(|p| p.to_str())
-            .map(|s| s.to_string());
-
-        let app_type_str = match app.app_type {
-            discover::AppType::NextJs => Some("nextjs".to_string()),
-            discover::AppType::Node => Some("node".to_string()),
-            discover::AppType::Rust => Some("rust".to_string()),
-            discover::AppType::Python => Some("python".to_string()),
-            discover::AppType::Unknown => None,
-        };
-
-        use crate::manifest::AppConfig;
-        let new_config = AppConfig {
-            path: rel_path,
-            app_type: app_type_str,
-        };
-
-        if !manifest.apps.contains_key(&app.name) {
-            manifest.apps.insert(app.name.clone(), new_config);
-            modified = true;
-        } else if let Some(existing) = manifest.apps.get(&app.name) {
-            if existing != &new_config {
-                manifest.apps.insert(app.name.clone(), new_config);
-                modified = true;
-            }
-        }
-    }
-
-    // Sync [libs] section from discovered libs
-    for lib in &discovered.libs {
-        let rel_path = lib.path.strip_prefix(root)
-            .ok()
-            .and_then(|p| p.to_str())
-            .map(|s| s.to_string());
-
-        use crate::manifest::LibConfig;
-        let new_config = LibConfig {
-            path: rel_path,
-        };
-
-        if !manifest.libs.contains_key(&lib.name) {
-            manifest.libs.insert(lib.name.clone(), new_config);
-            modified = true;
-        } else if let Some(existing) = manifest.libs.get(&lib.name) {
-            if existing != &new_config {
-                manifest.libs.insert(lib.name.clone(), new_config);
-                modified = true;
-            }
-        }
-    }
-
-    // Sync [packages.catalog] from package.json
-    for entry in discovered.catalog {
-        use crate::manifest::CatalogEntry;
-        let new_entry = CatalogEntry::Version(entry.version);
-
-        if !manifest.packages.catalog.contains_key(&entry.name) {
-            manifest.packages.catalog.insert(entry.name, new_entry);
-            modified = true;
-        }
-    }
-
-    Ok(modified)
-}
+// REMOVED: sync_from_filesystem() - bidirectional sync is handled by /airis:init LLM command
+// The Rust CLI is now READ-ONLY: manifest.toml → generated files only
+// For updating manifest.toml from filesystem changes, use: /airis:init (Claude Code custom command)
 
 /// Initialize or optimize manifest-driven workspace files
 ///
-/// NEW BEHAVIOR: Bidirectional sync!
-/// - Always syncs filesystem → manifest.toml (discovers new files)
-/// - Then syncs manifest.toml → generated files
-/// - manifest.toml stays as source of truth but auto-updates from reality
+/// READ-ONLY MODE: manifest.toml → generated files
+/// - Reads manifest.toml (source of truth)
+/// - Generates workspace files (package.json, pnpm-workspace.yaml, workflows, etc.)
+/// - NEVER modifies manifest.toml (except on initial creation)
+/// - For updating manifest.toml from filesystem: use `/airis:init` (Claude Code command)
+///
+/// Initial creation mode (when manifest.toml doesn't exist):
+/// - Auto-discovers apps/libs structure
+/// - Creates manifest.toml from discovered structure
+/// - Only happens once on first run
 ///
 /// Snapshot behavior:
 /// - Default: auto-snapshot on first run (when .airis/snapshots.toml doesn't exist)
@@ -325,8 +222,8 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         println!();
     }
 
-    let mut manifest = if manifest_path.exists() {
-        // Load existing manifest
+    let manifest = if manifest_path.exists() {
+        // Load existing manifest (READ-ONLY mode)
         println!("{}", "📖 Loading existing manifest.toml...".bright_blue());
         Manifest::load(manifest_path)?
     } else {
@@ -343,7 +240,7 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         let has_apps = current_dir.join("apps").exists();
         let has_libs = current_dir.join("libs").exists();
 
-        if has_apps || has_libs {
+        let manifest = if has_apps || has_libs {
             println!("{}", "🔍 Existing project detected! Auto-discovering structure...".bright_blue());
             println!();
 
@@ -356,25 +253,14 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         } else {
             println!("{}", "📝 Generating manifest.toml template...".bright_blue());
             Manifest::default_with_project(&project_name)
-        }
-    };
+        };
 
-    // ⭐ NEW: Always sync from filesystem to manifest
-    println!("{}", "🔄 Syncing filesystem changes to manifest.toml...".bright_blue());
-    let manifest_modified = sync_from_filesystem(&mut manifest, &current_dir)?;
-
-    if manifest_modified {
-        println!("{}", "  ✓ Updated manifest.toml from filesystem changes".green());
+        // Save newly created manifest
         manifest.save(manifest_path)
-            .context("Failed to save updated manifest.toml")?;
-    } else {
-        println!("{}", "  ✓ No filesystem changes detected".green());
-        // Save if it's a new manifest
-        if !manifest_path.exists() {
-            manifest.save(manifest_path)
-                .context("Failed to write manifest.toml")?;
-        }
-    }
+            .context("Failed to write manifest.toml")?;
+
+        manifest
+    };
 
     // Validate manifest and print warnings for configuration issues
     validate_manifest(&manifest);
@@ -401,11 +287,12 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
     }
 
     println!();
-    println!("{}", "✅ Workspace synced from manifest.toml".green());
+    println!("{}", "✅ Workspace files generated from manifest.toml".green());
     println!("{}", "Next steps:".bright_yellow());
-    println!("  1. Edit manifest.toml if needed (apps, libs, catalog)");
-    println!("  2. Re-run `airis init` to re-sync generated files");
-    println!("  3. Run `airis up` to start development");
+    println!("  1. Edit manifest.toml to add/remove apps, libs, or catalog entries");
+    println!("  2. Run `airis init` to regenerate workspace files from manifest");
+    println!("  3. Use `/airis:init` (Claude Code) to sync filesystem → manifest.toml");
+    println!("  4. Run `airis up` to start development");
 
     Ok(())
 }
@@ -559,8 +446,9 @@ fi
     Ok(())
 }
 
-// DELETED: merge_discovery_into_manifest() is no longer used
-// manifest.toml is never modified after initial creation
+// REMOVED: merge_discovery_into_manifest() and sync_from_filesystem() are no longer used
+// manifest.toml is NEVER modified after initial creation (READ-ONLY mode)
+// For updating manifest.toml from filesystem: use /airis:init (Claude Code custom command)
 
 fn create_manifest_from_discovery(
     project_name: &str,
