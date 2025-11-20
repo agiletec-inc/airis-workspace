@@ -219,6 +219,19 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     }
 
     println!("\n{}", "✅ All services started!".green().bold());
+
+    // Display accessible URLs
+    println!();
+    println!("{}", "📋 Available URLs:".bright_yellow());
+    println!("   Supabase Studio:  http://studio.agiletec.localhost:8081");
+    println!("   Supabase API:     http://localhost:18000");
+    println!("   Traefik:          http://localhost:8081");
+    println!();
+    println!("{}", "💡 To start apps:".bright_yellow());
+    println!("   cd apps/airis-dashboard && docker compose up");
+    println!("   → Access: http://agiletec.localhost:8081/dashboard");
+    println!();
+
     Ok(())
 }
 
@@ -329,32 +342,42 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
 }
 
 /// Build clean command from manifest.toml [workspace.clean] section
+///
+/// Docker First Philosophy:
+/// - Clean HOST side artifacts only (leaked node_modules, .next, etc.)
+/// - NEVER touch container cache (preserve build speed)
+/// - Exclude supabase and .git directories
 fn build_clean_command(manifest: &Manifest) -> String {
     let clean = &manifest.workspace.clean;
     let mut parts = Vec::new();
 
-    // Recursive patterns (e.g., node_modules)
+    // Status message
+    parts.push("echo '🧹 Cleaning host build artifacts...'".to_string());
+
+    // Recursive patterns (e.g., node_modules) - clean on host side only
+    // Use simple find without -prune to catch all matching directories
     for pattern in &clean.recursive {
         parts.push(format!(
-            "find . -name '{}' -type d -prune -exec rm -rf {{}} + 2>/dev/null",
+            "find . -maxdepth 3 -type d -name '{}' -not -path './supabase/*' -not -path './.git/*' -exec rm -rf {{}} + 2>/dev/null || true",
             pattern
         ));
     }
 
-    // Root directories
+    // Root directories - clean on host side only
+    // These are typically in manifest.toml [workspace.clean].dirs
     if !clean.dirs.is_empty() {
         let dirs = clean.dirs.iter()
             .map(|d| format!("./{}", d))
             .collect::<Vec<_>>()
             .join(" ");
-        parts.push(format!("rm -rf {}", dirs));
+        parts.push(format!("rm -rf {} 2>/dev/null || true", dirs));
     }
 
-    // Always clean .DS_Store
+    // Always clean .DS_Store (macOS artifacts)
     parts.push("find . -name '.DS_Store' -delete 2>/dev/null || true".to_string());
 
     // Success message
-    parts.push("echo '✅ Cleaned all build artifacts'".to_string());
+    parts.push("echo '✅ Cleaned host build artifacts (container cache preserved)'".to_string());
 
     parts.join("; ")
 }
