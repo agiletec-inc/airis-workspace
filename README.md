@@ -809,6 +809,8 @@ airis sync-deps
 
 ## 📖 Documentation
 
+- [Airis Commands Usage](docs/airis-commands.md) - Complete command reference
+- [Airis Init Architecture](docs/airis-init-architecture.md) - How `airis init` works (READ-ONLY mode, LLM integration)
 - [Quick Start](docs/QUICKSTART.md) (planned)
 - [Migration Guide](docs/MIGRATION.md) - Makefile → Just (planned)
 - [Configuration Reference](docs/CONFIG.md) (planned)
