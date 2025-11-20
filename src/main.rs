@@ -90,7 +90,11 @@ enum Commands {
 
     /// Sync dependencies: resolve catalog policies to actual versions
     #[command(name = "sync-deps")]
-    SyncDeps,
+    SyncDeps {
+        /// Migrate packages to use pnpm catalog references
+        #[arg(long)]
+        migrate: bool,
+    },
 
     /// Run a command defined in manifest.toml [commands]
     Run {
@@ -111,13 +115,29 @@ enum Commands {
     Dev,
 
     /// Run tests (alias for 'run test')
-    Test,
+    Test {
+        /// Check coverage threshold
+        #[arg(long)]
+        coverage_check: bool,
+        /// Minimum coverage percentage (default: 80)
+        #[arg(long, default_value = "80")]
+        min_coverage: u8,
+    },
 
     /// Install dependencies (alias for 'run install')
     Install,
 
     /// Build all apps (alias for 'run build')
-    Build,
+    Build {
+        /// Build production Docker image
+        #[arg(long)]
+        prod: bool,
+        /// Quick build test (standalone output check)
+        #[arg(long)]
+        quick: bool,
+        /// App name (required for --prod or --quick)
+        app: Option<String>,
+    },
 
     /// Clean build artifacts (alias for 'run clean')
     Clean,
@@ -360,15 +380,41 @@ fn main() -> Result<()> {
         }
         Commands::Verify => commands::verify::run()?,
         Commands::Doctor { fix } => commands::doctor::run(fix)?,
-        Commands::SyncDeps => commands::sync_deps::run()?,
+        Commands::SyncDeps { migrate } => {
+            if migrate {
+                commands::sync_deps::run_migrate()?;
+            } else {
+                commands::sync_deps::run()?;
+            }
+        }
         Commands::Run { task } => commands::run::run(&task)?,
         Commands::Up => commands::run::run("up")?,
         Commands::Down => commands::run::run("down")?,
         Commands::Shell => commands::run::run("shell")?,
         Commands::Dev => commands::run::run("dev")?,
-        Commands::Test => commands::run::run("test")?,
+        Commands::Test { coverage_check, min_coverage } => {
+            if coverage_check {
+                commands::run::run_test_coverage(min_coverage)?;
+            } else {
+                commands::run::run("test")?;
+            }
+        }
         Commands::Install => commands::run::run("install")?,
-        Commands::Build => commands::run::run("build")?,
+        Commands::Build { prod, quick, app } => {
+            if prod {
+                let app_name = app.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("--prod requires --app <name>")
+                })?;
+                commands::run::run_build_prod(app_name)?;
+            } else if quick {
+                let app_name = app.as_deref().ok_or_else(|| {
+                    anyhow::anyhow!("--quick requires --app <name>")
+                })?;
+                commands::run::run_build_quick(app_name)?;
+            } else {
+                commands::run::run("build")?;
+            }
+        }
         Commands::Clean => commands::run::run("clean")?,
         Commands::Ps => commands::run::run("ps")?,
         Commands::Logs { service, follow, tail } => {

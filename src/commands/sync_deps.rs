@@ -240,3 +240,96 @@ fn update_pnpm_workspace(catalog: &IndexMap<String, String>) -> Result<()> {
 
     Ok(())
 }
+
+/// Migrate packages to use pnpm catalog references
+pub fn run_migrate() -> Result<()> {
+    use colored::Colorize;
+    use glob::glob;
+    use serde_json::Value;
+
+    println!("{}", "🔄 Migrating packages to use catalog references...".bright_blue());
+    println!();
+
+    // Load manifest to get catalog
+    let manifest = Manifest::load(Path::new("manifest.toml"))
+        .context("Failed to load manifest.toml")?;
+
+    let catalog = &manifest.packages.catalog;
+
+    if catalog.is_empty() {
+        println!("{}", "⚠️  No catalog entries found in manifest.toml".yellow());
+        return Ok(());
+    }
+
+    // Find all package.json files
+    let pattern = "{apps,libs}/*/package.json";
+    let mut migrated_count = 0;
+    let mut package_count = 0;
+
+    for entry in glob(pattern).context("Failed to read glob pattern")? {
+        let path = entry.context("Failed to read path")?;
+        package_count += 1;
+
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {}", path.display()))?;
+
+        let mut pkg: Value = serde_json::from_str(&content)
+            .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+        let mut changed = false;
+
+        // Process dependencies
+        for dep_type in &["dependencies", "devDependencies", "peerDependencies"] {
+            if let Some(deps) = pkg.get_mut(*dep_type) {
+                if let Some(deps_obj) = deps.as_object_mut() {
+                    for (name, version) in deps_obj.iter_mut() {
+                        // Check if this package is in catalog
+                        if catalog.contains_key(name) {
+                            let current = version.as_str().unwrap_or("");
+                            if current != "catalog:" {
+                                *version = Value::String("catalog:".to_string());
+                                changed = true;
+                                println!(
+                                    "  {} {} {} → catalog:",
+                                    "✓".green(),
+                                    path.display(),
+                                    name.cyan()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if changed {
+            // Write back with pretty formatting
+            let formatted = serde_json::to_string_pretty(&pkg)
+                .context("Failed to serialize JSON")?;
+
+            fs::write(&path, formatted + "\n")
+                .with_context(|| format!("Failed to write {}", path.display()))?;
+
+            migrated_count += 1;
+        }
+    }
+
+    println!();
+    if migrated_count > 0 {
+        println!(
+            "{}",
+            format!("✅ Migrated {} package(s) to use catalog references", migrated_count).green()
+        );
+        println!();
+        println!("{}", "Next steps:".bright_yellow());
+        println!("  1. Run 'airis install' to update lockfile");
+        println!("  2. Commit the changes");
+    } else {
+        println!(
+            "{}",
+            format!("✅ All {} package(s) already using catalog references (or no catalog matches)", package_count).green()
+        );
+    }
+
+    Ok(())
+}

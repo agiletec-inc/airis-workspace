@@ -15,37 +15,33 @@ pub enum BumpMode {
     Patch,    // x.y.z
 }
 
-/// Bump version in manifest.toml [meta].version and sync to Cargo.toml
+/// Bump version in Cargo.toml only (manifest.toml is NEVER modified)
+/// Version source of truth is git tags
 pub fn run(mode: BumpMode) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
-    if !manifest_path.exists() {
-        bail!(
-            "❌ {} not found. Run {} first.",
-            MANIFEST_FILE.bold(),
-            "airis init".bold()
-        );
-    }
-
-    let mut manifest = Manifest::load(manifest_path)
-        .with_context(|| format!("Failed to load {}", MANIFEST_FILE))?;
-
-    // Use [project].version as SoT, fallback to versioning.source for backward compatibility
-    let current_version = if !manifest.project.version.is_empty() {
-        manifest.project.version.clone()
+    // Load manifest for versioning strategy only
+    let manifest = if manifest_path.exists() {
+        Some(Manifest::load(manifest_path)
+            .with_context(|| format!("Failed to load {}", MANIFEST_FILE))?)
     } else {
-        manifest.versioning.source.clone()
+        None
     };
 
-    if current_version.is_empty() {
-        bail!("❌ No version found in manifest.toml. Add [project].version or [versioning].source.");
-    }
+    // Get current version from Cargo.toml (which should be synced from git tags)
+    let current_version = get_cargo_version()?
+        .ok_or_else(|| anyhow::anyhow!("❌ No version found in Cargo.toml"))?;
 
     // Determine bump type
     let new_version = match mode {
         BumpMode::Auto => {
             // Detect from last commit message or versioning strategy
-            match manifest.versioning.strategy {
+            let strategy = manifest
+                .as_ref()
+                .map(|m| m.versioning.strategy.clone())
+                .unwrap_or(VersioningStrategy::Auto);
+
+            match strategy {
                 VersioningStrategy::Manual => {
                     bail!("❌ Versioning strategy is 'manual'. Use --major, --minor, or --patch.");
                 }
@@ -71,20 +67,37 @@ pub fn run(mode: BumpMode) -> Result<()> {
         new_version.green().bold()
     );
 
-    // Update manifest.toml [project].version (SoT)
-    manifest.project.version = new_version.clone();
-    // Also update versioning.source for backward compatibility
-    manifest.versioning.source = new_version.clone();
-    manifest.save(manifest_path)?;
-
-    // Sync to Cargo.toml
+    // Update Cargo.toml only (manifest.toml is NEVER touched)
     update_cargo_toml(&new_version)?;
 
     println!("✅ Version bumped successfully!");
-    println!("   manifest.toml [project].version: {}", new_version.green());
     println!("   Cargo.toml: {}", new_version.green());
 
     Ok(())
+}
+
+/// Get current version from Cargo.toml
+fn get_cargo_version() -> Result<Option<String>> {
+    let cargo_path = Path::new("Cargo.toml");
+
+    if !cargo_path.exists() {
+        return Ok(None);
+    }
+
+    let content = fs::read_to_string(cargo_path)
+        .with_context(|| "Failed to read Cargo.toml")?;
+
+    // Extract version from Cargo.toml
+    let version = content
+        .lines()
+        .find(|line| line.trim().starts_with("version = "))
+        .and_then(|line| {
+            line.split('=')
+                .nth(1)
+                .map(|v| v.trim().trim_matches('"').to_string())
+        });
+
+    Ok(version)
 }
 
 /// Bump version string by type

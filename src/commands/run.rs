@@ -683,6 +683,81 @@ pub fn run_restart(service: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Run tests with coverage check
+pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
+    let manifest_path = Path::new("manifest.toml");
+
+    if !manifest_path.exists() {
+        bail!(
+            "❌ manifest.toml not found. Run {} first.",
+            "airis init".bold()
+        );
+    }
+
+    let manifest = Manifest::load(manifest_path)
+        .with_context(|| "Failed to load manifest.toml")?;
+
+    println!("🧪 Running tests with coverage check");
+    println!("📊 Minimum coverage threshold: {}%", min_coverage);
+    println!();
+
+    // Run tests with coverage in workspace
+    let test_cmd = "exec workspace pnpm test:coverage";
+    let full_cmd = build_compose_command(&manifest, test_cmd);
+
+    println!("🚀 Running: {}", full_cmd.cyan());
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(&full_cmd)
+        .output()
+        .with_context(|| "Failed to execute tests")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Print output
+    if !stdout.is_empty() {
+        println!("{}", stdout);
+    }
+    if !stderr.is_empty() {
+        eprintln!("{}", stderr);
+    }
+
+    if !output.status.success() {
+        bail!("Tests failed with exit code: {:?}", output.status.code());
+    }
+
+    // Parse coverage from output
+    // Look for patterns like "All files  |   85.5 |"
+    let coverage_regex = regex::Regex::new(r"All files\s*\|\s*(\d+\.?\d*)")?;
+
+    if let Some(captures) = coverage_regex.captures(&stdout) {
+        if let Some(coverage_match) = captures.get(1) {
+            let coverage: f64 = coverage_match.as_str().parse().unwrap_or(0.0);
+
+            println!();
+            if coverage >= min_coverage as f64 {
+                println!(
+                    "{}",
+                    format!("✅ Coverage {:.1}% meets threshold {}%", coverage, min_coverage).green()
+                );
+            } else {
+                bail!(
+                    "❌ Coverage {:.1}% is below threshold {}%",
+                    coverage,
+                    min_coverage
+                );
+            }
+        }
+    } else {
+        println!("{}", "⚠️  Could not parse coverage from output".yellow());
+        println!("Tests passed, but coverage check skipped.");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
