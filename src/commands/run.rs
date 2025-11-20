@@ -43,6 +43,37 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
     }
 }
 
+/// Build clean command from manifest.toml [workspace.clean] section
+fn build_clean_command(manifest: &Manifest) -> String {
+    let clean = &manifest.workspace.clean;
+    let mut parts = Vec::new();
+
+    // Recursive patterns (e.g., node_modules)
+    for pattern in &clean.recursive {
+        parts.push(format!(
+            "find . -name '{}' -type d -prune -exec rm -rf {{}} + 2>/dev/null",
+            pattern
+        ));
+    }
+
+    // Root directories
+    if !clean.dirs.is_empty() {
+        let dirs = clean.dirs.iter()
+            .map(|d| format!("./{}", d))
+            .collect::<Vec<_>>()
+            .join(" ");
+        parts.push(format!("rm -rf {}", dirs));
+    }
+
+    // Always clean .DS_Store
+    parts.push("find . -name '.DS_Store' -delete 2>/dev/null || true".to_string());
+
+    // Success message
+    parts.push("echo '✅ Cleaned all build artifacts'".to_string());
+
+    parts.join("; ")
+}
+
 /// Default commands when manifest.toml [commands] is empty
 fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
     let mut cmds = IndexMap::new();
@@ -54,7 +85,7 @@ fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
     cmds.insert("build".to_string(), build_compose_command(manifest, "exec workspace pnpm build"));
     cmds.insert("test".to_string(), build_compose_command(manifest, "exec workspace pnpm test"));
     cmds.insert("lint".to_string(), build_compose_command(manifest, "exec workspace pnpm lint"));
-    cmds.insert("clean".to_string(), "rm -rf ./node_modules ./dist ./.next ./build ./target".to_string());
+    cmds.insert("clean".to_string(), build_clean_command(manifest));
     cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f"));
     cmds.insert("ps".to_string(), build_compose_command(manifest, "ps"));
     cmds

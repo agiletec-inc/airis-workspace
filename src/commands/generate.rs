@@ -62,7 +62,6 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     let engine = TemplateEngine::new()?;
     println!("{}", "🧩 Rendering templates...".bright_blue());
     generate_docker_compose(&manifest, &engine)?;
-    generate_justfile(&manifest, &engine)?;
     generate_package_json(&manifest, &engine)?;
     generate_pnpm_workspace(&manifest, &engine, &resolved_catalog)?;
 
@@ -91,7 +90,6 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
 
     println!();
     println!("{}", "✅ Generated files:".green());
-    println!("   - justfile");
     println!("   - package.json");
     println!("   - pnpm-workspace.yaml");
     if manifest.ci.enabled {
@@ -111,14 +109,6 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     println!("  1. Configure workspace/docker-compose.yml");
     println!("  2. Run `airis up`");
 
-    Ok(())
-}
-
-fn generate_justfile(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    let path = Path::new("justfile");
-    backup_if_manual(path)?;
-    let content = engine.render_justfile(manifest)?;
-    fs::write(path, content).context("Failed to write justfile")?;
     Ok(())
 }
 

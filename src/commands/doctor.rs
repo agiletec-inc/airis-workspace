@@ -160,13 +160,6 @@ fn check_generated_files(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result
         issues,
     )?;
 
-    // Check justfile
-    check_file(
-        "justfile",
-        || engine.render_justfile(manifest),
-        issues,
-    )?;
-
     // Check GitHub workflows if CI is enabled
     if manifest.ci.enabled {
         check_file(

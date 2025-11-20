@@ -4,7 +4,7 @@ mode = "docker-first"
 [project]
 id = "airis-workspace"
 binary_name = "airis"
-# version is managed by CI via git tags (auto_version = true)
+version = "0.2.0"
 description = "Docker-first monorepo workspace manager for rapid prototyping"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
@@ -38,6 +38,7 @@ apps = []
 libs = []
 
 [dev]
+apps = []
 autostart = [
     "corporate-site",
     "airis-dashboard",
@@ -48,22 +49,18 @@ autostart = [
 [apps.corporate-site]
 path = "apps/corporate-site"
 type = "nextjs"
-port = 3000
 
 [apps.airis-dashboard]
 path = "apps/airis-dashboard"
 type = "nextjs"
-port = 3100
 
 [apps.airis-auto-call]
 path = "apps/airis-auto-call"
 type = "nextjs"
-port = 3200
 
 [apps.focustoday-web]
 path = "apps/focustoday-web"
 type = "nextjs"
-port = 3400
 
 [libs.ui]
 path = "libs/ui"
@@ -247,7 +244,7 @@ clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_mod
 
 [versioning]
 strategy = "auto"
-# version determined by CI from git tags
+source = "0.2.0"
 
 [docs]
 targets = []
@@ -256,7 +253,6 @@ mode = "warn"
 [ci]
 enabled = true
 auto_version = true
-# repository and homebrew_tap are auto-detected from git remote
 
 [ci.auto_merge]
 enabled = true

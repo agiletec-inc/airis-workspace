@@ -199,6 +199,7 @@ impl Manifest {
                 image: "node:22-alpine".to_string(),
                 workdir: "/app".to_string(),
                 volumes: vec![format!("{}-node-modules:/app/node_modules", name)],
+                clean: CleanSection::default(),
             },
             catalog: IndexMap::new(),
             workspaces: WorkspacesSection::default(),
@@ -298,6 +299,43 @@ pub struct WorkspaceSection {
     pub workdir: String,
     #[serde(default)]
     pub volumes: Vec<String>,
+    #[serde(default)]
+    pub clean: CleanSection,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CleanSection {
+    /// Root directories to remove (e.g., ".next", "dist", "build")
+    #[serde(default = "default_clean_dirs")]
+    pub dirs: Vec<String>,
+    /// Patterns to find and remove recursively (e.g., "node_modules")
+    #[serde(default = "default_clean_recursive")]
+    pub recursive: Vec<String>,
+}
+
+impl Default for CleanSection {
+    fn default() -> Self {
+        CleanSection {
+            dirs: default_clean_dirs(),
+            recursive: default_clean_recursive(),
+        }
+    }
+}
+
+fn default_clean_dirs() -> Vec<String> {
+    vec![
+        ".next".to_string(),
+        "dist".to_string(),
+        "build".to_string(),
+        "out".to_string(),
+        ".turbo".to_string(),
+        ".swc".to_string(),
+        ".cache".to_string(),
+    ]
+}
+
+fn default_clean_recursive() -> Vec<String> {
+    vec!["node_modules".to_string()]
 }
 
 impl Default for WorkspaceSection {
@@ -309,6 +347,7 @@ impl Default for WorkspaceSection {
             image: default_workspace_image(),
             workdir: default_workspace_workdir(),
             volumes: vec!["workspace-node-modules:/app/node_modules".to_string()],
+            clean: CleanSection::default(),
         }
     }
 }

@@ -361,6 +361,8 @@ fn compare_json_content(backup_path: &str, current_path: &str) -> Result<Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_snapshot_entry_serialization() {
@@ -379,5 +381,226 @@ mod tests {
         let toml_str = toml::to_string(&snapshots).unwrap();
         assert!(toml_str.contains("[[snapshot]]"));
         assert!(toml_str.contains("package.json"));
+    }
+
+    #[test]
+    fn test_snapshot_targets_contains_expected_files() {
+        assert!(SNAPSHOT_TARGETS.contains(&"package.json"));
+        assert!(SNAPSHOT_TARGETS.contains(&"pnpm-workspace.yaml"));
+        assert!(SNAPSHOT_TARGETS.contains(&"justfile"));
+        assert!(SNAPSHOT_TARGETS.contains(&"docker-compose.yml"));
+        assert!(SNAPSHOT_TARGETS.contains(&".github/workflows/ci.yml"));
+        assert!(SNAPSHOT_TARGETS.contains(&".github/workflows/release.yml"));
+    }
+
+    #[test]
+    fn test_compare_json_content_identical() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let content = r#"{"name": "test", "version": "1.0.0"}"#;
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, content).unwrap();
+        fs::write(&current_path, content).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_compare_json_content_added_dependency() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let backup = r#"{"dependencies": {"react": "^18.0.0"}}"#;
+        let current = r#"{"dependencies": {"react": "^18.0.0", "lodash": "^4.0.0"}}"#;
+
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, backup).unwrap();
+        fs::write(&current_path, current).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("lodash added"));
+    }
+
+    #[test]
+    fn test_compare_json_content_removed_dependency() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let backup = r#"{"dependencies": {"react": "^18.0.0", "lodash": "^4.0.0"}}"#;
+        let current = r#"{"dependencies": {"react": "^18.0.0"}}"#;
+
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, backup).unwrap();
+        fs::write(&current_path, current).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("lodash removed"));
+    }
+
+    #[test]
+    fn test_compare_json_content_changed_version() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let backup = r#"{"dependencies": {"react": "^17.0.0"}}"#;
+        let current = r#"{"dependencies": {"react": "^18.0.0"}}"#;
+
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, backup).unwrap();
+        fs::write(&current_path, current).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_some());
+        let details = result.unwrap();
+        assert!(details.contains("react"));
+        assert!(details.contains("^17.0.0"));
+        assert!(details.contains("^18.0.0"));
+    }
+
+    #[test]
+    fn test_compare_json_content_dev_dependencies() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let backup = r#"{"devDependencies": {"typescript": "^5.0.0"}}"#;
+        let current = r#"{"devDependencies": {}}"#;
+
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, backup).unwrap();
+        fs::write(&current_path, current).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("typescript (dev) removed"));
+    }
+
+    #[test]
+    fn test_compare_json_content_non_dependency_change() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let backup = r#"{"name": "old-name"}"#;
+        let current = r#"{"name": "new-name"}"#;
+
+        let backup_path = temp_dir.path().join("backup.json");
+        let current_path = temp_dir.path().join("current.json");
+
+        fs::write(&backup_path, backup).unwrap();
+        fs::write(&current_path, current).unwrap();
+
+        let result = compare_json_content(
+            backup_path.to_str().unwrap(),
+            current_path.to_str().unwrap(),
+        ).unwrap();
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("non-dependency fields"));
+    }
+
+    #[test]
+    fn test_hash_calculation() {
+        // Test that SHA256 hash is calculated correctly
+        let content = r#"{"name": "test"}"#;
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        let hash = format!("sha256:{:x}", hasher.finalize());
+
+        assert!(hash.starts_with("sha256:"));
+        assert_eq!(hash.len(), 7 + 64); // "sha256:" + 64 hex chars
+    }
+
+    #[test]
+    fn test_snapshots_serialization_roundtrip() {
+        let entry = SnapshotEntry {
+            path: "package.json".to_string(),
+            backup_path: ".airis/backups/package.json.2025-11-20.json".to_string(),
+            format: "json".to_string(),
+            captured_at: "2025-11-20T10:30:00Z".to_string(),
+            hash: "sha256:abcd1234".to_string(),
+        };
+
+        let snapshots = Snapshots {
+            snapshot: vec![entry.clone()],
+        };
+
+        // Serialize to TOML
+        let toml_str = toml::to_string(&snapshots).unwrap();
+
+        // Deserialize back
+        let loaded: Snapshots = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(loaded.snapshot.len(), 1);
+        assert_eq!(loaded.snapshot[0].path, entry.path);
+        assert_eq!(loaded.snapshot[0].backup_path, entry.backup_path);
+        assert_eq!(loaded.snapshot[0].format, entry.format);
+        assert_eq!(loaded.snapshot[0].captured_at, entry.captured_at);
+        assert_eq!(loaded.snapshot[0].hash, entry.hash);
+    }
+
+    #[test]
+    fn test_snapshots_empty_default() {
+        let snapshots = Snapshots::default();
+        assert!(snapshots.snapshot.is_empty());
+    }
+
+    #[test]
+    fn test_snapshot_entry_clone() {
+        let entry = SnapshotEntry {
+            path: "test.json".to_string(),
+            backup_path: ".airis/backups/test.json".to_string(),
+            format: "json".to_string(),
+            captured_at: "2025-11-20T10:30:00Z".to_string(),
+            hash: "sha256:test".to_string(),
+        };
+
+        let cloned = entry.clone();
+        assert_eq!(entry.path, cloned.path);
+        assert_eq!(entry.hash, cloned.hash);
+    }
+
+    #[test]
+    fn test_diff_type_debug() {
+        let modified = DiffType::Modified;
+        let deleted = DiffType::Deleted;
+
+        // Verify Debug trait is implemented
+        assert!(format!("{:?}", modified).contains("Modified"));
+        assert!(format!("{:?}", deleted).contains("Deleted"));
+    }
+
+    #[test]
+    fn test_snapshot_diff_debug() {
+        let diff = SnapshotDiff {
+            path: "test.json".to_string(),
+            diff_type: DiffType::Modified,
+            details: "Content changed".to_string(),
+        };
+
+        // Verify Debug trait is implemented
+        let debug_str = format!("{:?}", diff);
+        assert!(debug_str.contains("test.json"));
+        assert!(debug_str.contains("Modified"));
     }
 }
