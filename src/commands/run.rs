@@ -6,6 +6,22 @@ use std::process::Command;
 
 use crate::manifest::Manifest;
 
+/// Extract package manager command from manifest (e.g., "pnpm@10.22.0" -> "pnpm")
+fn get_package_manager(manifest: &Manifest) -> &str {
+    let pm = &manifest.workspace.package_manager;
+    if pm.starts_with("pnpm") {
+        "pnpm"
+    } else if pm.starts_with("bun") {
+        "bun"
+    } else if pm.starts_with("npm") {
+        "npm"
+    } else if pm.starts_with("yarn") {
+        "yarn"
+    } else {
+        "pnpm" // default
+    }
+}
+
 /// Execute a shell command and return success status
 fn exec_command(cmd: &str) -> Result<bool> {
     let status = if cfg!(target_os = "windows") {
@@ -102,10 +118,18 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
 
             if compose_file.exists() {
                 println!("   {} Starting {}...", "→".dimmed(), app_name.bold());
-                let cmd = format!("docker compose -f {} up -d", compose_path);
+                // Try common profile names: airis, app-name, app_name
+                let profile_name = app_name.replace("-", "_");
+                let cmd_with_profile = format!("docker compose -f {} --profile airis --profile {} up -d", compose_path, profile_name);
+                let cmd_default = format!("docker compose -f {} up -d --remove-orphans", compose_path);
 
-                if !exec_command(&cmd)? {
-                    println!("   {} {} failed to start", "⚠️".yellow(), app_name);
+                // Try with profiles first, then without
+                if !exec_command(&cmd_with_profile).unwrap_or(false) {
+                    if !exec_command(&cmd_default)? {
+                        println!("   {} {} failed to start", "⚠️".yellow(), app_name);
+                    } else {
+                        println!("   {} {} started", "✅".green(), app_name);
+                    }
                 } else {
                     println!("   {} {} started", "✅".green(), app_name);
                 }
@@ -242,20 +266,32 @@ fn build_clean_command(manifest: &Manifest) -> String {
     parts.join("; ")
 }
 
-/// Default commands when manifest.toml [commands] is empty
+/// Default commands - CLI is the source of truth, manifest can override
 fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
+    let pm = get_package_manager(manifest);
+    let service = &manifest.workspace.service;
+
     let mut cmds = IndexMap::new();
+
+    // Docker compose commands (no package manager)
     cmds.insert("up".to_string(), build_compose_command(manifest, "up -d"));
     cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans"));
-    cmds.insert("shell".to_string(), build_compose_command(manifest, "exec -it workspace sh"));
-    cmds.insert("install".to_string(), build_compose_command(manifest, "exec workspace pnpm install"));
-    cmds.insert("dev".to_string(), build_compose_command(manifest, "exec workspace pnpm dev"));
-    cmds.insert("build".to_string(), build_compose_command(manifest, "exec workspace pnpm build"));
-    cmds.insert("test".to_string(), build_compose_command(manifest, "exec workspace pnpm test"));
-    cmds.insert("lint".to_string(), build_compose_command(manifest, "exec workspace pnpm lint"));
-    cmds.insert("clean".to_string(), build_clean_command(manifest));
     cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f"));
     cmds.insert("ps".to_string(), build_compose_command(manifest, "ps"));
+    cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service)));
+
+    // Package manager commands (auto-inferred from manifest.workspace.package_manager)
+    cmds.insert("install".to_string(), build_compose_command(manifest, &format!("exec {} {} install", service, pm)));
+    cmds.insert("dev".to_string(), build_compose_command(manifest, &format!("exec {} {} dev", service, pm)));
+    cmds.insert("build".to_string(), build_compose_command(manifest, &format!("exec {} {} build", service, pm)));
+    cmds.insert("test".to_string(), build_compose_command(manifest, &format!("exec {} {} test", service, pm)));
+    cmds.insert("lint".to_string(), build_compose_command(manifest, &format!("exec {} {} lint", service, pm)));
+    cmds.insert("typecheck".to_string(), build_compose_command(manifest, &format!("exec {} {} typecheck", service, pm)));
+    cmds.insert("format".to_string(), build_compose_command(manifest, &format!("exec {} {} format", service, pm)));
+
+    // Clean command
+    cmds.insert("clean".to_string(), build_clean_command(manifest));
+
     cmds
 }
 
@@ -288,12 +324,11 @@ pub fn run(task: &str) -> Result<()> {
         }
     }
 
-    // Use manifest commands or fall back to defaults
-    let commands = if manifest.commands.is_empty() {
-        default_commands(&manifest)
-    } else {
-        manifest.commands.clone()
-    };
+    // Merge: defaults + manifest overrides (manifest wins)
+    let mut commands = default_commands(&manifest);
+    for (key, value) in manifest.commands.iter() {
+        commands.insert(key.clone(), value.clone());
+    }
 
     // Check if command exists
     let cmd = commands
@@ -512,5 +547,144 @@ test = "echo 'test'"
             "Expected error about 'nonexistent' not found, got: {}",
             err_msg
         );
+    }
+
+    #[test]
+    fn test_get_package_manager_pnpm() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "pnpm@10.22.0"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(get_package_manager(&manifest), "pnpm");
+    }
+
+    #[test]
+    fn test_get_package_manager_bun() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "bun@1.0.0"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(get_package_manager(&manifest), "bun");
+    }
+
+    #[test]
+    fn test_get_package_manager_npm() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "npm@10.0.0"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(get_package_manager(&manifest), "npm");
+    }
+
+    #[test]
+    fn test_get_package_manager_yarn() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "yarn@4.0.0"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(get_package_manager(&manifest), "yarn");
+    }
+
+    #[test]
+    fn test_get_package_manager_default() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(get_package_manager(&manifest), "pnpm");
+    }
+
+    #[test]
+    fn test_default_commands_uses_package_manager() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "bun@1.0.0"
+service = "app"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        let cmds = default_commands(&manifest);
+
+        // Should use bun instead of pnpm
+        assert!(cmds.get("install").unwrap().contains("bun install"));
+        assert!(cmds.get("dev").unwrap().contains("bun dev"));
+        assert!(cmds.get("test").unwrap().contains("bun test"));
+        // Should use custom service name
+        assert!(cmds.get("shell").unwrap().contains("exec -it app sh"));
+    }
+
+    #[test]
+    fn test_manifest_commands_override_defaults() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+package_manager = "pnpm@10.0.0"
+
+[commands]
+test = "custom test command"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+
+        // Simulate merge logic
+        let mut commands = default_commands(&manifest);
+        for (key, value) in manifest.commands.iter() {
+            commands.insert(key.clone(), value.clone());
+        }
+
+        // test should be overridden
+        assert_eq!(commands.get("test").unwrap(), "custom test command");
+        // up should still be default
+        assert!(commands.get("up").unwrap().contains("docker compose"));
+        // dev should still use pnpm
+        assert!(commands.get("dev").unwrap().contains("pnpm dev"));
+    }
+
+    #[test]
+    fn test_manifest_can_add_custom_commands() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+
+[commands]
+my-custom = "echo custom"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+
+        // Simulate merge logic
+        let mut commands = default_commands(&manifest);
+        for (key, value) in manifest.commands.iter() {
+            commands.insert(key.clone(), value.clone());
+        }
+
+        // Custom command should exist
+        assert_eq!(commands.get("my-custom").unwrap(), "echo custom");
+        // Defaults should still exist
+        assert!(commands.contains_key("up"));
+        assert!(commands.contains_key("down"));
     }
 }

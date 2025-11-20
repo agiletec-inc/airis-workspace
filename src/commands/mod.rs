@@ -13,3 +13,5 @@ pub mod new_cmd;
 pub mod run;
 pub mod snapshot;
 pub mod sync_deps;
+pub mod validate_cmd;
+pub mod verify;

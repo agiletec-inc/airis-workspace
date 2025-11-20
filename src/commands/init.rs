@@ -32,6 +32,50 @@ fn get_project_name_from_git() -> Option<String> {
         })
 }
 
+/// Get version from latest git tag (e.g., v1.8.3 -> 1.8.3)
+fn get_version_from_git_tag() -> Option<String> {
+    Command::new("git")
+        .args(["describe", "--tags", "--abbrev=0"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            String::from_utf8(output.stdout)
+                .ok()
+                .map(|s| s.trim().trim_start_matches('v').to_string())
+        })
+}
+
+/// Sync version from git tag to manifest.toml and Cargo.toml
+fn sync_version_from_git_tag(manifest: &mut Manifest) -> Result<bool> {
+    let git_version = match get_version_from_git_tag() {
+        Some(v) => v,
+        None => return Ok(false), // No git tags, skip sync
+    };
+
+    // Check if version needs updating
+    let current_version = &manifest.project.version;
+    if current_version == &git_version {
+        return Ok(false); // Already in sync
+    }
+
+    // Update manifest version
+    let old_version = current_version.clone();
+    manifest.project.version = git_version.clone();
+
+    // Also update versioning.source if it exists
+    manifest.versioning.source = git_version.clone();
+
+    println!(
+        "{} {} → {}",
+        "🔄 Syncing version from git tag:".bright_blue(),
+        old_version.yellow(),
+        git_version.green()
+    );
+
+    Ok(true)
+}
+
 /// Initialize or optimize manifest-driven workspace files
 ///
 /// IMPORTANT: This command NEVER overwrites existing manifest.toml.
@@ -66,7 +110,7 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
         println!();
     }
 
-    let manifest = if manifest_path.exists() {
+    let mut manifest = if manifest_path.exists() {
         // ✅ READ-ONLY MODE: Never modify existing manifest.toml
         println!("{}", "📖 Using existing manifest.toml as source of truth".bright_blue());
         Manifest::load(manifest_path)?
@@ -107,6 +151,17 @@ pub fn run(force_snapshot: bool, no_snapshot: bool) -> Result<()> {
             manifest
         }
     };
+
+    // Sync version from git tag if auto_version is enabled
+    if manifest.ci.auto_version {
+        let version_updated = sync_version_from_git_tag(&mut manifest)?;
+        if version_updated {
+            // Save updated manifest with new version
+            manifest
+                .save(manifest_path)
+                .context("Failed to save manifest.toml with updated version")?;
+        }
+    }
 
     println!("{}", "🧩 Regenerating workspace files from manifest.toml...".bright_blue());
     generate::sync_from_manifest(&manifest)?;

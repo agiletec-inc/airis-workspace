@@ -130,3 +130,114 @@ fn make_executable(path: &Path) -> Result<()> {
     fs::set_permissions(path, perms)?;
     Ok(())
 }
+
+/// Check if running inside Docker container
+pub fn check_docker() -> Result<()> {
+    println!("{}", "🔍 Checking Docker environment...".bright_blue());
+
+    // Check DOCKER_CONTAINER environment variable
+    if std::env::var("DOCKER_CONTAINER").unwrap_or_default() == "true" {
+        println!("{}", "✅ Running inside Docker container (DOCKER_CONTAINER=true)".green());
+        return Ok(());
+    }
+
+    // Check for /.dockerenv file
+    if Path::new("/.dockerenv").exists() {
+        println!("{}", "✅ Running inside Docker container (/.dockerenv exists)".green());
+        return Ok(());
+    }
+
+    // Check /proc/1/cgroup for Docker
+    if let Ok(content) = fs::read_to_string("/proc/1/cgroup") {
+        if content.contains("docker") || content.contains("containerd") {
+            println!("{}", "✅ Running inside Docker container (cgroup detected)".green());
+            return Ok(());
+        }
+    }
+
+    // Check for CI environment
+    if std::env::var("CI").unwrap_or_default() == "true"
+        || std::env::var("GITHUB_ACTIONS").unwrap_or_default() == "true"
+        || std::env::var("GITLAB_CI").unwrap_or_default() == "true"
+    {
+        println!("{}", "✅ Running in CI environment".green());
+        return Ok(());
+    }
+
+    // Not in Docker - show error
+    println!();
+    println!("{}", "=".repeat(70).red());
+    println!("{}", "❌ CRITICAL ERROR: Not running inside Docker container".red().bold());
+    println!("{}", "=".repeat(70).red());
+    println!();
+    println!("{}", "【問題】".bright_yellow());
+    println!("  Mac ホスト上で実行しようとしています。");
+    println!("  Docker-First開発では、全てのコマンドはDocker内で実行する必要があります。");
+    println!();
+    println!("{}", "【正しい使用方法】".bright_yellow());
+    println!("  1. {} # Docker ワークスペースに入る", "airis shell".cyan());
+    println!("  2. コマンドを実行");
+    println!();
+    println!("{}", "【または】".bright_yellow());
+    println!("  {} # コンテナ内で直接実行", "airis exec workspace <command>".cyan());
+    println!();
+    println!("{}", "=".repeat(70).red());
+
+    anyhow::bail!("Not running inside Docker container");
+}
+
+/// Show guard status
+pub fn status() -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+
+    if !manifest_path.exists() {
+        println!("{}", "⚠️  manifest.toml not found".yellow());
+        return Ok(());
+    }
+
+    let manifest = Manifest::load(manifest_path)?;
+    let guards_dir = PathBuf::from(GUARDS_DIR);
+
+    println!("{}", "🛡️  Guard Status".bright_blue());
+    println!();
+
+    // Check if guards directory exists
+    if !guards_dir.exists() {
+        println!("{}", "Guards not installed. Run: airis guards install".yellow());
+        return Ok(());
+    }
+
+    // Show deny guards
+    if !manifest.guards.deny.is_empty() {
+        println!("{}", "Deny guards:".bright_yellow());
+        for cmd in &manifest.guards.deny {
+            let guard_path = guards_dir.join(cmd);
+            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            println!("  {} {}", status, cmd);
+        }
+        println!();
+    }
+
+    // Show wrap guards
+    if !manifest.guards.wrap.is_empty() {
+        println!("{}", "Wrap guards:".bright_yellow());
+        for (cmd, wrapper) in &manifest.guards.wrap {
+            let guard_path = guards_dir.join(cmd);
+            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            println!("  {} {} → {}", status, cmd, wrapper.dimmed());
+        }
+        println!();
+    }
+
+    // Show deny with message
+    if !manifest.guards.deny_with_message.is_empty() {
+        println!("{}", "Deny with message:".bright_yellow());
+        for (cmd, _) in &manifest.guards.deny_with_message {
+            let guard_path = guards_dir.join(cmd);
+            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            println!("  {} {}", status, cmd);
+        }
+    }
+
+    Ok(())
+}

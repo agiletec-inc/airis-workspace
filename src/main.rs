@@ -70,7 +70,13 @@ enum Commands {
     },
 
     /// Validate workspace configuration
-    Validate,
+    Validate {
+        #[command(subcommand)]
+        action: ValidateCommands,
+    },
+
+    /// Run system health checks
+    Verify,
 
     /// Diagnose and heal workspace configuration issues
     Doctor {
@@ -185,6 +191,11 @@ enum Commands {
 enum GuardsCommands {
     /// Install command guards (.airis/bin/*)
     Install,
+    /// Check if running inside Docker container
+    #[command(name = "check-docker")]
+    CheckDocker,
+    /// Show guard status
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -216,6 +227,18 @@ enum ManifestCommands {
         /// Rule name inside MANIFEST.toml (e.g. verify, ci)
         name: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ValidateCommands {
+    /// Check for ports: mapping in docker-compose files
+    Ports,
+    /// Check Traefik network wiring
+    Networks,
+    /// Check frontend environment variables
+    Env,
+    /// Run all validations
+    All,
 }
 
 #[derive(Subcommand)]
@@ -294,9 +317,19 @@ fn main() -> Result<()> {
             DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,
             DocsCommands::List => commands::docs::list()?,
         },
-        Commands::Validate => {
-            println!("⚠️  Validate command not yet implemented");
+        Commands::Validate { action } => {
+            use commands::validate_cmd::{self, ValidateAction};
+
+            let validate_action = match action {
+                ValidateCommands::Ports => ValidateAction::Ports,
+                ValidateCommands::Networks => ValidateAction::Networks,
+                ValidateCommands::Env => ValidateAction::Env,
+                ValidateCommands::All => ValidateAction::All,
+            };
+
+            validate_cmd::run(validate_action)?;
         }
+        Commands::Verify => commands::verify::run()?,
         Commands::Doctor { fix } => commands::doctor::run(fix)?,
         Commands::SyncDeps => commands::sync_deps::run()?,
         Commands::Run { task } => commands::run::run(&task)?,
