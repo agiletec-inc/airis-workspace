@@ -121,7 +121,7 @@ fn validate_manifest(manifest: &Manifest) {
     // Check: empty apps but docker-compose.yml exists (dangerous overwrite risk)
     if manifest.apps.is_empty() {
         let compose_exists = Path::new("docker-compose.yml").exists()
-            || Path::new("workspace/docker-compose.yml").exists();
+            || Path::new("docker-compose.yml").exists();
         let apps_dir_exists = Path::new("apps").exists();
 
         if compose_exists && apps_dir_exists {
@@ -460,14 +460,10 @@ fn create_manifest_from_discovery(
 
     let mut manifest = Manifest::default_with_project(project_name);
 
-    // Set dev.autostart from discovered apps
-    manifest.dev.autostart = discovered
-        .apps
-        .iter()
-        .map(|app| app.name.clone())
-        .collect();
+    // apps_pattern already defaults to "apps/*/docker-compose.yml"
+    // No need to explicitly list apps - they're auto-discovered at runtime
 
-    // Add app configurations with type and port
+    // Add app configurations with type
     for app in &discovered.apps {
         let rel_path = app.path.strip_prefix(root).ok()
             .and_then(|p| p.to_str())

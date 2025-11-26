@@ -88,8 +88,8 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
-    println!("   - workspace/Dockerfile.dev");
-    println!("   - workspace/docker-compose.yml");
+    println!("   - Dockerfile.dev");
+    println!("   - docker-compose.yml");
     if manifest.ci.enabled {
         println!("   - .github/workflows/ci.yml");
         println!("   - .github/workflows/release.yml");
@@ -178,19 +178,15 @@ fn resolve_catalog_versions(
 }
 
 fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    // Create workspace/ directory if it doesn't exist
-    let workspace_dir = Path::new("workspace");
-    fs::create_dir_all(workspace_dir).context("Failed to create workspace/ directory")?;
-
-    // Generate Dockerfile.dev
-    let dockerfile_path = workspace_dir.join("Dockerfile.dev");
+    // Generate Dockerfile.dev in root
+    let dockerfile_path = Path::new("Dockerfile.dev");
     let dockerfile_content = engine.render_dockerfile_dev(manifest)?;
-    write_with_backup(&dockerfile_path, &dockerfile_content)?;
+    write_with_backup(dockerfile_path, &dockerfile_content)?;
 
-    // Generate docker-compose.yml
-    let compose_path = workspace_dir.join("docker-compose.yml");
+    // Generate docker-compose.yml in root
+    let compose_path = Path::new("docker-compose.yml");
     let compose_content = engine.render_docker_compose(manifest)?;
-    write_with_backup(&compose_path, &compose_content)?;
+    write_with_backup(compose_path, &compose_content)?;
 
     Ok(())
 }

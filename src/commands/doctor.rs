@@ -253,13 +253,11 @@ where
 
 /// Check for orphaned packages (exist on disk but not in manifest)
 fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<()> {
-    // Get declared apps from manifest
+    // Get declared apps from manifest.apps keys
     let declared_apps: std::collections::HashSet<String> = manifest
-        .dev
         .apps
-        .iter()
+        .keys()
         .cloned()
-        .chain(manifest.dev.autostart.iter().cloned())
         .collect();
 
     // Check apps directory

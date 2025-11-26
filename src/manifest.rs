@@ -406,23 +406,32 @@ fn default_workspace_workdir() -> String {
     "/app".to_string()
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DevSection {
-    /// Glob pattern for auto-discovering app docker-compose files (recommended)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub apps_pattern: Option<String>,
-    /// Apps to start in development (legacy - prefer apps_pattern)
-    #[serde(default)]
-    pub apps: Vec<String>,
-    /// Legacy: apps to autostart (use apps_pattern instead)
-    #[serde(default)]
-    pub autostart: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
+    /// Glob pattern for auto-discovering app docker-compose files
+    /// Default: "apps/*/docker-compose.yml"
+    #[serde(default = "default_apps_pattern")]
+    pub apps_pattern: String,
+    /// Supabase compose files (e.g., ["supabase/docker-compose.yml"])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supabase: Option<Vec<String>>,
+    /// Traefik compose file (e.g., "traefik/docker-compose.yml")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
+}
+
+impl Default for DevSection {
+    fn default() -> Self {
+        DevSection {
+            apps_pattern: default_apps_pattern(),
+            supabase: None,
+            traefik: None,
+        }
+    }
+}
+
+fn default_apps_pattern() -> String {
+    "apps/*/docker-compose.yml".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]

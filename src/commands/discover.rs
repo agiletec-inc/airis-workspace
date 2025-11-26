@@ -29,10 +29,10 @@ pub struct DiscoveredLib {
 
 #[derive(Debug, Default)]
 pub struct DiscoveredComposeFiles {
+    /// Root docker-compose.yml (workspace definition)
     pub workspace: Option<PathBuf>,
     pub supabase: Vec<PathBuf>,
     pub traefik: Option<PathBuf>,
-    pub root: Option<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -307,19 +307,11 @@ fn discover_compose_files(root: &Path) -> Result<DiscoveredComposeFiles> {
     let mut compose_files = DiscoveredComposeFiles::default();
 
     // Check root
+    // Root docker-compose.yml is the workspace definition
+    // (no separate workspace/ directory needed)
     let root_compose = root.join("docker-compose.yml");
     if root_compose.exists() {
-        compose_files.root = Some(root_compose);
-    }
-
-    // Check workspace/
-    let workspace_dir = root.join("workspace");
-    if workspace_dir.exists() {
-        let workspace_compose = workspace_dir.join("docker-compose.yml");
-        if workspace_compose.exists() {
-            compose_files.workspace = Some(workspace_compose);
-        }
-        // Note: docker-compose.override.yml is merged automatically by docker compose
+        compose_files.workspace = Some(root_compose);
     }
 
     // Check supabase/ (with override support)
@@ -349,12 +341,9 @@ fn discover_compose_files(root: &Path) -> Result<DiscoveredComposeFiles> {
 }
 
 fn print_compose_discovery(compose_files: &DiscoveredComposeFiles) {
-    if compose_files.root.is_some() {
-        println!("  {} Found docker-compose.yml at root", "⚠️ ".yellow());
-    }
     if compose_files.workspace.is_some() {
         println!(
-            "  {} Found workspace/docker-compose.yml",
+            "  {} Found docker-compose.yml (workspace)",
             "✓".green()
         );
     }

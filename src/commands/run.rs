@@ -195,29 +195,19 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 3. Start workspace container (optional)
-    if let Some(workspace) = &dev.workspace {
+    // 3. Start workspace container (root docker-compose.yml)
+    let workspace_compose = Path::new("docker-compose.yml");
+    if workspace_compose.exists() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
-        if !smart_compose_up(None, &[workspace.as_str()])? {
+        if !smart_compose_up(None, &["docker-compose.yml"])? {
             println!("   {} Workspace failed to start, continuing anyway...", "⚠️".yellow());
             println!("   {} Apps will run without shared workspace container", "ℹ️".dimmed());
         }
-    } else {
-        // Fall back to default workspace location
-        let default_workspace = Path::new("workspace/docker-compose.yml");
-        if default_workspace.exists() {
-            println!("{}", "🛠️  Starting workspace...".cyan().bold());
-
-            if !smart_compose_up(None, &["workspace/docker-compose.yml"])? {
-                println!("   {} Workspace failed to start, continuing anyway...", "⚠️".yellow());
-                println!("   {} Apps will run without shared workspace container", "ℹ️".dimmed());
-            }
-        }
     }
 
-    // 4. Start apps using autodiscovery (apps_pattern) or legacy [dev].apps list
-    let apps_pattern = dev.apps_pattern.as_deref().unwrap_or("apps/*/docker-compose.yml");
+    // 4. Start apps using autodiscovery (apps_pattern)
+    let apps_pattern = &dev.apps_pattern;
 
     // Collect compose files via glob
     let mut compose_files: Vec<String> = Vec::new();
@@ -268,7 +258,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     println!("   Dashboard:          http://agiletec.localhost:8081/dashboard");
     println!("   Evidence Script:    http://agiletec.localhost:8081/evidence-script");
     println!("   Auto Call:          http://agiletec.localhost:8081/auto-call");
-    println!("   Voice Gateway:      http://agiletec.localhost:8081/voice-gateway");
+    println!("   Realtime Service:   http://agiletec.localhost:8081/realtime");
     println!("   Corporate Site:     http://agiletec.localhost:8081");
     println!("   FocusToday API:     http://agiletec.localhost:8081/focustoday-api");
     println!("   FocusToday Web:     http://agiletec.localhost:8081/focustoday");
@@ -283,7 +273,7 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
     let dev = &manifest.dev;
 
     // 1. Stop apps (autodiscovery, reverse order)
-    let apps_pattern = dev.apps_pattern.as_deref().unwrap_or("apps/*/docker-compose.yml");
+    let apps_pattern = &dev.apps_pattern;
 
     let mut compose_files: Vec<String> = Vec::new();
     if let Ok(entries) = glob(apps_pattern) {
@@ -312,18 +302,12 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 2. Stop workspace
-    if let Some(workspace) = &dev.workspace {
+    // 2. Stop workspace (root docker-compose.yml)
+    let workspace_compose = Path::new("docker-compose.yml");
+    if workspace_compose.exists() {
         println!("{}", "🛑 Stopping workspace...".cyan().bold());
-        let cmd = format!("docker compose -f {} down --remove-orphans", workspace);
-        let _ = exec_command(&cmd);
-    } else {
-        let default_workspace = Path::new("workspace/docker-compose.yml");
-        if default_workspace.exists() {
-            println!("{}", "🛑 Stopping workspace...".cyan().bold());
-            let cmd = "docker compose -f workspace/docker-compose.yml down --remove-orphans";
-            let _ = exec_command(cmd);
-        }
+        let cmd = "docker compose -f docker-compose.yml down --remove-orphans";
+        let _ = exec_command(cmd);
     }
 
     // 3. Stop Traefik
@@ -375,13 +359,14 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
         }
     }
 
-    // Fall back to default (workspace/docker-compose.yml if exists)
-    let workspace_compose = Path::new("workspace/docker-compose.yml");
+    // Fall back to default (docker-compose.yml if exists)
+    let workspace_compose = Path::new("docker-compose.yml");
     if workspace_compose.exists() {
-        format!("docker compose -f workspace/docker-compose.yml {}", base_cmd)
-    } else {
-        format!("docker compose {}", base_cmd)
+        // If we have a root docker-compose.yml, use it
+        return format!("docker compose -f docker-compose.yml {}", base_cmd);
     }
+
+    format!("docker compose {}", base_cmd)
 }
 
 /// Build clean command from manifest.toml [workspace.clean] section
@@ -471,12 +456,10 @@ fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
 /// Check if orchestration is configured in manifest
 fn has_orchestration(manifest: &Manifest) -> bool {
     let dev = &manifest.dev;
-    // Check for any orchestration config (supabase, traefik, workspace, or apps_pattern)
+    // Check for any orchestration config (supabase, traefik, or non-default apps_pattern)
     dev.supabase.is_some()
         || dev.traefik.is_some()
-        || dev.workspace.is_some()
-        || dev.apps_pattern.is_some()
-        || !dev.apps.is_empty() // legacy support
+        || !dev.apps_pattern.is_empty()
 }
 
 /// Execute a command defined in manifest.toml [commands] section

@@ -19,9 +19,8 @@ pub fn run(action: ManifestAction) -> Result<()> {
 
     match action {
         ManifestAction::DevApps => {
-            for app in manifest.dev.autostart {
-                println!("{app}");
-            }
+            // Print apps_pattern (glob pattern for auto-discovery)
+            println!("{}", manifest.dev.apps_pattern);
         }
         ManifestAction::Rule { name } => {
             let Some(rule) = manifest.rule.get(&name) else {
