@@ -117,7 +117,19 @@ fn generate_package_json(
 ) -> Result<()> {
     let path = Path::new("package.json");
     let content = engine.render_package_json(manifest, resolved_catalog)?;
-    write_with_backup(path, &content)?;
+
+    // Don't overwrite existing package.json - write to .md for comparison
+    if path.exists() {
+        let md_path = Path::new("package.json.md");
+        fs::write(md_path, &content)
+            .with_context(|| "Failed to write package.json.md")?;
+        println!(
+            "   {} package.json exists → wrote package.json.md for comparison",
+            "📄".yellow()
+        );
+    } else {
+        write_with_backup(path, &content)?;
+    }
     Ok(())
 }
 
@@ -127,7 +139,19 @@ fn generate_pnpm_workspace(
 ) -> Result<()> {
     let path = Path::new("pnpm-workspace.yaml");
     let content = engine.render_pnpm_workspace(manifest)?;
-    write_with_backup(path, &content)?;
+
+    // Don't overwrite existing pnpm-workspace.yaml - write to .md for comparison
+    if path.exists() {
+        let md_path = Path::new("pnpm-workspace.yaml.md");
+        fs::write(md_path, &content)
+            .with_context(|| "Failed to write pnpm-workspace.yaml.md")?;
+        println!(
+            "   {} pnpm-workspace.yaml exists → wrote pnpm-workspace.yaml.md for comparison",
+            "📄".yellow()
+        );
+    } else {
+        write_with_backup(path, &content)?;
+    }
     Ok(())
 }
 
@@ -224,15 +248,35 @@ fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine) -> Re
     let workflows_dir = Path::new(".github/workflows");
     fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 
-    // Generate ci.yml
+    // Generate ci.yml - don't overwrite existing
     let ci_path = workflows_dir.join("ci.yml");
     let ci_content = engine.render_ci_yml(manifest)?;
-    write_with_backup(&ci_path, &ci_content)?;
+    if ci_path.exists() {
+        let md_path = workflows_dir.join("ci.yml.md");
+        fs::write(&md_path, &ci_content)
+            .with_context(|| "Failed to write ci.yml.md")?;
+        println!(
+            "   {} ci.yml exists → wrote ci.yml.md for comparison",
+            "📄".yellow()
+        );
+    } else {
+        write_with_backup(&ci_path, &ci_content)?;
+    }
 
-    // Generate release.yml
+    // Generate release.yml - don't overwrite existing
     let release_path = workflows_dir.join("release.yml");
     let release_content = engine.render_release_yml(manifest)?;
-    write_with_backup(&release_path, &release_content)?;
+    if release_path.exists() {
+        let md_path = workflows_dir.join("release.yml.md");
+        fs::write(&md_path, &release_content)
+            .with_context(|| "Failed to write release.yml.md")?;
+        println!(
+            "   {} release.yml exists → wrote release.yml.md for comparison",
+            "📄".yellow()
+        );
+    } else {
+        write_with_backup(&release_path, &release_content)?;
+    }
 
     Ok(())
 }
