@@ -142,6 +142,15 @@ enum Commands {
     /// Clean build artifacts (alias for 'run clean')
     Clean,
 
+    /// Run linting (alias for 'run lint')
+    Lint,
+
+    /// Run code formatting (alias for 'run format')
+    Format,
+
+    /// Run type checking (alias for 'run typecheck')
+    Typecheck,
+
     /// Show Docker container status
     Ps,
 
@@ -449,6 +458,9 @@ fn main() -> Result<()> {
             }
         }
         Commands::Clean => commands::run::run("clean")?,
+        Commands::Lint => commands::run::run("lint")?,
+        Commands::Format => commands::run::run("format")?,
+        Commands::Typecheck => commands::run::run("typecheck")?,
         Commands::Ps => commands::run::run("ps")?,
         Commands::Logs { service, follow, tail } => {
             commands::run::run_logs(service.as_deref(), follow, tail)?

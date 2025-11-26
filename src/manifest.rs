@@ -418,6 +418,27 @@ pub struct DevSection {
     /// Traefik compose file (e.g., "traefik/compose.yml")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
+    /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub urls: Option<DevUrls>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct DevUrls {
+    /// Infrastructure URLs (e.g., Supabase Studio, Traefik Dashboard)
+    #[serde(default)]
+    pub infra: Vec<UrlEntry>,
+    /// Application URLs
+    #[serde(default)]
+    pub apps: Vec<UrlEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct UrlEntry {
+    /// Display name (e.g., "Dashboard", "Supabase Studio")
+    pub name: String,
+    /// URL (e.g., "http://localhost:3000")
+    pub url: String,
 }
 
 impl Default for DevSection {
@@ -426,6 +447,7 @@ impl Default for DevSection {
             apps_pattern: default_apps_pattern(),
             supabase: None,
             traefik: None,
+            urls: None,
         }
     }
 }

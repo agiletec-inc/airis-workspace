@@ -155,6 +155,152 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str]) -> Result<boo
     Ok(true)
 }
 
+/// Extract published ports from a docker-compose file
+fn get_compose_ports(compose_file: &str) -> Vec<(String, String, u16)> {
+    let output = Command::new("docker")
+        .args(["compose", "-f", compose_file, "config", "--format", "json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let mut results = Vec::new();
+
+    if let Ok(output) = output {
+        if output.status.success() {
+            if let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
+                if let Some(services) = config.get("services").and_then(|s| s.as_object()) {
+                    for (service_name, service) in services {
+                        // Get container_name or use service name
+                        let display_name = service
+                            .get("container_name")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or(service_name)
+                            .to_string();
+
+                        // Get ports
+                        if let Some(ports) = service.get("ports").and_then(|p| p.as_array()) {
+                            for port in ports {
+                                // Port can be string "8080:80" or object {target: 80, published: 8080}
+                                if let Some(port_str) = port.as_str() {
+                                    // Parse "host:container" or just "container"
+                                    if let Some((host, _)) = port_str.split_once(':') {
+                                        if let Ok(p) = host.parse::<u16>() {
+                                            results.push((service_name.clone(), display_name.clone(), p));
+                                        }
+                                    }
+                                } else if let Some(obj) = port.as_object() {
+                                    if let Some(published) = obj.get("published") {
+                                        let p = if let Some(p) = published.as_u64() {
+                                            p as u16
+                                        } else if let Some(s) = published.as_str() {
+                                            s.parse().unwrap_or(0)
+                                        } else {
+                                            0
+                                        };
+                                        if p > 0 {
+                                            results.push((service_name.clone(), display_name.clone(), p));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Note: Traefik-routed services don't expose ports directly
+                        // They are accessible via the Traefik proxy
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
+
+/// Display service URLs - auto-discover from compose files or use manifest config
+fn display_service_urls(manifest: &Manifest) -> Result<()> {
+    // If explicit URLs are configured, use those
+    if let Some(urls) = &manifest.dev.urls {
+        if !urls.infra.is_empty() || !urls.apps.is_empty() {
+            if !urls.infra.is_empty() {
+                println!();
+                println!("{}", "📋 Available URLs:".bright_yellow());
+                for entry in &urls.infra {
+                    println!("   {:<20} {}", format!("{}:", entry.name), entry.url);
+                }
+            }
+
+            if !urls.apps.is_empty() {
+                println!();
+                println!("{}", "🚀 Apps:".bright_yellow());
+                for entry in &urls.apps {
+                    println!("   {:<20} {}", format!("{}:", entry.name), entry.url);
+                }
+            }
+            println!();
+            return Ok(());
+        }
+    }
+
+    // Auto-discover from compose files
+    let mut all_ports: Vec<(String, String, u16)> = Vec::new();
+
+    // Check root compose files (compose.yml or docker-compose.yml)
+    for compose_name in &["compose.yml", "docker-compose.yml"] {
+        if Path::new(compose_name).exists() {
+            all_ports.extend(get_compose_ports(compose_name));
+            break; // Use first found
+        }
+    }
+
+    // Check supabase compose files
+    if let Some(supabase_files) = &manifest.dev.supabase {
+        for file in supabase_files {
+            if Path::new(file).exists() {
+                all_ports.extend(get_compose_ports(file));
+            }
+        }
+    }
+
+    // Check traefik compose file
+    if let Some(traefik) = &manifest.dev.traefik {
+        if Path::new(traefik).exists() {
+            all_ports.extend(get_compose_ports(traefik));
+        }
+    }
+
+    // Check app compose files
+    let apps_pattern = &manifest.dev.apps_pattern;
+    if let Ok(entries) = glob(apps_pattern) {
+        for entry in entries.flatten() {
+            if let Some(path_str) = entry.to_str() {
+                all_ports.extend(get_compose_ports(path_str));
+            }
+        }
+    }
+
+    // Display discovered ports
+    if !all_ports.is_empty() {
+        println!();
+        println!("{}", "📋 Exposed Services:".bright_yellow());
+
+        // Deduplicate by port
+        let mut seen_ports = std::collections::HashSet::new();
+        for (service, display_name, port) in &all_ports {
+            if seen_ports.insert(*port) {
+                let name = if display_name != service {
+                    display_name.clone()
+                } else {
+                    service.clone()
+                };
+                println!("   {:<20} http://localhost:{}", format!("{}:", name), port);
+            }
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
 /// Orchestrated startup: supabase -> workspace -> apps
 fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     let dev = &manifest.dev;
@@ -247,23 +393,8 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
 
     println!("\n{}", "✅ All services started!".green().bold());
 
-    // Display accessible URLs
-    println!();
-    println!("{}", "📋 Available URLs:".bright_yellow());
-    println!("   Supabase Studio:    http://studio.agiletec.localhost:8081");
-    println!("   Supabase API:       http://localhost:18000");
-    println!("   Traefik Dashboard:  http://localhost:8081");
-    println!();
-    println!("{}", "🚀 Apps (libs building on first access):".bright_yellow());
-    println!("   Dashboard:          http://agiletec.localhost:8081/dashboard");
-    println!("   Evidence Script:    http://agiletec.localhost:8081/evidence-script");
-    println!("   Auto Call:          http://agiletec.localhost:8081/auto-call");
-    println!("   Realtime Service:   http://agiletec.localhost:8081/realtime");
-    println!("   Corporate Site:     http://agiletec.localhost:8081");
-    println!("   FocusToday API:     http://agiletec.localhost:8081/focustoday-api");
-    println!("   FocusToday Web:     http://agiletec.localhost:8081/focustoday");
-    println!("   FocusToday Mobile:  http://agiletec.localhost:8081/focustoday-mobile");
-    println!();
+    // Display URLs - either from manifest config or auto-discover from compose files
+    display_service_urls(manifest)?;
 
     Ok(())
 }
