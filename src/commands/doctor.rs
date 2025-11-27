@@ -9,7 +9,6 @@ use indexmap::IndexMap;
 use std::fs;
 use std::path::Path;
 
-use crate::commands::snapshot::{compare_with_snapshots, DiffType, Snapshots};
 use crate::commands::sync_deps::resolve_version;
 use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
@@ -50,9 +49,6 @@ pub fn run(fix: bool) -> Result<()> {
     // Collect issues
     let mut issues: Vec<Issue> = Vec::new();
 
-    // Check snapshots if available
-    check_snapshots(&mut issues)?;
-
     // Check each generated file
     check_generated_files(&manifest, &mut issues)?;
 
@@ -90,49 +86,6 @@ pub fn run(fix: bool) -> Result<()> {
         println!("{}", "💡 Run `airis doctor --fix` to auto-repair".bright_yellow());
     }
 
-    Ok(())
-}
-
-/// Check snapshots for differences from current state
-fn check_snapshots(issues: &mut Vec<Issue>) -> Result<()> {
-    // Load snapshots if available
-    let snapshots = match Snapshots::load()? {
-        Some(s) => s,
-        None => {
-            // No snapshots - that's fine, skip this check
-            return Ok(());
-        }
-    };
-
-    if snapshots.snapshot.is_empty() {
-        return Ok(());
-    }
-
-    println!("{}", "📸 Checking snapshots...".bright_blue());
-
-    // Compare with current state
-    let diffs = compare_with_snapshots(&snapshots)?;
-
-    for diff in diffs {
-        let (description, severity) = match diff.diff_type {
-            DiffType::Modified => (
-                format!("Changed since snapshot: {}", diff.details),
-                Severity::Warning,
-            ),
-            DiffType::Deleted => (
-                "File deleted since snapshot".to_string(),
-                Severity::Error,
-            ),
-        };
-
-        issues.push(Issue {
-            file: diff.path,
-            description,
-            severity,
-        });
-    }
-
-    println!();
     Ok(())
 }
 

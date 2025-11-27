@@ -95,6 +95,9 @@ impl Manifest {
         Ok(())
     }
 
+    /// Create a default manifest with project name
+    /// NOTE: This is kept as reference for MCP agent's manifest generation
+    #[allow(dead_code)]
     pub fn default_with_project(name: &str) -> Self {
         // Rule definitions
         let mut rule = IndexMap::new();

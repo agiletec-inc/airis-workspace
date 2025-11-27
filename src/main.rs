@@ -314,6 +314,12 @@ enum ValidateCommands {
 
 #[derive(Subcommand)]
 enum GenerateCommands {
+    /// Regenerate workspace files from manifest.toml (package.json, compose.yml, etc.)
+    Files {
+        /// Preview what would be generated (dry-run)
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Generate TypeScript types from Supabase PostgreSQL schema
     Types {
         /// Supabase PostgreSQL host (default: localhost)
@@ -536,6 +542,9 @@ fn main() -> Result<()> {
             commands::affected::run(&base, &head)?;
         }
         Commands::Generate { action } => match action {
+            GenerateCommands::Files { dry_run } => {
+                commands::generate::run(dry_run)?;
+            }
             GenerateCommands::Types {
                 host,
                 port,

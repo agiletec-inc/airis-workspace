@@ -1,6 +1,5 @@
 pub mod affected;
 pub mod bump_version;
-pub mod discover;
 pub mod doctor;
 pub mod docs;
 pub mod generate;
@@ -13,7 +12,6 @@ pub mod network;
 pub mod new_cmd;
 pub mod run;
 pub mod shim;
-pub mod snapshot;
 pub mod sync_deps;
 pub mod validate_cmd;
 pub mod verify;

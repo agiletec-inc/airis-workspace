@@ -7,9 +7,43 @@ use std::path::Path;
 
 use crate::commands::sync_deps::resolve_version;
 use crate::generators::package_json::generate_project_package_json;
-use crate::manifest::{CatalogEntry, Manifest};
+use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
+
+/// CLI entry point for `airis generate files`
+/// Regenerates workspace files from existing manifest.toml
+pub fn run(dry_run: bool) -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+
+    if !manifest_path.exists() {
+        println!("{}", "⛔ manifest.toml not found".bright_red());
+        println!();
+        println!("{}", "To create manifest.toml, use the MCP tool:".yellow());
+        println!("  /airis:init");
+        println!();
+        println!("{}", "This analyzes your repository and generates an optimized manifest.".cyan());
+        return Ok(());
+    }
+
+    println!("{}", "📖 Loading manifest.toml...".bright_blue());
+    let manifest = Manifest::load(manifest_path)?;
+
+    if dry_run {
+        println!("{}", "🔍 Dry-run mode: showing what would be generated...".bright_blue());
+        println!();
+        preview_from_manifest(&manifest)?;
+        println!();
+        println!("{}", "ℹ️  No files were written (dry-run mode)".yellow());
+        println!("{}", "To actually generate files, run:".bright_yellow());
+        println!("  airis generate files");
+    } else {
+        println!("{}", "🧩 Regenerating workspace files...".bright_blue());
+        sync_from_manifest(&manifest)?;
+    }
+
+    Ok(())
+}
 
 /// Backup a file to .airis/backups/ before modification
 /// Only backs up tool-owned and hybrid files
