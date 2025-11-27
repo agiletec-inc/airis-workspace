@@ -246,7 +246,7 @@ fn get_running_containers() -> Vec<String> {
 /// Parse Traefik dynamic config to get routers
 fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
     // Returns: (router_name, host, path_prefix)
-    let routers_file = format!("{}/dynamic/routers.yml", traefik_dir.trim_end_matches("/docker-compose.yml"));
+    let routers_file = format!("{}/dynamic/routers.yml", traefik_dir);
 
     let content = match std::fs::read_to_string(&routers_file) {
         Ok(c) => c,
@@ -255,71 +255,50 @@ fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
 
     let mut results = Vec::new();
 
-    // Parse YAML manually (simple regex-based for now)
-    // Looking for patterns like:
-    //   router-name:
-    //     rule: "Host(`foo.localhost`) && PathPrefix(`/bar`)"
-    //     service: service-name
+    // Parse YAML using serde_yaml
+    let yaml: serde_yaml::Value = match serde_yaml::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
 
-    let router_regex = regex::Regex::new(r"(?m)^\s{4}(\S+):\s*$").ok();
-    let rule_regex = regex::Regex::new(r#"rule:\s*"([^"]+)""#).ok();
-    let host_regex = regex::Regex::new(r"Host\(`([^`]+)`\)").ok();
-    let path_regex = regex::Regex::new(r"PathPrefix\(`([^`]+)`\)").ok();
-    let service_regex = regex::Regex::new(r"service:\s*(\S+)").ok();
+    // Navigate to http.routers
+    let routers = yaml
+        .get("http")
+        .and_then(|h| h.get("routers"))
+        .and_then(|r| r.as_mapping());
 
-    if let (Some(router_re), Some(rule_re), Some(host_re), Some(service_re)) =
-        (router_regex, rule_regex, host_regex, service_regex) {
+    if let Some(routers_map) = routers {
+        let host_regex = regex::Regex::new(r"Host\(`([^`]+)`\)").ok();
+        let path_regex = regex::Regex::new(r"PathPrefix\(`([^`]+)`\)").ok();
 
-        // Split by router definitions
-        let sections: Vec<&str> = content.split("\n    ").collect();
-
-        for section in sections {
-            // Skip if this is the http: or routers: header
-            if section.contains("http:") || section.trim().starts_with("routers:") || section.trim().starts_with("services:") {
-                continue;
-            }
-
-            // Get router name
-            let router_name = if let Some(cap) = router_re.captures(section) {
-                cap.get(1).map(|m| m.as_str().to_string())
-            } else if let Some(first_line) = section.lines().next() {
-                let name = first_line.trim().trim_end_matches(':');
-                if !name.is_empty() && !name.contains(' ') {
-                    Some(name.to_string())
-                } else {
-                    None
-                }
-            } else {
-                None
+        for (name, config) in routers_map {
+            let router_name = match name.as_str() {
+                Some(n) => n.to_string(),
+                None => continue,
             };
 
-            if let Some(name) = router_name {
-                // Get rule
-                if let Some(rule_cap) = rule_re.captures(section) {
-                    let rule = rule_cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            // Get rule string
+            let rule = config
+                .get("rule")
+                .and_then(|r| r.as_str())
+                .unwrap_or("");
 
-                    // Extract host
-                    let host = host_re.captures(rule)
-                        .and_then(|c| c.get(1))
-                        .map(|m| m.as_str().to_string())
-                        .unwrap_or_default();
+            // Extract host from rule
+            let host = host_regex.as_ref()
+                .and_then(|re| re.captures(rule))
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_default();
 
-                    // Extract path prefix
-                    let path = path_regex.as_ref()
-                        .and_then(|re| re.captures(rule))
-                        .and_then(|c| c.get(1))
-                        .map(|m| m.as_str().to_string())
-                        .unwrap_or_else(|| "/".to_string());
+            // Extract path prefix from rule
+            let path = path_regex.as_ref()
+                .and_then(|re| re.captures(rule))
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string())
+                .unwrap_or_else(|| "/".to_string());
 
-                    // Get service name
-                    let _service = service_re.captures(section)
-                        .and_then(|c| c.get(1))
-                        .map(|m| m.as_str().to_string());
-
-                    if !host.is_empty() {
-                        results.push((name, host, path));
-                    }
-                }
+            if !host.is_empty() {
+                results.push((router_name, host, path));
             }
         }
     }

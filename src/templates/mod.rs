@@ -773,7 +773,8 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git tag "v${VERSION}"
-          echo "✅ Created tag v${VERSION} for release build"
+          git push origin "v${VERSION}"
+          echo "✅ Created and pushed tag v${VERSION}"
 
       - name: Build release binary
         if: steps.check_tag.outputs.exists == 'false'
