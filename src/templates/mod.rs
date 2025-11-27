@@ -766,6 +766,15 @@ jobs:
           fi
           echo "📦 Architecture: $ARCH"
 
+      - name: Create version tag for release build
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          VERSION=$\{{steps.version.outputs.version}}
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag "v${VERSION}"
+          echo "✅ Created tag v${VERSION} for release build"
+
       - name: Build release binary
         if: steps.check_tag.outputs.exists == 'false'
         run: |
