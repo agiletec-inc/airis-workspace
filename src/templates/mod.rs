@@ -724,45 +724,23 @@ jobs:
           cache: 'pnpm'
 {{/if}}
 
-      - name: Determine version bump
+{{#if is_rust_project}}
+      - name: Read version from Cargo.toml
         id: version
         run: |
-          # Get highest version tag (sort semantically)
-          LATEST_TAG=$(git tag -l 'v*' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-          if [ -z "$LATEST_TAG" ]; then
-            LATEST_TAG="v0.0.0"
-          fi
-          CURRENT_VERSION=${LATEST_TAG#v}
-
-          echo "📦 Current version: $CURRENT_VERSION (from $LATEST_TAG)"
-
-          # Parse semver
-          IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
-
-          # Get commit messages since last tag
-          COMMITS=$(git log ${LATEST_TAG}..HEAD --pretty=format:"%s" 2>/dev/null || git log --pretty=format:"%s")
-
-          # Determine bump type based on conventional commits
-          BUMP_TYPE="patch"
-
-          if echo "$COMMITS" | grep -qE '^(feat!:|fix!:|BREAKING CHANGE:)'; then
-            BUMP_TYPE="major"
-          elif echo "$COMMITS" | grep -qE '^feat(\(.+\))?:'; then
-            BUMP_TYPE="minor"
-          fi
-
-          # Calculate new version
-          if [ "$BUMP_TYPE" = "major" ]; then
-            NEW_VERSION="$((major + 1)).0.0"
-          elif [ "$BUMP_TYPE" = "minor" ]; then
-            NEW_VERSION="${major}.$((minor + 1)).0"
-          else
-            NEW_VERSION="${major}.${minor}.$((patch + 1))"
-          fi
-
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
-          echo "🚀 Bumping $CURRENT_VERSION → $NEW_VERSION ($BUMP_TYPE)"
+          # Read version from Cargo.toml (source of truth)
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "📦 Version from Cargo.toml: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+{{else}}
+      - name: Read version from package.json
+        id: version
+        run: |
+          # Read version from package.json (source of truth)
+          VERSION=$(node -p "require('./package.json').version")
+          echo "📦 Version from package.json: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+{{/if}}
 
       - name: Check if already released
         id: check_tag
