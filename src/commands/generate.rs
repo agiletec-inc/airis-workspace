@@ -91,7 +91,7 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     let files_to_check = vec![
         ("package.json", true),
         ("Dockerfile", true),
-        ("compose.yml", true),
+        ("docker-compose.yml", true),
         ("pnpm-workspace.yaml", !manifest.packages.workspaces.is_empty()),
         (".github/workflows/ci.yml", manifest.ci.enabled),
         (".github/workflows/release.yml", manifest.ci.enabled),
@@ -286,7 +286,7 @@ fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine) -> Resu
     // If actual files exist, write to .md for comparison (airis init default)
     // User can review and manually update, or use --force to overwrite
     let dockerfile_path = Path::new("Dockerfile");
-    let compose_path = Path::new("compose.yml");
+    let compose_path = Path::new("docker-compose.yml");
 
     if dockerfile_path.exists() {
         let md_path = Path::new("Dockerfile.md");
@@ -302,16 +302,16 @@ fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine) -> Resu
     }
 
     if compose_path.exists() {
-        let md_path = Path::new("compose.yml.md");
+        let md_path = Path::new("docker-compose.yml.md");
         fs::write(md_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml.md")?;
+            .with_context(|| "Failed to write docker-compose.yml.md")?;
         println!(
-            "   {} compose.yml exists → wrote compose.yml.md for comparison",
+            "   {} docker-compose.yml exists → wrote docker-compose.yml.md for comparison",
             "📄".yellow()
         );
     } else {
         fs::write(compose_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml")?;
+            .with_context(|| "Failed to write docker-compose.yml")?;
     }
 
     Ok(())

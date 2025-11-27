@@ -416,13 +416,13 @@ fn default_workspace_workdir() -> String {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DevSection {
     /// Glob pattern for auto-discovering app docker-compose files
-    /// Default: "apps/*/compose.yml"
+    /// Default: "apps/*/docker-compose.yml"
     #[serde(default = "default_apps_pattern")]
     pub apps_pattern: String,
-    /// Supabase compose files (e.g., ["supabase/compose.yml"])
+    /// Supabase compose files (e.g., ["supabase/docker-compose.yml"])
     #[serde(skip_serializing_if = "Option::is_none")]
     pub supabase: Option<Vec<String>>,
-    /// Traefik compose file (e.g., "traefik/compose.yml")
+    /// Traefik compose file (e.g., "traefik/docker-compose.yml")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
     /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
@@ -460,7 +460,7 @@ impl Default for DevSection {
 }
 
 fn default_apps_pattern() -> String {
-    "apps/*/compose.yml".to_string()
+    "apps/*/docker-compose.yml".to_string()
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
@@ -659,7 +659,7 @@ pub struct DockerSection {
     pub workdir: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace: Option<DockerWorkspaceSection>,
-    /// Compose file path (default: compose.yml)
+    /// Compose file path (default: docker-compose.yml)
     #[serde(default = "default_compose_file")]
     pub compose: String,
     /// Default service for command execution
@@ -674,7 +674,7 @@ pub struct DockerSection {
 }
 
 fn default_compose_file() -> String {
-    "compose.yml".to_string()
+    "docker-compose.yml".to_string()
 }
 
 fn default_shim_commands() -> Vec<String> {

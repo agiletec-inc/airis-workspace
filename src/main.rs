@@ -314,7 +314,7 @@ enum ValidateCommands {
 
 #[derive(Subcommand)]
 enum GenerateCommands {
-    /// Regenerate workspace files from manifest.toml (package.json, compose.yml, etc.)
+    /// Regenerate workspace files from manifest.toml (package.json, docker-compose.yml, etc.)
     Files {
         /// Preview what would be generated (dry-run)
         #[arg(long)]

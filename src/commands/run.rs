@@ -306,33 +306,176 @@ fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
     results
 }
 
-/// Check if a service is reachable (quick TCP connect test)
+/// Check if a service is reachable via HTTP (checks for 502/503/504 errors)
 fn is_service_reachable(url: &str) -> bool {
+    use std::io::{Read, Write};
     use std::net::TcpStream;
     use std::time::Duration;
 
-    // Parse URL to get host:port
+    // Parse URL to get host:port and path
     let url_without_scheme = url
         .strip_prefix("http://")
         .or_else(|| url.strip_prefix("https://"))
         .unwrap_or(url);
 
-    let host_port: Vec<&str> = url_without_scheme.split('/').next().unwrap_or("").split(':').collect();
+    let (host_port_str, path) = match url_without_scheme.find('/') {
+        Some(idx) => (&url_without_scheme[..idx], &url_without_scheme[idx..]),
+        None => (url_without_scheme, "/"),
+    };
 
-    let host = host_port.first().unwrap_or(&"localhost");
-    let port: u16 = host_port.get(1).and_then(|p| p.parse().ok()).unwrap_or(80);
+    let parts: Vec<&str> = host_port_str.split(':').collect();
+    let host = parts.first().unwrap_or(&"localhost");
+    let port: u16 = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(80);
 
-    // For .localhost domains, connect to localhost
-    let actual_host = if host.ends_with(".localhost") {
+    // For .localhost domains, connect to localhost but use Host header
+    let connect_host = if host.ends_with(".localhost") {
         "127.0.0.1"
     } else {
         host
     };
 
-    TcpStream::connect_timeout(
-        &format!("{}:{}", actual_host, port).parse().unwrap_or_else(|_| "127.0.0.1:80".parse().unwrap()),
-        Duration::from_millis(100),
-    ).is_ok()
+    let addr = match format!("{}:{}", connect_host, port).parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    // Connect with timeout
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    // Set read timeout
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(300)));
+
+    // Send minimal HTTP request with correct Host header
+    let request = format!(
+        "HEAD {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        path, host
+    );
+
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+
+    // Read response (just need the status line)
+    let mut buffer = [0u8; 128];
+    let bytes_read = match stream.read(&mut buffer) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+
+    let response = String::from_utf8_lossy(&buffer[..bytes_read]);
+
+    // Only 2xx responses are considered "working"
+    // Everything else (4xx, 5xx) means the service is broken
+    if response.contains(" 200 ") || response.contains(" 201 ") ||
+       response.contains(" 204 ") || response.contains(" 301 ") ||
+       response.contains(" 302 ") || response.contains(" 307 ") ||
+       response.contains(" 308 ") {
+        return true;
+    }
+
+    false
+}
+
+/// Get Traefik routers from Docker labels on running containers
+fn get_docker_traefik_routers(workspace_name: &str) -> Vec<(String, String, String)> {
+    // Returns: (router_name, host, path_prefix)
+    let output = Command::new("docker")
+        .args(["ps", "--format", "{{.Names}}"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    let containers: Vec<String> = match output {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|s| s.to_string())
+                .collect()
+        }
+        _ => return Vec::new(),
+    };
+
+    let mut results = Vec::new();
+    let host_regex = regex::Regex::new(r"Host\(`([^`]+)`\)").ok();
+    let path_regex = regex::Regex::new(r"PathPrefix\(`([^`]+)`\)").ok();
+
+    for container in containers {
+        // Skip containers not belonging to this workspace
+        if !container.contains(workspace_name) && !container.contains("supabase") {
+            continue;
+        }
+
+        // Get labels for this container
+        let output = Command::new("docker")
+            .args(["inspect", "--format", "{{json .Config.Labels}}", &container])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+
+        if let Ok(output) = output {
+            if let Ok(labels) = serde_json::from_slice::<serde_json::Map<String, Value>>(&output.stdout) {
+                // Check if traefik is enabled
+                let traefik_enabled = labels
+                    .get("traefik.enable")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "true")
+                    .unwrap_or(false);
+
+                if !traefik_enabled {
+                    continue;
+                }
+
+                // Find router rules
+                for (key, value) in &labels {
+                    if key.contains(".rule") && key.starts_with("traefik.http.routers.") {
+                        let rule = value.as_str().unwrap_or("");
+
+                        // Extract router name from key
+                        let router_name = key
+                            .strip_prefix("traefik.http.routers.")
+                            .and_then(|s| s.strip_suffix(".rule"))
+                            .unwrap_or(&container)
+                            .to_string();
+
+                        // Check entrypoint is "web"
+                        let entrypoint_key = format!("traefik.http.routers.{}.entrypoints", router_name);
+                        let entrypoint = labels
+                            .get(&entrypoint_key)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("web");
+
+                        if entrypoint != "web" {
+                            continue;
+                        }
+
+                        // Extract host
+                        let host = host_regex.as_ref()
+                            .and_then(|re| re.captures(rule))
+                            .and_then(|c| c.get(1))
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_default();
+
+                        // Extract path prefix
+                        let path = path_regex.as_ref()
+                            .and_then(|re| re.captures(rule))
+                            .and_then(|c| c.get(1))
+                            .map(|m| m.as_str().to_string())
+                            .unwrap_or_else(|| "/".to_string());
+
+                        // Only include hosts with a proper domain structure
+                        if !host.is_empty() && host.contains('.') {
+                            results.push((router_name, host, path));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    results
 }
 
 /// Display service URLs - dynamically discover from running containers and Traefik config
@@ -350,7 +493,6 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
 
     // 1. Check Traefik port (usually 8081 for dev)
     let traefik_port = if let Some(traefik_file) = &manifest.dev.traefik {
-        // Parse traefik compose to find published port
         let output = Command::new("docker")
             .args(["compose", "-f", traefik_file, "config", "--format", "json"])
             .stdout(Stdio::piped())
@@ -382,104 +524,56 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
         None
     }.unwrap_or(8081);
 
-    // 2. Parse Traefik routers to discover app routes
-    if let Some(traefik_file) = &manifest.dev.traefik {
+    // 2. Get routers from Docker labels (dynamic discovery)
+    let workspace_name = &manifest.workspace.name;
+    let docker_routers = get_docker_traefik_routers(workspace_name);
+
+    // 3. Get routers from static Traefik config
+    let static_routers = if let Some(traefik_file) = &manifest.dev.traefik {
         let traefik_dir = Path::new(traefik_file).parent().unwrap_or(Path::new("."));
-        let routers = parse_traefik_routers(traefik_dir.to_str().unwrap_or("."));
+        parse_traefik_routers(traefik_dir.to_str().unwrap_or("."))
+    } else {
+        Vec::new()
+    };
 
-        for (router_name, host, path) in routers {
-            // Skip internal routers
-            if router_name.contains("dashboard") || router_name == "api@internal" {
-                continue;
-            }
+    // Combine and deduplicate routers
+    let mut seen_urls = std::collections::HashSet::new();
 
-            let url = format!("http://{}:{}{}", host, traefik_port, if path == "/" { "".to_string() } else { path.clone() });
-            let is_reachable = is_service_reachable(&format!("http://127.0.0.1:{}", traefik_port));
+    for (router_name, host, path) in docker_routers.into_iter().chain(static_routers.into_iter()) {
+        let url = format!("http://{}:{}{}", host, traefik_port, if path == "/" { "".to_string() } else { path.clone() });
 
-            // Determine if this is infra or app based on naming
-            let display_name = router_name
-                .replace("-", " ")
-                .replace("_", " ")
-                .split_whitespace()
-                .map(|w| {
-                    let mut chars = w.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            let service = DiscoveredService {
-                name: display_name,
-                url,
-                is_reachable,
-            };
-
-            if router_name.contains("studio") || router_name.contains("api-") {
-                infra_services.push(service);
-            } else {
-                app_services.push(service);
-            }
+        if seen_urls.contains(&url) {
+            continue;
         }
-    }
+        seen_urls.insert(url.clone());
 
-    // 3. Check Supabase services directly
-    if let Some(supabase_files) = &manifest.dev.supabase {
-        for file in supabase_files {
-            let output = Command::new("docker")
-                .args(["compose", "-f", file, "config", "--format", "json"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .output();
+        let is_reachable = is_service_reachable(&url);
 
-            if let Ok(output) = output {
-                if let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
-                    if let Some(services) = config.get("services").and_then(|s| s.as_object()) {
-                        // Check for studio
-                        if let Some(studio) = services.get("studio") {
-                            if let Some(container_name) = studio.get("container_name").and_then(|c| c.as_str()) {
-                                if running_containers.contains(&container_name.to_string()) {
-                                    // Studio is typically behind Traefik
-                                    let url = format!("http://studio.agiletec.localhost:{}", traefik_port);
-                                    if !infra_services.iter().any(|s| s.url.contains("studio")) {
-                                        infra_services.push(DiscoveredService {
-                                            name: "Supabase Studio".to_string(),
-                                            url,
-                                            is_reachable: true,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-
-                        // Check for kong (API gateway)
-                        if let Some(kong) = services.get("kong") {
-                            if let Some(ports) = kong.get("ports").and_then(|p| p.as_array()) {
-                                for port in ports {
-                                    if let Some(published) = port.get("published") {
-                                        let p = published.as_u64().unwrap_or(0) as u16;
-                                        if p > 0 {
-                                            let container_name = kong.get("container_name")
-                                                .and_then(|c| c.as_str())
-                                                .unwrap_or("kong");
-                                            if running_containers.contains(&container_name.to_string()) {
-                                                infra_services.push(DiscoveredService {
-                                                    name: "Supabase API".to_string(),
-                                                    url: format!("http://localhost:{}", p),
-                                                    is_reachable: is_service_reachable(&format!("http://127.0.0.1:{}", p)),
-                                                });
-                                            }
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+        // Determine display name
+        let display_name = router_name
+            .replace("-", " ")
+            .replace("_", " ")
+            .split_whitespace()
+            .map(|w| {
+                let mut chars = w.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
                 }
-            }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        let service = DiscoveredService {
+            name: display_name,
+            url,
+            is_reachable,
+        };
+
+        if router_name.contains("studio") || router_name.contains("api") && !router_name.contains("focustoday") {
+            infra_services.push(service);
+        } else {
+            app_services.push(service);
         }
     }
 
@@ -507,32 +601,6 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
                 "✗".red()
             };
             println!("   {} {:<20} {}", status, format!("{}:", service.name), service.url);
-        }
-    }
-
-    // 5. Show containers without routes (direct port access)
-    let mut direct_ports: Vec<(String, u16)> = Vec::new();
-
-    // Check workspace container
-    for compose_name in &["compose.yml", "docker-compose.yml"] {
-        if Path::new(compose_name).exists() {
-            for (service, display_name, port) in get_compose_ports(compose_name) {
-                if running_containers.iter().any(|c| c.contains(&service) || c.contains(&display_name)) {
-                    direct_ports.push((display_name, port));
-                }
-            }
-            break;
-        }
-    }
-
-    if !direct_ports.is_empty() && infra_services.is_empty() && app_services.is_empty() {
-        println!();
-        println!("{}", "📋 Direct Ports:".bright_yellow());
-        for (name, port) in &direct_ports {
-            let url = format!("http://localhost:{}", port);
-            let is_reachable = is_service_reachable(&url);
-            let status = if is_reachable { "✓".green() } else { "✗".red() };
-            println!("   {} {:<20} {}", status, format!("{}:", name), url);
         }
     }
 
@@ -580,12 +648,12 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 3. Start workspace container (root compose.yml)
-    let workspace_compose = Path::new("compose.yml");
+    // 3. Start workspace container (root docker-compose.yml)
+    let workspace_compose = Path::new("docker-compose.yml");
     if workspace_compose.exists() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
-        if !smart_compose_up(None, &["compose.yml"])? {
+        if !smart_compose_up(None, &["docker-compose.yml"])? {
             println!("   {} Workspace failed to start, continuing anyway...", "⚠️".yellow());
             println!("   {} Apps will run without shared workspace container", "ℹ️".dimmed());
         }
@@ -672,11 +740,11 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 2. Stop workspace (root compose.yml)
-    let workspace_compose = Path::new("compose.yml");
+    // 2. Stop workspace (root docker-compose.yml)
+    let workspace_compose = Path::new("docker-compose.yml");
     if workspace_compose.exists() {
         println!("{}", "🛑 Stopping workspace...".cyan().bold());
-        let cmd = "docker compose -f compose.yml down --remove-orphans";
+        let cmd = "docker compose -f docker-compose.yml down --remove-orphans";
         let _ = exec_command(cmd);
     }
 
@@ -729,11 +797,11 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
         }
     }
 
-    // Fall back to default (compose.yml if exists)
-    let workspace_compose = Path::new("compose.yml");
+    // Fall back to default (docker-compose.yml if exists)
+    let workspace_compose = Path::new("docker-compose.yml");
     if workspace_compose.exists() {
-        // If we have a root compose.yml, use it
-        return format!("docker compose -f compose.yml {}", base_cmd);
+        // If we have a root docker-compose.yml, use it
+        return format!("docker compose -f docker-compose.yml {}", base_cmd);
     }
 
     format!("docker compose {}", base_cmd)
