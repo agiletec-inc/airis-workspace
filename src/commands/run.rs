@@ -1014,7 +1014,7 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    
     use tempfile::tempdir;
 
     #[test]
