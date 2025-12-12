@@ -343,6 +343,28 @@ enum Commands {
         #[command(subcommand)]
         action: GenerateCommands,
     },
+
+    /// Policy gates for pre-deployment validation
+    Policy {
+        #[command(subcommand)]
+        action: PolicyCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum PolicyCommands {
+    /// Initialize .airis/policies.toml
+    Init,
+    /// Run policy checks
+    Check {
+        /// Target project (optional, checks entire workspace if not specified)
+        project: Option<String>,
+    },
+    /// Enforce policies (fail on violations)
+    Enforce {
+        /// Target project (optional)
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -816,6 +838,15 @@ fn main() -> Result<()> {
 
             bump_version::run(mode)?;
         }
+        Commands::Policy { action } => match action {
+            PolicyCommands::Init => commands::policy::init()?,
+            PolicyCommands::Check { project } => {
+                commands::policy::check(project.as_deref())?;
+            }
+            PolicyCommands::Enforce { project } => {
+                commands::policy::enforce(project.as_deref())?;
+            }
+        },
     }
 
     Ok(())

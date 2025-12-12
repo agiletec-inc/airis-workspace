@@ -12,6 +12,7 @@ pub mod init;
 pub mod manifest_cmd;
 pub mod network;
 pub mod new_cmd;
+pub mod policy;
 pub mod run;
 pub mod shim;
 pub mod sync_deps;

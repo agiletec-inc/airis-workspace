@@ -93,3 +93,23 @@ fn test_bundle_requires_project() {
         .assert()
         .failure();
 }
+
+#[test]
+fn test_policy_help() {
+    airis()
+        .args(["policy", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("init"))
+        .stdout(predicate::str::contains("check"))
+        .stdout(predicate::str::contains("enforce"));
+}
+
+#[test]
+fn test_policy_check_no_config() {
+    // Should succeed with default config (no policies.toml)
+    airis()
+        .args(["policy", "check"])
+        .assert()
+        .success();
+}
