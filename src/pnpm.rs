@@ -71,7 +71,7 @@ impl PnpmLock {
     }
 
     /// Extract workspace dependencies for a given importer path
-    /// Returns package names that are workspace links
+    /// Returns package paths that are workspace links
     pub fn get_workspace_deps(&self, importer_path: &str) -> Vec<String> {
         let Some(importer) = self.importers.get(importer_path) else {
             return vec![];
@@ -81,37 +81,55 @@ impl PnpmLock {
 
         // Check all dependency types
         for dep in importer.dependencies.values() {
-            if let Some(name) = self.extract_workspace_link(&dep.version) {
-                deps.push(name);
+            if let Some(path) = self.resolve_workspace_link(importer_path, &dep.version) {
+                deps.push(path);
             }
         }
         for dep in importer.dev_dependencies.values() {
-            if let Some(name) = self.extract_workspace_link(&dep.version) {
-                deps.push(name);
+            if let Some(path) = self.resolve_workspace_link(importer_path, &dep.version) {
+                deps.push(path);
             }
         }
         for dep in importer.peer_dependencies.values() {
-            if let Some(name) = self.extract_workspace_link(&dep.version) {
-                deps.push(name);
+            if let Some(path) = self.resolve_workspace_link(importer_path, &dep.version) {
+                deps.push(path);
             }
         }
 
         deps
     }
 
-    /// Extract workspace link path from version string
-    /// e.g., "link:../../libs/env-config" -> "libs/env-config"
-    fn extract_workspace_link(&self, version: &str) -> Option<String> {
-        if version.starts_with("link:") {
-            let link_path = version.strip_prefix("link:")?;
-            // Normalize: remove leading ../ parts and return relative path
-            let normalized = link_path
-                .trim_start_matches("../")
-                .trim_start_matches("./");
-            Some(normalized.to_string())
-        } else {
-            None
+    /// Resolve workspace link relative to importer path
+    /// e.g., importer="libs/supabase/client", version="link:../types" -> "libs/supabase/types"
+    fn resolve_workspace_link(&self, importer_path: &str, version: &str) -> Option<String> {
+        if !version.starts_with("link:") {
+            return None;
         }
+
+        let link_path = version.strip_prefix("link:")?;
+
+        // Use std::path for proper path resolution
+        use std::path::PathBuf;
+
+        let base = PathBuf::from(importer_path);
+        let resolved = base.join(link_path);
+
+        // Normalize the path (resolve .. and .)
+        let mut components = Vec::new();
+        for component in resolved.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    components.pop();
+                }
+                std::path::Component::Normal(s) => {
+                    components.push(s.to_string_lossy().to_string());
+                }
+                std::path::Component::CurDir => {}
+                _ => {}
+            }
+        }
+
+        Some(components.join("/"))
     }
 
     /// Get all workspace package paths from importers
@@ -221,20 +239,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_extract_workspace_link() {
+    fn test_resolve_workspace_link() {
         let lock = PnpmLock {
             lockfile_version: "9.0".to_string(),
             importers: HashMap::new(),
         };
 
+        // apps/focustoday-api depends on link:../../libs/env-config
         assert_eq!(
-            lock.extract_workspace_link("link:../../libs/env-config"),
+            lock.resolve_workspace_link("apps/focustoday-api", "link:../../libs/env-config"),
             Some("libs/env-config".to_string())
         );
+
+        // libs/supabase/client depends on link:../types
         assert_eq!(
-            lock.extract_workspace_link("link:../libs/ui"),
-            Some("libs/ui".to_string())
+            lock.resolve_workspace_link("libs/supabase/client", "link:../types"),
+            Some("libs/supabase/types".to_string())
         );
-        assert_eq!(lock.extract_workspace_link("1.2.3"), None);
+
+        // Non-link versions return None
+        assert_eq!(lock.resolve_workspace_link("apps/foo", "1.2.3"), None);
+        assert_eq!(lock.resolve_workspace_link("apps/foo", "workspace:*"), None);
     }
 }

@@ -720,6 +720,20 @@ pub struct JustSection {
     pub features: Vec<String>,
 }
 
+/// Runtime configuration for Docker builds
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct RuntimeConfig {
+    /// Runtime mode: "channel" (default) or "exact"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
+    /// Channel: lts, current, edge, bun, deno
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    /// Exact version (when mode="exact")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+}
+
 /// Project definition for full package.json generation
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
@@ -730,6 +744,9 @@ pub struct ProjectDefinition {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
+    /// Runtime configuration for Docker builds
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runner: Option<RuntimeConfig>,
     #[serde(default)]
     pub scripts: IndexMap<String, String>,
     #[serde(default)]

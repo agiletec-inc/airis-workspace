@@ -102,11 +102,11 @@ pub struct Toolchain {
 /// Current LTS and stable versions (updated periodically)
 /// These are the default values; can be overridden via manifest.toml [toolchain]
 mod defaults {
-    // Node.js LTS (as of 2025-01)
-    pub const NODE_LTS_VERSION: &str = "22";
-    pub const NODE_LTS_IMAGE: &str = "node:22-alpine";
+    // Node.js LTS - Using Node 24 as default (aligns with .node-version)
+    pub const NODE_LTS_VERSION: &str = "24";
+    pub const NODE_LTS_IMAGE: &str = "node:24-alpine";
 
-    // Node.js Current
+    // Node.js Current (same as LTS for now)
     pub const NODE_CURRENT_VERSION: &str = "24";
     pub const NODE_CURRENT_IMAGE: &str = "node:24-alpine";
 

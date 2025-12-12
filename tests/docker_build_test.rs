@@ -2,9 +2,7 @@
 //!
 //! Tests for the hermetic Docker build system
 
-use std::fs;
 use std::path::PathBuf;
-use tempfile::tempdir;
 
 /// Test cache directory structure
 #[test]
@@ -20,7 +18,7 @@ fn test_cache_directory_structure() {
 /// Test that build config defaults are sensible
 #[test]
 fn test_build_config_defaults() {
-    // Test via CLI help that defaults are documented
+    // Test via CLI help that channel option is documented
     let output = std::process::Command::new("cargo")
         .args(["run", "--", "build", "--help"])
         .output()
@@ -28,8 +26,9 @@ fn test_build_config_defaults() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Default channel should be lts
-    assert!(stdout.contains("[default: lts]"));
+    // Channel option should be present (no default in CLI, reads from manifest.toml)
+    assert!(stdout.contains("--channel"));
+    assert!(stdout.contains("manifest.toml"));
 }
 
 /// Test context output directory option
@@ -78,4 +77,17 @@ fn test_image_option() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--image"));
+}
+
+/// Test remote cache option
+#[test]
+fn test_remote_cache_option() {
+    let output = std::process::Command::new("cargo")
+        .args(["run", "--", "build", "--help"])
+        .output()
+        .expect("Failed to run cargo");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--remote-cache"));
+    assert!(stdout.contains("s3://") || stdout.contains("oci://"));
 }

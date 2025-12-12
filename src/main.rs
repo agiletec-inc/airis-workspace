@@ -6,6 +6,7 @@ mod generators;
 mod manifest;
 mod ownership;
 mod pnpm;
+mod remote_cache;
 mod safe_fs;
 mod templates;
 
@@ -23,6 +24,68 @@ fn get_version() -> String {
     } else {
         format!("{}-dev (git: {})", version, git_hash)
     }
+}
+
+/// Resolve channel from CLI arg or manifest.toml
+/// Priority: CLI --channel > manifest.toml [projects.<name>.runner.channel] > "lts"
+fn resolve_channel_for_project(cli_channel: Option<String>, project_path: &str) -> String {
+    // CLI takes precedence
+    if let Some(ch) = cli_channel {
+        return ch;
+    }
+
+    // Try to read from manifest.toml
+    if let Ok(content) = std::fs::read_to_string("manifest.toml") {
+        if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
+            // Extract project name from path (e.g., "apps/web" -> "web")
+            let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
+
+            // Look for [projects.<name>.runner.channel]
+            if let Some(projects) = manifest.get("projects") {
+                if let Some(project) = projects.get(project_name) {
+                    if let Some(runner) = project.get("runner") {
+                        // Check channel first
+                        if let Some(channel) = runner.get("channel") {
+                            if let Some(ch) = channel.as_str() {
+                                return ch.to_string();
+                            }
+                        }
+                        // Check version (mode=exact)
+                        if let Some(version) = runner.get("version") {
+                            if let Some(v) = version.as_str() {
+                                return v.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Default to lts
+    "lts".to_string()
+}
+
+/// Convert package name to project path
+/// e.g., "@workspace/web" -> "apps/web", "@agiletec/api" -> "apps/api"
+fn convert_package_to_path(package_name: &str) -> String {
+    // Remove @ prefix and scope
+    let name = package_name
+        .trim_start_matches('@')
+        .split('/')
+        .last()
+        .unwrap_or(package_name);
+
+    // Try to find the actual path by checking directories
+    for dir in &["apps", "libs", "packages"] {
+        let path = format!("{}/{}", dir, name);
+        if std::path::Path::new(&path).exists() {
+            return path;
+        }
+    }
+
+    // Default to apps/ if not found
+    format!("apps/{}", name)
 }
 
 #[derive(Parser)]
@@ -144,12 +207,22 @@ enum Commands {
     Build {
         /// Target project path (e.g., apps/web)
         project: Option<String>,
+        /// Build only affected projects (based on git diff)
+        #[arg(long)]
+        affected: bool,
+        /// Base branch/commit for --affected (default: origin/main)
+        #[arg(long, default_value = "origin/main")]
+        base: String,
+        /// Head branch/commit for --affected (default: HEAD)
+        #[arg(long, default_value = "HEAD")]
+        head: String,
         /// Build using Docker (hermetic build with auto-generated Dockerfile)
         #[arg(long)]
         docker: bool,
         /// Runtime channel: lts, current, edge, bun, deno, or version (e.g., 22.12.0)
-        #[arg(long, default_value = "lts")]
-        channel: String,
+        /// If not specified, reads from manifest.toml [projects.<name>.runner.channel]
+        #[arg(long)]
+        channel: Option<String>,
         /// Image name for Docker build (e.g., ghcr.io/org/app:tag)
         #[arg(long)]
         image: Option<String>,
@@ -162,6 +235,9 @@ enum Commands {
         /// No cache for Docker build
         #[arg(long)]
         no_cache: bool,
+        /// Remote cache URL (s3://bucket/prefix or oci://registry/image)
+        #[arg(long)]
+        remote_cache: Option<String>,
         /// Build production Docker image (legacy)
         #[arg(long)]
         prod: bool,
@@ -507,23 +583,134 @@ fn main() -> Result<()> {
             }
         }
         Commands::Install => commands::run::run("install")?,
-        Commands::Build { project, docker, channel, image, push, context_out, no_cache, prod, quick } => {
-            if docker {
-                // Hermetic Docker build
+        Commands::Build { project, affected, base, head, docker, channel, image, push, context_out, no_cache, remote_cache, prod, quick } => {
+            if affected && docker {
+                // Build only affected projects with Docker
+                use colored::Colorize;
+                let affected_projects = commands::affected::run(&base, &head)?;
+
+                if affected_projects.is_empty() {
+                    println!("{}", "✅ No affected projects to build".green());
+                } else {
+                    println!("{}", format!("🔨 Building {} affected project(s)...", affected_projects.len()).cyan());
+                    let root = std::env::current_dir()?;
+
+                    // Parse remote cache URL if provided
+                    let remote = remote_cache.as_ref().map(|url| remote_cache::Remote::parse(url)).transpose()?;
+
+                    for proj in &affected_projects {
+                        // Convert package name to path (e.g., @workspace/web -> apps/web)
+                        let target = convert_package_to_path(proj);
+                        // Resolve channel: CLI > manifest.toml > "lts"
+                        let resolved_channel = resolve_channel_for_project(channel.clone(), &target);
+                        println!("\n{}", format!("▶ Building {} (channel: {})", target, resolved_channel).bright_blue());
+
+                        // Calculate content hash for cache lookup
+                        let hash = docker_build::compute_content_hash(&root, &target)?;
+
+                        // Check local cache first
+                        if let Some(artifact) = docker_build::cache_hit(&target, &hash) {
+                            println!("{}", format!("  ✅ Local cache hit: {}", artifact.image_ref).green());
+                            continue;
+                        }
+
+                        // Check remote cache if configured
+                        if let Some(ref remote) = remote {
+                            if let Some(artifact) = remote_cache::remote_hit(&target, &hash, remote)? {
+                                println!("{}", format!("  ✅ Remote cache hit: {}", artifact.image_ref).green());
+                                // Store to local cache for next time
+                                docker_build::cache_store(&target, &hash, &artifact)?;
+                                continue;
+                            }
+                        }
+
+                        let config = docker_build::BuildConfig {
+                            target: target.clone(),
+                            image_name: image.clone(),
+                            push,
+                            no_cache,
+                            context_out: context_out.clone(),
+                            channel: resolved_channel,
+                            ..Default::default()
+                        };
+                        let result = docker_build::docker_build(&root, config)?;
+
+                        // Store to local cache
+                        let artifact = docker_build::CachedArtifact {
+                            image_ref: result.image_ref.clone(),
+                            hash: hash.clone(),
+                            built_at: chrono::Utc::now().to_rfc3339(),
+                            target: target.clone(),
+                        };
+                        docker_build::cache_store(&target, &hash, &artifact)?;
+
+                        // Store to remote cache if configured
+                        if let Some(ref remote) = remote {
+                            println!("{}", "  📤 Pushing to remote cache...".cyan());
+                            remote_cache::remote_store(&target, &hash, &artifact, remote)?;
+                        }
+                    }
+                    println!("\n{}", format!("✅ Built {} project(s)", affected_projects.len()).green());
+                }
+            } else if docker {
+                // Hermetic Docker build for single project
                 let target = project.ok_or_else(|| {
                     anyhow::anyhow!("--docker requires a project path (e.g., apps/web)")
                 })?;
+                // Resolve channel: CLI > manifest.toml > "lts"
+                let resolved_channel = resolve_channel_for_project(channel, &target);
+
+                // Parse remote cache URL if provided
+                let remote = remote_cache.as_ref().map(|url| remote_cache::Remote::parse(url)).transpose()?;
+                let root = std::env::current_dir()?;
+
+                // Calculate content hash for cache lookup
+                let hash = docker_build::compute_content_hash(&root, &target)?;
+
+                // Check local cache first
+                if let Some(artifact) = docker_build::cache_hit(&target, &hash) {
+                    use colored::Colorize;
+                    println!("{}", format!("✅ Local cache hit: {}", artifact.image_ref).green());
+                    return Ok(());
+                }
+
+                // Check remote cache if configured
+                if let Some(ref remote) = remote {
+                    use colored::Colorize;
+                    if let Some(artifact) = remote_cache::remote_hit(&target, &hash, remote)? {
+                        println!("{}", format!("✅ Remote cache hit: {}", artifact.image_ref).green());
+                        // Store to local cache for next time
+                        docker_build::cache_store(&target, &hash, &artifact)?;
+                        return Ok(());
+                    }
+                }
+
                 let config = docker_build::BuildConfig {
-                    target,
+                    target: target.clone(),
                     image_name: image,
                     push,
                     no_cache,
                     context_out,
-                    channel,
+                    channel: resolved_channel,
                     ..Default::default()
                 };
-                let root = std::env::current_dir()?;
-                docker_build::docker_build(&root, config)?;
+                let result = docker_build::docker_build(&root, config)?;
+
+                // Store to local cache
+                let artifact = docker_build::CachedArtifact {
+                    image_ref: result.image_ref.clone(),
+                    hash: hash.clone(),
+                    built_at: chrono::Utc::now().to_rfc3339(),
+                    target: target.clone(),
+                };
+                docker_build::cache_store(&target, &hash, &artifact)?;
+
+                // Store to remote cache if configured
+                if let Some(ref remote) = remote {
+                    use colored::Colorize;
+                    println!("{}", "📤 Pushing to remote cache...".cyan());
+                    remote_cache::remote_store(&target, &hash, &artifact, remote)?;
+                }
             } else if prod {
                 let app_name = project.as_deref().ok_or_else(|| {
                     anyhow::anyhow!("--prod requires a project path")
