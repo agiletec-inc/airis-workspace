@@ -21,7 +21,7 @@
 Running a monorepo comes with these frustrations:
 
 - **Version hell** - React version in root `package.json` differs from `apps/`. Manually updating everything is tedious
-- **Config file sprawl** - `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `justfile`... Which one is the source of truth?
+- **Config file sprawl** - `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`... Which one is the source of truth?
 - **LLMs break things** - Claude Code or Cursor says "I ran `pnpm install` for you" and pollutes your host environment
 - **"Works on my machine"** - TypeScript builds pass locally but fail on teammates' machines
 
@@ -32,7 +32,7 @@ Running a monorepo comes with these frustrations:
 ```
 manifest.toml (edit this only)
     ↓ airis init
-package.json, pnpm-workspace.yaml, docker-compose.yml, justfile (all auto-generated)
+package.json, pnpm-workspace.yaml, docker-compose.yml (all auto-generated)
 ```
 
 This gives you:
@@ -427,10 +427,10 @@ airis up            # Start everything
 ```
 my-monorepo/
 ├── manifest.toml         # ✅ SINGLE SOURCE OF TRUTH (EDIT THIS)
-├── justfile              # ❌ Auto-generated (DO NOT EDIT)
 ├── package.json          # ❌ Auto-generated (DO NOT EDIT)
 ├── pnpm-workspace.yaml   # ❌ Auto-generated (DO NOT EDIT)
 ├── docker-compose.yml    # ❌ Auto-generated (DO NOT EDIT)
+├── Cargo.toml            # ❌ Auto-generated (DO NOT EDIT) - for Rust projects
 ├── apps/
 │   ├── dashboard/
 │   │   └── package.json  # Resolved versions: "react": "^19.2.0"
@@ -458,7 +458,7 @@ image = "node:22-alpine"
 
 # Version catalog with auto-resolution policies
 [packages.catalog]
-react = "latest"      # → airis sync-deps resolves to ^19.2.0
+react = "latest"      # → airis init resolves to ^19.2.0
 next = "lts"          # → resolves to LTS version
 typescript = "^5.0.0" # → used as-is
 
@@ -502,16 +502,17 @@ next = "lts"
 typescript = "^5.6.0"
 ```
 
-Run `airis sync-deps`:
+Run `airis init` (or `airis generate files`):
 ```bash
-🔄 Syncing dependencies from manifest.toml...
-📦 Found 3 catalog entries
-  react latest → ^19.2.0
-  next lts → ^16.0.3
-  typescript ^5.6.0
+📦 Resolving catalog versions from npm registry...
+  ✓ react latest → ^19.2.0
+  ✓ next lts → ^16.0.3
+  ✓ typescript ^5.6.0 → ^5.6.0
 📝 Updated pnpm-workspace.yaml
-✅ Dependency sync complete!
+✅ Workspace files generated!
 ```
+
+> **Note**: `airis sync-deps` is deprecated. Version resolution is now integrated into `airis init`.
 
 Result in `pnpm-workspace.yaml`:
 ```yaml
@@ -569,9 +570,9 @@ airis init --write      # Actually create manifest.toml template
 airis generate files    # Regenerate workspace files from manifest.toml
 airis doctor            # Diagnose workspace health, detect config drift
 airis doctor --fix      # Auto-repair detected issues
-airis sync-deps         # Resolve "latest"/"lts" policies to actual versions
-airis validate          # Check configuration (planned)
+airis validate          # Check configuration
 airis guards install    # Install command guards to block host package managers
+airis new <type> <name> # Scaffold new app/lib (api, web, lib)
 ```
 
 ### Development (v1.0.2+)
@@ -668,8 +669,8 @@ airis manifest rule verify  # Get verify commands
 - [x] Manifest-driven template engine (Handlebars)
 - [x] `airis init` - manifest.toml creation & re-sync
 - [x] manifest.toml immutability enforcement (no `--force` flag)
-- [x] Justfile generation from manifest
 - [x] package.json generation
+- [x] Cargo.toml generation (for Rust projects)
 - [x] pnpm-workspace.yaml generation
 - [x] docker-compose.yml generation
 - [x] Project discovery (auto-detect apps/libs)
@@ -709,7 +710,7 @@ airis manifest rule verify  # Get verify commands
 
 - [x] CatalogEntry enum (Policy | Version)
 - [x] npm registry client for version resolution
-- [x] `airis sync-deps` command
+- [x] Version resolution integrated into `airis init`
 - [x] Support for "latest" policy
 - [x] Support for "lts" policy
 - [x] Support for semver (^X.Y.Z) passthrough
@@ -723,8 +724,10 @@ airis manifest rule verify  # Get verify commands
 [packages.catalog]
 react = "latest"
 
-# Resolve to actual versions
-airis sync-deps
+# Resolve to actual versions (integrated into init)
+airis init
+# or
+airis generate files
 
 # Result: pnpm-workspace.yaml updated with ^19.2.0
 ```
@@ -761,7 +764,7 @@ airis sync-deps
   supabase = ["supabase/docker-compose.yml", "supabase/docker-compose.override.yml"]
   traefik = "traefik/docker-compose.yml"
   ```
-- [ ] Generate unified `just up` that starts all compose stacks
+- [ ] Generate unified `airis up` that starts all compose stacks
 - [ ] Dependency ordering (start supabase before workspace)
 
 **Current Status**: 🟡 Schema defined, implementation pending
@@ -788,7 +791,7 @@ airis sync-deps
   pattern = "^postgresql://"
   description = "PostgreSQL connection string"
   ```
-- [ ] Runtime validation before `just up`
+- [ ] Runtime validation before `airis up`
 - [ ] Auto-generate `.env.example`
 
 #### 4.3 Drift Detection
@@ -809,17 +812,13 @@ airis sync-deps
 - [ ] Generate `.workspace/llm-context.md` from manifest
 - [ ] Include project structure, available commands, rules
 - [ ] Auto-update on `airis init`
-- [ ] MCP server integration for Claude Code
 
 #### 5.2 Error Message Optimization
 - [ ] Structured error output (JSON mode for LLMs)
 - [ ] Actionable fix suggestions
 - [ ] Link to relevant manifest sections
 
-#### 5.3 MCP Server
-- [ ] `airis-workspace` MCP server
-- [ ] Tools: `get_manifest`, `sync_deps`, `validate`, `list_apps`
-- [ ] Integration with airis-mcp-gateway
+**Note**: MCP server integration is handled by [airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway). This repo focuses solely on monorepo management.
 
 **Status**: Design phase
 
@@ -864,7 +863,7 @@ airis sync-deps
 - [ ] Vercel/Netlify config generation
 
 #### 7.3 Performance
-- [ ] Parallel npm queries in sync-deps
+- [ ] Parallel npm queries in version resolution
 - [ ] Cache npm registry responses
 - [ ] Incremental generation (only changed files)
 
@@ -877,7 +876,7 @@ airis sync-deps
 | 1. Foundation | ✅ Done | v0.2.1 | init, generate, guards |
 | 1.5 Command Unification | ✅ Done | v1.0.2 | airis commands, guards, remap |
 | 1.6 Version Automation | ✅ Done | v1.1.0 | bump-version, hooks, auto-bump |
-| 2. Catalog Policies | ✅ Done | v0.3.0 | sync-deps, latest/lts |
+| 2. Catalog Policies | ✅ Done | v0.3.0 | latest/lts resolution (in init) |
 | **3. Hermetic Build** | ✅ Done | **v1.35** | Docker build, channel resolver, BLAKE3 cache |
 | **4. Remote Cache** | ✅ Done | **v1.37** | S3/OCI remote cache, cache hit/miss |
 | **5. Bundle & Deploy** | ✅ Done | **v1.38** | bundle.json, image.tar, artifact.tar.gz |
@@ -905,12 +904,7 @@ airis sync-deps
 
 ### Future
 
-1. **MCP Server Integration**
-   - `airis-workspace` MCP server
-   - Tools: `get_manifest`, `build`, `bundle`, `policy_check`
-   - Integration with Claude Code
-
-2. **Performance Optimization**
+1. **Performance Optimization**
    - Build graph visualization
    - Distributed workers
    - Incremental builds
@@ -922,7 +916,7 @@ airis sync-deps
 - [Airis Commands Usage](docs/airis-commands.md) - Complete command reference
 - [Airis Init Architecture](docs/airis-init-architecture.md) - How `airis init` works (READ-ONLY mode, LLM integration)
 - [Quick Start](docs/QUICKSTART.md) (planned)
-- [Migration Guide](docs/MIGRATION.md) - Makefile → Just (planned)
+- [Migration Guide](docs/MIGRATION.md) - Existing project → airis (planned)
 - [Configuration Reference](docs/CONFIG.md) (planned)
 - [LLM Integration](docs/LLM.md) (planned)
 
@@ -972,5 +966,5 @@ Your support helps maintain and improve this tool. Thank you! 🙏
 
 ## 🔗 Related Projects
 
-- [Just](https://just.systems) - Command runner (Make alternative)
 - [pnpm](https://pnpm.io) - Fast package manager with catalog support
+- [OrbStack](https://orbstack.dev) - Fast Docker for macOS

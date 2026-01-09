@@ -171,8 +171,9 @@ When adding features:
 **Planned but not yet implemented** (see README.md Phases 4-6):
 - Environment variable validation
 - LLM context generation
-- MCP server integration
 - Migration from existing projects
+
+**Note**: MCP server integration is handled by [airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway). This repo focuses on monorepo management only.
 
 **New Features (Auto-Migration)**:
 - [ ] Project discovery module (src/commands/discover.rs)
