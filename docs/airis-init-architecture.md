@@ -7,11 +7,16 @@
 ## UX（ユーザー視点）
 
 ```bash
-# 初回 or manifest.toml 更新後
-airis init
+# 新規プロジェクト or 既存プロジェクトの移行
+airis init                    # 自動検出 + プレビュー (dry-run)
+airis init --write            # 実行して manifest.toml 作成
+airis init --skip-discovery   # 空テンプレートから作成
+
+# manifest.toml 更新後
+airis generate files          # ワークスペースファイル再生成
 ```
 
-**ユーザーは manifest.toml を編集し、`airis init` で反映させる。**
+**ユーザーは `airis init` で自動検出 → manifest.toml 生成 → `airis generate files` で反映。**
 
 ## 実装アーキテクチャ（READ-ONLY モード）
 
@@ -57,25 +62,38 @@ type = "nextjs"
 
 ---
 
-## Phase 1: Discover（既存構成スキャン）
+## Phase 1: Discover（既存構成スキャン）✅ 実装済み
 
-初回実行時のみ、既存リポジトリから manifest.toml を生成：
+manifest.toml が存在しない場合、既存リポジトリを自動スキャンして manifest.toml を生成：
 
 **スキャン対象**:
-- `apps/*/package.json` → アプリ検出
+- `apps/*/package.json` → アプリ検出 + フレームワーク判定
 - `libs/*/package.json` → ライブラリ検出
-- `apps/*/next.config.js` → Next.js 判定
 - `apps/*/Cargo.toml` → Rust 判定
-- `docker-compose.yml` → サービス定義
+- `apps/*/pyproject.toml` → Python 判定
+- `docker-compose.yml` → 場所検出 (root, workspace/, supabase/, traefik/)
+- `package.json` devDependencies → カタログ抽出
+
+**フレームワーク検出ロジック**:
+- `next` dependency → Next.js
+- `vite` dependency → Vite
+- `hono` dependency → Hono
+- `Cargo.toml` 存在 → Rust
+- `pyproject.toml` 存在 → Python
+- それ以外 → Node
 
 **実装**: `src/commands/discover.rs`
 
 ```rust
-pub struct DiscoveredProject {
-    pub apps: Vec<DiscoveredApp>,
-    pub libs: Vec<DiscoveredLib>,
-    pub compose_files: ComposeFiles,
-    pub catalog: Vec<CatalogEntry>,
+pub struct DiscoveryResult {
+    pub apps: Vec<DetectedApp>,
+    pub libs: Vec<DetectedLib>,
+    pub compose_files: Vec<DetectedCompose>,
+    pub catalog: IndexMap<String, String>,
+}
+
+pub enum Framework {
+    NextJs, Vite, Hono, Node, Rust, Python, Unknown
 }
 ```
 

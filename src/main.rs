@@ -117,6 +117,9 @@ enum Commands {
         /// Actually write generated files (default: dry-run, shows what would be generated)
         #[arg(long)]
         write: bool,
+        /// Skip project discovery and use empty template instead
+        #[arg(long)]
+        skip_discovery: bool,
     },
 
     /// Query MANIFEST.toml data (used by justfile)
@@ -551,8 +554,8 @@ fn main() -> Result<()> {
     });
 
     match command {
-        Commands::Init { snapshot, no_snapshot, setup_npmrc, write } => {
-            commands::init::run(snapshot, no_snapshot, write)?;
+        Commands::Init { snapshot, no_snapshot, setup_npmrc, write, skip_discovery } => {
+            commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
             if setup_npmrc {
                 commands::init::setup_npmrc()?;
             }

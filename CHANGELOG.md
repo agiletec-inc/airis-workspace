@@ -5,6 +5,39 @@ All notable changes to airis-workspace will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.43.0] - 2025-01-09
+
+### Added
+
+#### Auto-Migration Feature
+- **`airis init` Auto-Discovery**: Automatically scans existing projects
+  - Detects apps in `apps/` directory (Next.js, Vite, Hono, Node, Rust, Python)
+  - Detects libraries in `libs/` directory
+  - Finds docker-compose.yml files (root, workspace/, supabase/, traefik/)
+  - Extracts catalog from root package.json devDependencies
+
+- **Safe Migration**: Moves files with automatic backups
+  - Creates `workspace/` directory if needed
+  - Moves root docker-compose.yml to workspace/
+  - Creates `.bak` backups before any file moves
+  - Never overwrites existing files
+
+#### New CLI Options
+```bash
+airis init                    # Auto-discover & show migration plan (dry-run)
+airis init --write            # Execute migration
+airis init --skip-discovery   # Use empty template (legacy mode)
+```
+
+#### New Modules
+- `src/commands/discover.rs` - Project discovery with framework detection
+- `src/commands/migrate.rs` - Safe migration with backup creation
+
+### Changed
+- `airis init` now runs discovery by default (use `--skip-discovery` for template mode)
+- Updated README.md with Auto-Discovery documentation
+- Updated CLAUDE.md to reflect implemented features
+
 ## [1.0.2] - 2025-01-17
 
 ### Added

@@ -397,21 +397,48 @@ airis generate files  # Generates package.json, pnpm-workspace.yaml, docker-comp
 airis up            # Start Docker services
 ```
 
-### Migrate Existing Project
+### Migrate Existing Project (Auto-Discovery)
 
 ```bash
 cd your-existing-monorepo
-airis init --write  # Creates manifest.toml template (or shows guidance if exists)
-# Edit manifest.toml to match your project structure
+airis init          # Auto-discovers apps, libs, compose files (dry-run)
+airis init --write  # Executes migration and generates manifest.toml
 airis generate files  # Generates all workspace files
 airis up            # Start everything
 ```
 
-**What `airis init` does**:
-1. If manifest.toml doesn't exist: shows template preview (dry-run by default)
-2. With `--write`: creates manifest.toml from template
-3. If manifest.toml exists: shows guidance for next steps
-4. **Never overwrites existing manifest.toml**
+**What `airis init` does (v1.43+)**:
+1. **Discovery Phase**: Scans apps/, libs/ for projects (Next.js, Vite, Hono, Rust, Python)
+2. **Compose Detection**: Finds docker-compose.yml files (root, workspace/, supabase/, traefik/)
+3. **Catalog Extraction**: Reads existing package.json devDependencies
+4. **Migration Plan**: Shows what will be created/moved
+5. With `--write`: Executes migration and generates manifest.toml
+6. **Never overwrites existing manifest.toml**
+
+```bash
+$ airis init
+🔍 Discovering project structure...
+
+📦 Detected Apps:
+   apps/web          nextjs      (has Dockerfile)
+   apps/api          hono        (has Dockerfile)
+
+📚 Detected Libraries:
+   libs/ui           TypeScript
+
+🐳 Docker Compose Files:
+   ./docker-compose.yml        → workspace/docker-compose.yml
+
+📄 Migration Plan:
+   1. Create directory: workspace
+   2. Move docker-compose.yml → workspace/docker-compose.yml
+   3. Generate manifest.toml
+
+Run `airis init --write` to execute this plan.
+```
+
+**Options**:
+- `--skip-discovery`: Use empty template instead of auto-detection
 
 **What `airis generate files` does**:
 1. Reads manifest.toml
@@ -565,14 +592,15 @@ git commit -m "feat: add dark mode support"
 
 ### Workspace Management
 ```bash
-airis init              # Create manifest.toml template (dry-run by default)
-airis init --write      # Actually create manifest.toml template
-airis generate files    # Regenerate workspace files from manifest.toml
-airis doctor            # Diagnose workspace health, detect config drift
-airis doctor --fix      # Auto-repair detected issues
-airis validate          # Check configuration
-airis guards install    # Install command guards to block host package managers
-airis new <type> <name> # Scaffold new app/lib (api, web, lib)
+airis init                    # Auto-discover & create manifest.toml (dry-run)
+airis init --write            # Execute discovery and create manifest.toml
+airis init --skip-discovery   # Use empty template (legacy mode)
+airis generate files          # Regenerate workspace files from manifest.toml
+airis doctor                  # Diagnose workspace health, detect config drift
+airis doctor --fix            # Auto-repair detected issues
+airis validate                # Check configuration
+airis guards install          # Install command guards to block host package managers
+airis new <type> <name>       # Scaffold new app/lib (api, web, lib)
 ```
 
 ### Development (v1.0.2+)
@@ -824,29 +852,27 @@ airis generate files
 
 ---
 
-### 📋 Phase 6: Migration & Auto-Discovery (v0.7.0) - PLANNED
+### ✅ Phase 6: Migration & Auto-Discovery (v1.43) - COMPLETED
 
 **Goal**: Zero-friction migration from existing projects
 
 #### 6.1 Enhanced Discovery
-- [ ] Detect Next.js/Vite/React app types
-- [ ] Detect Rust/Python/Go projects
-- [ ] Parse existing package.json catalog
-- [ ] Detect compose file locations
+- [x] Detect Next.js/Vite/Hono/Node app types
+- [x] Detect Rust/Python projects
+- [x] Parse existing package.json catalog (devDependencies)
+- [x] Detect compose file locations (root, workspace/, supabase/, traefik/)
 
 #### 6.2 Safe Migration
-- [ ] Move docker-compose.yml to workspace/
-- [ ] Create backups (.bak) before moving
-- [ ] Never overwrite existing files
-- [ ] Interactive confirmation mode
-- [ ] Dry-run mode (`airis init --dry-run`)
+- [x] Move docker-compose.yml to workspace/
+- [x] Create backups (.bak) before moving
+- [x] Never overwrite existing files
+- [x] Dry-run mode by default (`airis init`)
+- [x] Execute with `--write` flag
 
-#### 6.3 Wizard Mode
-- [ ] Interactive project setup
-- [ ] Ask about app types, ports, dependencies
-- [ ] Generate optimal manifest.toml
+#### 6.3 Template Mode
+- [x] `--skip-discovery` flag for empty template
 
-**Status**: Discovery already implemented, migration pending
+**Status**: ✅ Auto-discovery and safe migration fully functional
 
 ---
 
@@ -883,14 +909,16 @@ airis generate files
 | **6. Policy Gates** | ✅ Done | **v1.39** | Git clean, env check, secret scan |
 | **7. Multi-Target** | ✅ Done | **v1.40** | --targets node,edge,bun |
 | **8. Parallel Build** | ✅ Done | **v1.41** | DAG-based parallel execution, -j flag |
-| 9. K8s Manifests | 📋 Planned | v1.42+ | deployment.yaml, service.yaml generation |
-| 10. Build Matrix | 🔮 Future | v1.50+ | linux/amd64, linux/arm64 cross-build |
+| **9. LTS Resolution** | ✅ Done | **v1.42** | npm dist-tags for proper LTS versions |
+| **10. Auto-Migration** | ✅ Done | **v1.43** | discover apps/libs, safe migration |
+| 11. K8s Manifests | 📋 Planned | v1.44+ | deployment.yaml, service.yaml generation |
+| 12. Build Matrix | 🔮 Future | v1.50+ | linux/amd64, linux/arm64 cross-build |
 
 ---
 
 ## 🎯 Next Steps (What to Work On)
 
-### Immediate (v1.42+)
+### Immediate (v1.44+)
 
 1. **Kubernetes Manifest Generation**
    - `airis bundle --k8s` generates deployment.yaml, service.yaml, ingress.yaml

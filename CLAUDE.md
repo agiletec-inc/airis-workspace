@@ -217,60 +217,49 @@ When adding features:
 
 ## Future Implementation Notes
 
-**Planned but not yet implemented** (see README.md Phases 4-6):
+**Planned but not yet implemented** (see README.md Phases):
 - Environment variable validation
 - LLM context generation
-- Migration from existing projects
+- Kubernetes manifest generation
 
 **Note**: MCP server integration is handled by [airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway). This repo focuses on monorepo management only.
 
-**New Features (Auto-Migration)**:
-- [ ] Project discovery module (src/commands/discover.rs)
-  - Scan apps/ directory → detect Next.js/Node/Rust apps
-  - Scan libs/ directory → detect TypeScript libraries
-  - Find docker-compose.yml locations (root, supabase/, traefik/, etc.)
-  - Parse existing package.json → extract catalog info
-- [ ] Safe migration module (src/commands/migrate.rs)
-  - Move docker-compose.yml to correct locations (NEVER overwrite)
-  - Create workspace/ directory if missing
-  - Warn user if file already exists at target location
-- [ ] Enhanced init command
-  - Run discovery → migration → generation flow
-  - Generate manifest.toml from detected project structure
-  - Display changes and ask for confirmation (unless --force)
-  - User runs `airis init` and everything is optimized
+## Auto-Migration (v1.43 - Implemented)
+
+**Implemented modules**:
+- `src/commands/discover.rs` - Project discovery (Next.js, Vite, Hono, Node, Rust, Python)
+- `src/commands/migrate.rs` - Safe migration with backups
+
+**Usage**:
+```bash
+airis init                    # Auto-discover & show migration plan (dry-run)
+airis init --write            # Execute migration
+airis init --skip-discovery   # Use empty template (legacy mode)
+```
 
 **Auto-Migration Workflow**:
 ```
 airis init
   ↓
-1. Discovery Phase
-   - Scan apps/, libs/
-   - Detect docker-compose.yml locations
-   - Parse package.json catalog
+1. Discovery Phase (discover.rs)
+   - Scan apps/, libs/ for projects
+   - Detect framework (Next.js, Vite, Hono, Rust, Python)
+   - Find docker-compose.yml locations
+   - Extract catalog from package.json devDependencies
   ↓
-2. Migration Phase (safe, no overwrites)
-   - Create workspace/ if missing
-   - Move root/docker-compose.yml → workspace/docker-compose.yml
-   - Validate supabase/docker-compose.yml, traefik/docker-compose.yml
+2. Migration Planning (migrate.rs)
+   - Create workspace/ directory if needed
+   - Plan moves for root docker-compose.yml
+   - Generate manifest.toml content
   ↓
-3. Generation Phase
-   - Generate manifest.toml with:
-     - Detected apps/libs
-     - Detected compose file paths in orchestration.dev
-     - Extracted catalog from package.json
-   - Generate package.json, pnpm-workspace.yaml, docker-compose.yml
-  ↓
-4. Verification Phase
-   - Show diff/changes
-   - Ask confirmation (unless --force)
-   - Save files
+3. Execution (with --write)
+   - Create directories
+   - Move files with .bak backups
+   - Write manifest.toml
 ```
 
-**Safety Rules**:
-- NEVER overwrite existing files without user confirmation
-- ALWAYS create backups before migration (.bak suffix)
-- ALWAYS warn user if target file exists
-- Prefer moving files over copying (preserve git history)
-
-These features are planned but not yet implemented. Confirm with the user before starting implementation.
+**Safety Rules (enforced)**:
+- NEVER overwrite existing manifest.toml
+- ALWAYS create backups before moving files (.bak suffix)
+- ALWAYS show dry-run first (default behavior)
+- Require explicit --write to execute changes
