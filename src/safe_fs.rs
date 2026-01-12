@@ -30,6 +30,7 @@ const BACKUP_MAX_AGE_DAYS: u32 = 30;
 
 /// Result of a safe filesystem operation
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SafeOpResult {
     /// What was done (or would be done in dry-run)
     pub action: SafeAction,
@@ -41,6 +42,7 @@ pub struct SafeOpResult {
 
 /// Type of action performed
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SafeAction {
     /// File was created (didn't exist before)
     Created,
@@ -57,6 +59,7 @@ pub enum SafeAction {
 }
 
 /// Safe filesystem context bound to a workspace root
+#[allow(dead_code)]
 pub struct SafeFS {
     /// Workspace root directory (absolute path)
     root: PathBuf,
@@ -64,6 +67,7 @@ pub struct SafeFS {
     dry_run: bool,
 }
 
+#[allow(dead_code)]
 impl SafeFS {
     /// Create a new SafeFS context for the given workspace root
     ///
@@ -436,6 +440,7 @@ impl SafeFS {
 }
 
 /// Recursively copy a directory
+#[allow(dead_code)]
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
 

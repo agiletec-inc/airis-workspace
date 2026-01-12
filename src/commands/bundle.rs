@@ -15,6 +15,7 @@ use crate::docker_build::{cache_hit, compute_content_hash};
 
 /// Bundle output result
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct BundleResult {
     pub output_dir: PathBuf,
     pub bundle_json: PathBuf,

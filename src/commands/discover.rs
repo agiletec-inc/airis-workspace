@@ -68,6 +68,7 @@ pub struct DetectedApp {
     pub path: String,
     pub framework: Framework,
     pub has_dockerfile: bool,
+    #[allow(dead_code)]
     pub package_name: Option<String>,
 }
 
@@ -76,6 +77,7 @@ pub struct DetectedApp {
 pub struct DetectedLib {
     pub name: String,
     pub path: String,
+    #[allow(dead_code)]
     pub package_name: Option<String>,
 }
 
@@ -426,14 +428,19 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
 
 /// Extract catalog entries from root package.json
 fn extract_catalog() -> Result<IndexMap<String, String>> {
+    extract_catalog_from_path(Path::new("."))
+}
+
+/// Extract catalog entries from package.json in the given directory
+fn extract_catalog_from_path(base_path: &Path) -> Result<IndexMap<String, String>> {
     let mut catalog = IndexMap::new();
 
-    let pkg_json_path = Path::new("package.json");
+    let pkg_json_path = base_path.join("package.json");
     if !pkg_json_path.exists() {
         return Ok(catalog);
     }
 
-    let content = fs::read_to_string(pkg_json_path).context("Failed to read package.json")?;
+    let content = fs::read_to_string(&pkg_json_path).context("Failed to read package.json")?;
     let json: Value = serde_json::from_str(&content).context("Failed to parse package.json")?;
 
     // Extract from devDependencies (common location for shared tooling)
@@ -462,7 +469,7 @@ fn extract_catalog() -> Result<IndexMap<String, String>> {
     }
 
     // Also check pnpm-workspace.yaml for existing catalog
-    let pnpm_workspace_path = Path::new("pnpm-workspace.yaml");
+    let pnpm_workspace_path = base_path.join("pnpm-workspace.yaml");
     if pnpm_workspace_path.exists() {
         if let Ok(content) = fs::read_to_string(pnpm_workspace_path) {
             // Simple YAML parsing for catalog section
@@ -585,15 +592,9 @@ mod tests {
             }
         }"#;
 
-        // Change to temp directory for the test
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
-        fs::write("package.json", pkg_json).unwrap();
+        fs::write(dir.path().join("package.json"), pkg_json).unwrap();
 
-        let catalog = extract_catalog().unwrap();
-
-        // Restore original directory
-        std::env::set_current_dir(original_dir).unwrap();
+        let catalog = extract_catalog_from_path(dir.path()).unwrap();
 
         assert_eq!(catalog.get("typescript"), Some(&"^5.0.0".to_string()));
         assert_eq!(catalog.get("eslint"), Some(&"^8.0.0".to_string()));

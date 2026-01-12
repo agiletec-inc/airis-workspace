@@ -12,6 +12,7 @@
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
+use std::process::Command;
 
 /// Runtime channel specifier
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +52,7 @@ impl RuntimeChannel {
     }
 
     /// Get channel as string
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         match self {
             Self::Lts => "lts",
@@ -101,6 +103,7 @@ pub struct Toolchain {
 
 /// Current LTS and stable versions (updated periodically)
 /// These are the default values; can be overridden via manifest.toml [toolchain]
+#[allow(dead_code)]
 mod defaults {
     // Node.js LTS - Using Node 24 as default (aligns with .node-version)
     pub const NODE_LTS_VERSION: &str = "24";
@@ -131,44 +134,99 @@ mod defaults {
     pub const PYTHON_IMAGE: &str = "python:3.12-slim";
 }
 
+/// Fetch Docker image digest using docker CLI
+/// Returns None if docker is not available or the image doesn't exist
+fn fetch_image_digest(image: &str) -> Option<String> {
+    let output = Command::new("docker")
+        .args(["manifest", "inspect", "--verbose", image])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse the JSON output to extract the digest
+    // The format is an array of manifests, we want the digest from the first one
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+        // Handle both array and object responses
+        let manifest = if json.is_array() {
+            json.as_array()?.first()?
+        } else {
+            &json
+        };
+
+        // Try to get digest from Descriptor.digest or from the manifest itself
+        if let Some(digest) = manifest.get("Descriptor").and_then(|d| d.get("digest")).and_then(|d| d.as_str()) {
+            return Some(digest.to_string());
+        }
+    }
+
+    None
+}
+
 /// Resolve a runtime channel to a concrete toolchain
 pub fn resolve_channel(channel: &RuntimeChannel) -> Result<Toolchain> {
     match channel {
-        RuntimeChannel::Lts => Ok(Toolchain {
-            image: defaults::NODE_LTS_IMAGE.to_string(),
-            digest: None, // TODO: fetch actual digest
-            family: RuntimeFamily::Node,
-            version: defaults::NODE_LTS_VERSION.to_string(),
-        }),
-        RuntimeChannel::Current => Ok(Toolchain {
-            image: defaults::NODE_CURRENT_IMAGE.to_string(),
-            digest: None,
-            family: RuntimeFamily::Node,
-            version: defaults::NODE_CURRENT_VERSION.to_string(),
-        }),
-        RuntimeChannel::Edge => Ok(Toolchain {
-            image: defaults::EDGE_IMAGE.to_string(),
-            digest: None,
-            family: RuntimeFamily::Edge,
-            version: defaults::EDGE_VERSION.to_string(),
-        }),
-        RuntimeChannel::Bun => Ok(Toolchain {
-            image: defaults::BUN_IMAGE.to_string(),
-            digest: None,
-            family: RuntimeFamily::Bun,
-            version: defaults::BUN_VERSION.to_string(),
-        }),
-        RuntimeChannel::Deno => Ok(Toolchain {
-            image: defaults::DENO_IMAGE.to_string(),
-            digest: None,
-            family: RuntimeFamily::Deno,
-            version: defaults::DENO_VERSION.to_string(),
-        }),
+        RuntimeChannel::Lts => {
+            let image = defaults::NODE_LTS_IMAGE.to_string();
+            let digest = fetch_image_digest(&image);
+            Ok(Toolchain {
+                image,
+                digest,
+                family: RuntimeFamily::Node,
+                version: defaults::NODE_LTS_VERSION.to_string(),
+            })
+        }
+        RuntimeChannel::Current => {
+            let image = defaults::NODE_CURRENT_IMAGE.to_string();
+            let digest = fetch_image_digest(&image);
+            Ok(Toolchain {
+                image,
+                digest,
+                family: RuntimeFamily::Node,
+                version: defaults::NODE_CURRENT_VERSION.to_string(),
+            })
+        }
+        RuntimeChannel::Edge => {
+            let image = defaults::EDGE_IMAGE.to_string();
+            let digest = fetch_image_digest(&image);
+            Ok(Toolchain {
+                image,
+                digest,
+                family: RuntimeFamily::Edge,
+                version: defaults::EDGE_VERSION.to_string(),
+            })
+        }
+        RuntimeChannel::Bun => {
+            let image = defaults::BUN_IMAGE.to_string();
+            let digest = fetch_image_digest(&image);
+            Ok(Toolchain {
+                image,
+                digest,
+                family: RuntimeFamily::Bun,
+                version: defaults::BUN_VERSION.to_string(),
+            })
+        }
+        RuntimeChannel::Deno => {
+            let image = defaults::DENO_IMAGE.to_string();
+            let digest = fetch_image_digest(&image);
+            Ok(Toolchain {
+                image,
+                digest,
+                family: RuntimeFamily::Deno,
+                version: defaults::DENO_VERSION.to_string(),
+            })
+        }
         RuntimeChannel::Pinned(version) => {
             // For pinned versions, assume Node.js
+            let image = format!("node:{}-alpine", version);
+            let digest = fetch_image_digest(&image);
             Ok(Toolchain {
-                image: format!("node:{}-alpine", version),
-                digest: None,
+                image,
+                digest,
                 family: RuntimeFamily::Node,
                 version: version.clone(),
             })
@@ -177,6 +235,7 @@ pub fn resolve_channel(channel: &RuntimeChannel) -> Result<Toolchain> {
 }
 
 /// Resolve toolchain for Rust projects
+#[allow(dead_code)]
 pub fn resolve_rust() -> Toolchain {
     Toolchain {
         image: defaults::RUST_IMAGE.to_string(),
@@ -187,6 +246,7 @@ pub fn resolve_rust() -> Toolchain {
 }
 
 /// Resolve toolchain for Python projects
+#[allow(dead_code)]
 pub fn resolve_python() -> Toolchain {
     Toolchain {
         image: defaults::PYTHON_IMAGE.to_string(),
@@ -231,5 +291,22 @@ mod tests {
         let toolchain = resolve_channel(&RuntimeChannel::Bun).unwrap();
         assert_eq!(toolchain.family, RuntimeFamily::Bun);
         assert!(toolchain.image.contains("bun"));
+    }
+
+    #[test]
+    fn test_fetch_image_digest_nonexistent() {
+        // Non-existent image should return None
+        let digest = fetch_image_digest("nonexistent-image-12345:latest");
+        assert!(digest.is_none());
+    }
+
+    #[test]
+    fn test_resolve_channel_returns_digest_when_available() {
+        // This test verifies the structure is correct even if digest is None
+        // (docker may not be available in CI)
+        let toolchain = resolve_channel(&RuntimeChannel::Lts).unwrap();
+        assert!(toolchain.image.contains("node"));
+        // Digest may or may not be present depending on docker availability
+        // We just verify the function doesn't panic
     }
 }

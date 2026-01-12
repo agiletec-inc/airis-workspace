@@ -120,6 +120,11 @@ pub fn plan(discovery: DiscoveryResult) -> Result<MigrationPlan> {
 
 /// Execute the migration plan
 pub fn execute(plan: &MigrationPlan, dry_run: bool) -> Result<MigrationReport> {
+    execute_in_dir(plan, dry_run, Path::new("."))
+}
+
+/// Execute the migration plan in a specific directory
+pub fn execute_in_dir(plan: &MigrationPlan, dry_run: bool, base_dir: &Path) -> Result<MigrationReport> {
     let mut report = MigrationReport::new();
 
     if dry_run {
@@ -133,13 +138,13 @@ pub fn execute(plan: &MigrationPlan, dry_run: bool) -> Result<MigrationReport> {
     for task in &plan.tasks {
         match task {
             MigrationTask::CreateDirectory { path } => {
-                execute_create_directory(path, dry_run, &mut report)?;
+                execute_create_directory(&base_dir.join(path), dry_run, &mut report)?;
             }
             MigrationTask::MoveFile { from, to } => {
-                execute_move_file(from, to, dry_run, &mut report)?;
+                execute_move_file(&base_dir.join(from), &base_dir.join(to), dry_run, &mut report)?;
             }
             MigrationTask::GenerateManifest => {
-                execute_generate_manifest(&plan.discovery, dry_run, &mut report)?;
+                execute_generate_manifest(&plan.discovery, dry_run, base_dir, &mut report)?;
             }
         }
     }
@@ -148,36 +153,36 @@ pub fn execute(plan: &MigrationPlan, dry_run: bool) -> Result<MigrationReport> {
 }
 
 /// Execute directory creation
-fn execute_create_directory(path: &str, dry_run: bool, report: &mut MigrationReport) -> Result<()> {
-    let dir = Path::new(path);
+fn execute_create_directory(dir: &Path, dry_run: bool, report: &mut MigrationReport) -> Result<()> {
+    let path_str = dir.display().to_string();
 
     if dir.exists() {
-        let msg = format!("Directory already exists: {}", path);
+        let msg = format!("Directory already exists: {}", path_str);
         println!("   {} {}", "⏭️".yellow(), msg);
         report.skipped.push(msg);
         return Ok(());
     }
 
     if dry_run {
-        println!("   {} Would create directory: {}", "→".bright_blue(), path);
-        report.completed.push(format!("Would create: {}", path));
+        println!("   {} Would create directory: {}", "→".bright_blue(), path_str);
+        report.completed.push(format!("Would create: {}", path_str));
     } else {
-        fs::create_dir_all(dir).with_context(|| format!("Failed to create directory: {}", path))?;
-        println!("   {} Created directory: {}", "✓".green(), path);
-        report.completed.push(format!("Created: {}", path));
+        fs::create_dir_all(dir).with_context(|| format!("Failed to create directory: {}", path_str))?;
+        println!("   {} Created directory: {}", "✓".green(), path_str);
+        report.completed.push(format!("Created: {}", path_str));
     }
 
     Ok(())
 }
 
 /// Execute file move with backup
-fn execute_move_file(from: &str, to: &str, dry_run: bool, report: &mut MigrationReport) -> Result<()> {
-    let from_path = Path::new(from);
-    let to_path = Path::new(to);
+fn execute_move_file(from_path: &Path, to_path: &Path, dry_run: bool, report: &mut MigrationReport) -> Result<()> {
+    let from_str = from_path.display().to_string();
+    let to_str = to_path.display().to_string();
 
     // Check source exists
     if !from_path.exists() {
-        let msg = format!("Source file not found: {}", from);
+        let msg = format!("Source file not found: {}", from_str);
         println!("   {} {}", "⏭️".yellow(), msg);
         report.skipped.push(msg);
         return Ok(());
@@ -185,7 +190,7 @@ fn execute_move_file(from: &str, to: &str, dry_run: bool, report: &mut Migration
 
     // Check target doesn't exist
     if to_path.exists() {
-        let msg = format!("Target already exists, skipping: {}", to);
+        let msg = format!("Target already exists, skipping: {}", to_str);
         println!("   {} {}", "⚠️".yellow(), msg);
         report.skipped.push(msg);
         return Ok(());
@@ -195,10 +200,10 @@ fn execute_move_file(from: &str, to: &str, dry_run: bool, report: &mut Migration
         println!(
             "   {} Would move: {} → {}",
             "→".bright_blue(),
-            from,
-            to
+            from_str,
+            to_str
         );
-        report.completed.push(format!("Would move: {} → {}", from, to));
+        report.completed.push(format!("Would move: {} → {}", from_str, to_str));
     } else {
         // Create backup before move
         let backup_path = create_backup(from_path)?;
@@ -214,14 +219,14 @@ fn execute_move_file(from: &str, to: &str, dry_run: bool, report: &mut Migration
         }
 
         // Move the file (rename if on same filesystem, copy+delete otherwise)
-        if let Err(_) = fs::rename(from_path, to_path) {
+        if fs::rename(from_path, to_path).is_err() {
             // Cross-filesystem move: copy then delete
             fs::copy(from_path, to_path)?;
             fs::remove_file(from_path)?;
         }
 
-        println!("   {} Moved: {} → {}", "✓".green(), from, to);
-        report.completed.push(format!("Moved: {} → {}", from, to));
+        println!("   {} Moved: {} → {}", "✓".green(), from_str, to_str);
+        report.completed.push(format!("Moved: {} → {}", from_str, to_str));
     }
 
     Ok(())
@@ -248,9 +253,10 @@ fn create_backup(path: &Path) -> Result<std::path::PathBuf> {
 fn execute_generate_manifest(
     discovery: &DiscoveryResult,
     dry_run: bool,
+    base_dir: &Path,
     report: &mut MigrationReport,
 ) -> Result<()> {
-    let manifest_path = Path::new("manifest.toml");
+    let manifest_path = base_dir.join("manifest.toml");
 
     // CRITICAL: Never overwrite existing manifest.toml
     if manifest_path.exists() {
@@ -277,7 +283,7 @@ fn execute_generate_manifest(
             .completed
             .push("Would generate: manifest.toml".to_string());
     } else {
-        fs::write(manifest_path, &content)?;
+        fs::write(&manifest_path, &content)?;
         println!("   {} Generated manifest.toml", "✓".green());
         report
             .completed
@@ -506,7 +512,6 @@ mod tests {
     #[test]
     fn test_dry_run_does_not_create_files() {
         let dir = tempdir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
 
         let discovery = DiscoveryResult {
             apps: vec![],
@@ -516,7 +521,7 @@ mod tests {
         };
 
         let migration_plan = plan(discovery).unwrap();
-        let _report = execute(&migration_plan, true).unwrap();
+        let _report = execute_in_dir(&migration_plan, true, dir.path()).unwrap();
 
         // manifest.toml should NOT exist after dry-run
         assert!(!dir.path().join("manifest.toml").exists());
@@ -525,7 +530,6 @@ mod tests {
     #[test]
     fn test_execute_creates_manifest() {
         let dir = tempdir().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
 
         let discovery = DiscoveryResult {
             apps: vec![],
@@ -535,7 +539,7 @@ mod tests {
         };
 
         let migration_plan = plan(discovery).unwrap();
-        let report = execute(&migration_plan, false).unwrap();
+        let report = execute_in_dir(&migration_plan, false, dir.path()).unwrap();
 
         // manifest.toml should exist
         assert!(dir.path().join("manifest.toml").exists());

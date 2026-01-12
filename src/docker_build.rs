@@ -3,7 +3,7 @@
 //! Implements `airis build --docker <app>` functionality
 
 use anyhow::{bail, Context, Result};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -102,6 +102,7 @@ pub fn cache_store(project: &str, hash: &str, artifact: &CachedArtifact) -> Resu
 pub struct ContextBuilder<'a> {
     root: &'a Path,
     dag: &'a Dag,
+    #[allow(dead_code)]
     lock: &'a PnpmLock,
     target: &'a str,
 }
@@ -128,7 +129,13 @@ impl<'a> ContextBuilder<'a> {
                 fs::create_dir_all(p)?;
                 p.to_path_buf()
             }
-            None => tempfile::tempdir()?.into_path(),
+            None => {
+                let temp = tempfile::tempdir()?;
+                let path = temp.path().to_path_buf();
+                // Keep the temp directory alive (don't delete on drop)
+                std::mem::forget(temp);
+                path
+            }
         };
 
         println!("📦 Building context for {} ({} packages)", self.target, dep_paths.len());
@@ -237,6 +244,34 @@ impl<'a> ContextBuilder<'a> {
     }
 }
 
+/// Detect if a Node.js project uses Next.js by checking package.json
+fn detect_nextjs(target: &str) -> bool {
+    let pkg_json_path = Path::new(target).join("package.json");
+    if !pkg_json_path.exists() {
+        return false;
+    }
+
+    let content = match fs::read_to_string(&pkg_json_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(j) => j,
+        Err(_) => return false,
+    };
+
+    // Check dependencies and devDependencies for "next"
+    let has_next_dep = json["dependencies"]
+        .as_object()
+        .is_some_and(|deps| deps.contains_key("next"));
+    let has_next_dev_dep = json["devDependencies"]
+        .as_object()
+        .is_some_and(|deps| deps.contains_key("next"));
+
+    has_next_dep || has_next_dev_dep
+}
+
 /// Generate Dockerfile based on runtime family
 pub fn generate_dockerfile_for_toolchain(
     target: &str,
@@ -245,9 +280,8 @@ pub fn generate_dockerfile_for_toolchain(
 ) -> String {
     match toolchain.family {
         RuntimeFamily::Node => {
-            // For Node, check if Next.js or plain Node
-            // TODO: detect from package.json
-            let is_nextjs = true;
+            // Detect if this is a Next.js project from package.json
+            let is_nextjs = detect_nextjs(target);
             if is_nextjs {
                 generate_nextjs_dockerfile(target, &toolchain.version, build_args)
             } else {
@@ -263,13 +297,14 @@ pub fn generate_dockerfile_for_toolchain(
 }
 
 /// Generate Dockerfile for Node.js app (legacy, kept for compatibility)
+#[allow(dead_code)]
 pub fn generate_dockerfile(
     target: &str,
     node_version: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    // Check if this is a Next.js app (has .next output) or plain Node
-    let is_nextjs = true; // TODO: detect from package.json
+    // Detect if this is a Next.js project from package.json
+    let is_nextjs = detect_nextjs(target);
 
     if is_nextjs {
         generate_nextjs_dockerfile(target, node_version, build_args)
@@ -1020,5 +1055,39 @@ mod tests {
         );
 
         assert!(dockerfile.contains("ARG API_KEY"));
+    }
+
+    #[test]
+    fn test_detect_nextjs_with_next_dep() {
+        let dir = tempdir().unwrap();
+        let pkg_json = r#"{"name": "test", "dependencies": {"next": "14.0.0", "react": "18.0.0"}}"#;
+        std::fs::write(dir.path().join("package.json"), pkg_json).unwrap();
+
+        assert!(detect_nextjs(&dir.path().to_string_lossy()));
+    }
+
+    #[test]
+    fn test_detect_nextjs_with_next_devdep() {
+        let dir = tempdir().unwrap();
+        let pkg_json = r#"{"name": "test", "devDependencies": {"next": "14.0.0"}}"#;
+        std::fs::write(dir.path().join("package.json"), pkg_json).unwrap();
+
+        assert!(detect_nextjs(&dir.path().to_string_lossy()));
+    }
+
+    #[test]
+    fn test_detect_nextjs_without_next() {
+        let dir = tempdir().unwrap();
+        let pkg_json = r#"{"name": "test", "dependencies": {"express": "4.0.0"}}"#;
+        std::fs::write(dir.path().join("package.json"), pkg_json).unwrap();
+
+        assert!(!detect_nextjs(&dir.path().to_string_lossy()));
+    }
+
+    #[test]
+    fn test_detect_nextjs_no_package_json() {
+        let dir = tempdir().unwrap();
+        // No package.json file
+        assert!(!detect_nextjs(&dir.path().to_string_lossy()));
     }
 }

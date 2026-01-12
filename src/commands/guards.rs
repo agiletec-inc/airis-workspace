@@ -5,7 +5,18 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::manifest::{Manifest, MANIFEST_FILE};
+use crate::manifest::{Manifest, Mode, MANIFEST_FILE};
+
+/// Additional commands blocked in strict mode
+const STRICT_MODE_DENY: &[&str] = &[
+    "cargo", "rustc", "python", "python3", "pip", "pip3", "uv",
+    "go", "java", "javac", "gradle", "mvn",
+];
+
+/// Commands allowed in hybrid mode (local builds)
+const HYBRID_MODE_ALLOW: &[&str] = &[
+    "cargo", "rustc", "python", "python3", "pip", "pip3", "uv",
+];
 
 const GUARDS_DIR: &str = ".airis/bin";
 
@@ -21,14 +32,35 @@ pub fn install() -> Result<()> {
 
     let manifest = Manifest::load(manifest_path)?;
 
-    if manifest.guards.deny.is_empty()
+    // Collect effective deny list based on mode
+    let mut effective_deny: Vec<String> = manifest.guards.deny.clone();
+
+    // Apply mode-specific guards
+    match &manifest.mode {
+        Mode::DockerFirst => {
+            // Standard mode: use guards as configured
+            println!("{}", "Mode: docker-first (standard guards)".dimmed());
+        }
+        Mode::Hybrid => {
+            // Hybrid mode: allow local toolchains (cargo, python, etc.)
+            println!("{}", "Mode: hybrid (allowing local toolchains)".yellow());
+            effective_deny.retain(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()));
+        }
+        Mode::Strict => {
+            // Strict mode: block additional commands
+            println!("{}", "Mode: strict (maximum restrictions)".bright_red());
+            for cmd in STRICT_MODE_DENY {
+                if !effective_deny.contains(&cmd.to_string()) {
+                    effective_deny.push(cmd.to_string());
+                }
+            }
+        }
+    }
+
+    if effective_deny.is_empty()
         && manifest.guards.wrap.is_empty()
         && manifest.guards.deny_with_message.is_empty() {
-        println!("{}", "⚠️  No guards defined in manifest.toml [guards] section".yellow());
-        println!("\nExample configuration:");
-        println!("  [guards]");
-        println!("  deny = [\"npm\", \"yarn\"]");
-        println!("  wrap.pnpm = \"docker compose exec workspace pnpm\"");
+        println!("{}", "⚠️  No guards to install (all commands allowed in this mode)".yellow());
         return Ok(());
     }
 
@@ -41,8 +73,8 @@ pub fn install() -> Result<()> {
 
     let mut installed_count = 0;
 
-    // Install deny guards
-    for cmd in &manifest.guards.deny {
+    // Install deny guards (mode-adjusted)
+    for cmd in &effective_deny {
         install_deny_guard(&guards_dir, cmd, None)?;
         installed_count += 1;
         println!("   {} {}", "✓".green(), format!("{} (deny)", cmd).dimmed());
@@ -131,8 +163,22 @@ fn make_executable(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Check if running inside Docker container
+/// Check if running inside Docker container (respects mode)
 pub fn check_docker() -> Result<()> {
+    // Load manifest to check mode
+    let manifest_path = Path::new(MANIFEST_FILE);
+    let mode = if manifest_path.exists() {
+        Manifest::load(manifest_path).map(|m| m.mode).unwrap_or_default()
+    } else {
+        Mode::default()
+    };
+
+    // Hybrid mode allows host execution
+    if matches!(mode, Mode::Hybrid) {
+        println!("{}", "✅ Hybrid mode: host execution allowed".green());
+        return Ok(());
+    }
+
     println!("{}", "🔍 Checking Docker environment...".bright_blue());
 
     // Check DOCKER_CONTAINER environment variable
@@ -179,6 +225,9 @@ pub fn check_docker() -> Result<()> {
     println!();
     println!("{}", "【または】".bright_yellow());
     println!("  {} # コンテナ内で直接実行", "airis exec workspace <command>".cyan());
+    println!();
+    println!("{}", "【ヒント】".bright_yellow());
+    println!("  ホストでの実行を許可するには、manifest.toml で mode = \"hybrid\" を設定してください");
     println!();
     println!("{}", "=".repeat(70).red());
 
@@ -239,4 +288,64 @@ pub fn status() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strict_mode_deny_list() {
+        // Strict mode should block cargo, python, etc.
+        assert!(STRICT_MODE_DENY.contains(&"cargo"));
+        assert!(STRICT_MODE_DENY.contains(&"python"));
+        assert!(STRICT_MODE_DENY.contains(&"go"));
+    }
+
+    #[test]
+    fn test_hybrid_mode_allow_list() {
+        // Hybrid mode should allow cargo, python, etc.
+        assert!(HYBRID_MODE_ALLOW.contains(&"cargo"));
+        assert!(HYBRID_MODE_ALLOW.contains(&"python"));
+    }
+
+    #[test]
+    fn test_hybrid_mode_filters_deny_list() {
+        // Simulate hybrid mode filtering
+        let deny_list = vec![
+            "npm".to_string(),
+            "yarn".to_string(),
+            "cargo".to_string(),
+            "python".to_string(),
+        ];
+
+        let filtered: Vec<String> = deny_list
+            .into_iter()
+            .filter(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()))
+            .collect();
+
+        // npm and yarn should remain denied
+        assert!(filtered.contains(&"npm".to_string()));
+        assert!(filtered.contains(&"yarn".to_string()));
+        // cargo and python should be allowed
+        assert!(!filtered.contains(&"cargo".to_string()));
+        assert!(!filtered.contains(&"python".to_string()));
+    }
+
+    #[test]
+    fn test_strict_mode_adds_to_deny_list() {
+        // Simulate strict mode adding commands
+        let mut deny_list: Vec<String> = vec!["npm".to_string(), "yarn".to_string()];
+
+        for cmd in STRICT_MODE_DENY {
+            if !deny_list.contains(&cmd.to_string()) {
+                deny_list.push(cmd.to_string());
+            }
+        }
+
+        // Should now contain both original and strict mode commands
+        assert!(deny_list.contains(&"npm".to_string()));
+        assert!(deny_list.contains(&"cargo".to_string()));
+        assert!(deny_list.contains(&"python".to_string()));
+    }
 }

@@ -2,13 +2,14 @@
 //!
 //! Builds a directed acyclic graph from manifest.toml and pnpm-lock.yaml
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
 /// A node in the dependency graph
 #[derive(Debug, Clone)]
 pub struct DagNode {
     pub id: String,        // e.g., "apps/focustoday-api"
+    #[allow(dead_code)]
     pub name: String,      // e.g., "focustoday-api" or "@agiletec/focustoday-api"
     pub path: String,      // relative path from root
     pub deps: Vec<String>, // IDs of dependencies
@@ -33,6 +34,7 @@ impl Dag {
     }
 
     /// Get node by ID
+    #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<&DagNode> {
         self.nodes.get(id)
     }

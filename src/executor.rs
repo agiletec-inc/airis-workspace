@@ -3,8 +3,8 @@
 //! Executes build tasks in parallel respecting dependency order.
 //! Uses tokio for async execution with configurable worker pool.
 
-use anyhow::{Context, Result};
-use std::collections::{HashMap, HashSet};
+use anyhow::Result;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, Semaphore};
 

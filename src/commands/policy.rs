@@ -8,7 +8,6 @@
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,11 +56,13 @@ fn default_max_file_size() -> u64 {
 pub struct PolicyResult {
     pub passed: bool,
     pub violations: Vec<PolicyViolation>,
+    #[allow(dead_code)]
     pub warnings: Vec<String>,
 }
 
 #[derive(Debug)]
 pub struct PolicyViolation {
+    #[allow(dead_code)]
     pub rule: String,
     pub message: String,
     pub severity: Severity,
@@ -488,16 +489,12 @@ mod tests {
         let forbidden_file = temp.path().join(".env.local");
         std::fs::write(&forbidden_file, "SECRET=123").unwrap();
 
-        // Change to temp dir for test
-        let original_dir = std::env::current_dir().unwrap();
-        std::env::set_current_dir(temp.path()).unwrap();
-
         let mut result = PolicyResult::default();
         result.passed = true;
 
-        check_forbidden_files(&[".env.local".to_string()], &mut result).unwrap();
-
-        std::env::set_current_dir(original_dir).unwrap();
+        // Use absolute path to avoid thread-safety issues with set_current_dir
+        let abs_path = forbidden_file.to_string_lossy().to_string();
+        check_forbidden_files(&[abs_path.clone()], &mut result).unwrap();
 
         assert!(!result.violations.is_empty());
         assert!(result.violations[0].message.contains(".env.local"));

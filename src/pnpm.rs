@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// pnpm-lock.yaml v9 structure (minimal for dependency resolution)
@@ -25,6 +25,7 @@ pub struct Importer {
     #[serde(default)]
     pub dev_dependencies: HashMap<String, Dependency>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub optional_dependencies: HashMap<String, Dependency>,
     #[serde(default)]
     pub peer_dependencies: HashMap<String, Dependency>,
@@ -33,18 +34,21 @@ pub struct Importer {
 /// A dependency entry
 #[derive(Debug, Deserialize)]
 pub struct Dependency {
+    #[allow(dead_code)]
     pub specifier: String,
     pub version: String,
 }
 
 /// pnpm-workspace.yaml structure
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct PnpmWorkspace {
     pub packages: Vec<String>,
 }
 
 /// Resolved workspace info
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct WorkspacePackage {
     pub name: String,
     pub path: String,
@@ -133,6 +137,7 @@ impl PnpmLock {
     }
 
     /// Get all workspace package paths from importers
+    #[allow(dead_code)]
     pub fn get_all_workspace_paths(&self) -> Vec<String> {
         self.importers
             .keys()
@@ -144,6 +149,7 @@ impl PnpmLock {
 
 impl PnpmWorkspace {
     /// Load from pnpm-workspace.yaml
+    #[allow(dead_code)]
     pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -160,7 +166,7 @@ impl PnpmWorkspace {
 pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage> {
     let mut map = HashMap::new();
 
-    for (path, importer) in &lock.importers {
+    for (path, _importer) in &lock.importers {
         if path == "." {
             continue; // Skip root
         }
@@ -191,6 +197,7 @@ pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage>
 
 /// Resolve full dependency chain for a target package
 /// Returns packages in topological order (dependencies first)
+#[allow(dead_code)]
 pub fn resolve_deps_order(
     target_path: &str,
     workspace_map: &HashMap<String, WorkspacePackage>,
