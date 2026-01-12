@@ -356,13 +356,26 @@ impl SafeFS {
             "libs",
         ];
 
-        for p in protected {
-            if relative_str == p || relative_str.starts_with(&format!("{}/", p)) {
-                return Ok(SafeOpResult {
-                    action: SafeAction::Skipped(format!("Protected path: {}", relative_str)),
-                    path,
-                    backup: None,
-                });
+        // Cleanable artifacts within protected paths (e.g., apps/*/node_modules)
+        let cleanable_artifacts = ["node_modules", ".next", "dist", ".turbo"];
+
+        // Check if this is a cleanable artifact within a protected path
+        let is_cleanable_artifact = cleanable_artifacts.iter().any(|artifact| {
+            relative_str.ends_with(artifact)
+                || relative_str.contains(&format!("/{}/", artifact))
+                || relative_str.ends_with(&format!("/{}", artifact))
+        });
+
+        // Only protect if it's not a cleanable artifact
+        if !is_cleanable_artifact {
+            for p in protected {
+                if relative_str == p || relative_str.starts_with(&format!("{}/", p)) {
+                    return Ok(SafeOpResult {
+                        action: SafeAction::Skipped(format!("Protected path: {}", relative_str)),
+                        path,
+                        backup: None,
+                    });
+                }
             }
         }
 
@@ -577,5 +590,37 @@ mod tests {
 
         let result = safe_fs.clean_artifact("dist").unwrap();
         assert!(matches!(result.action, SafeAction::Deleted));
+    }
+
+    #[test]
+    fn test_safefs_clean_artifact_allows_node_modules_in_protected_paths() {
+        let workspace = create_test_workspace();
+        let safe_fs = SafeFS::new(workspace.path(), false).unwrap();
+
+        // Create apps and libs directories with node_modules inside
+        fs::create_dir_all(workspace.path().join("apps/my-app/node_modules")).unwrap();
+        fs::create_dir_all(workspace.path().join("libs/my-lib/node_modules")).unwrap();
+        fs::create_dir_all(workspace.path().join("apps/my-app/.next")).unwrap();
+
+        // node_modules inside apps should be cleanable
+        let result = safe_fs.clean_artifact("apps/my-app/node_modules").unwrap();
+        assert!(matches!(result.action, SafeAction::Deleted));
+        assert!(!workspace.path().join("apps/my-app/node_modules").exists());
+
+        // node_modules inside libs should be cleanable
+        let result = safe_fs.clean_artifact("libs/my-lib/node_modules").unwrap();
+        assert!(matches!(result.action, SafeAction::Deleted));
+        assert!(!workspace.path().join("libs/my-lib/node_modules").exists());
+
+        // .next inside apps should be cleanable
+        let result = safe_fs.clean_artifact("apps/my-app/.next").unwrap();
+        assert!(matches!(result.action, SafeAction::Deleted));
+        assert!(!workspace.path().join("apps/my-app/.next").exists());
+
+        // But apps/my-app itself should still be protected
+        fs::create_dir_all(workspace.path().join("apps/my-app/src")).unwrap();
+        let result = safe_fs.clean_artifact("apps/my-app/src").unwrap();
+        assert!(matches!(result.action, SafeAction::Skipped(_)));
+        assert!(workspace.path().join("apps/my-app/src").exists());
     }
 }
