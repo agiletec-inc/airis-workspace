@@ -734,6 +734,24 @@ pub struct RuntimeConfig {
     pub version: Option<String>,
 }
 
+/// Kubernetes resource specifications
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ResourceSpec {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpu: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory: Option<String>,
+}
+
+/// Kubernetes resource requests and limits
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct K8sResources {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requests: Option<ResourceSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limits: Option<ResourceSpec>,
+}
+
 /// Project definition for full package.json generation
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
@@ -753,6 +771,15 @@ pub struct ProjectDefinition {
     pub deps: IndexMap<String, String>,
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+    /// Kubernetes: container port
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Kubernetes: number of replicas
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replicas: Option<u32>,
+    /// Kubernetes: resource requests and limits
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resources: Option<K8sResources>,
 }
 
 /// Orchestration configuration for multi-compose setup

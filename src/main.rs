@@ -270,6 +270,9 @@ enum Commands {
         /// Output directory (default: dist/)
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
+        /// Generate Kubernetes manifests (deployment.yaml, service.yaml)
+        #[arg(long)]
+        k8s: bool,
     },
 
     /// Run linting (alias for 'run lint')
@@ -865,8 +868,8 @@ fn main() -> Result<()> {
             }
         }
         Commands::Clean { dry_run } => commands::clean::run(dry_run)?,
-        Commands::Bundle { project, output } => {
-            commands::bundle::run(&project, output.as_deref())?;
+        Commands::Bundle { project, output, k8s } => {
+            commands::bundle::run(&project, output.as_deref(), k8s)?;
         }
         Commands::Lint => commands::run::run("lint")?,
         Commands::Format => commands::run::run("format")?,
