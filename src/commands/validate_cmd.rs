@@ -104,29 +104,29 @@ fn run_human(action: ValidateAction) -> Result<()> {
 fn run_json(action: ValidateAction) -> Result<()> {
     let mut checks = Vec::new();
 
-    // Run the requested validations and collect results
+    // Run the requested validations and collect results (quiet mode)
     let actions: Vec<(&str, Box<dyn Fn() -> Result<()>>, &str)> = match action {
         ValidateAction::Manifest => vec![
-            ("manifest", Box::new(validate_manifest) as Box<dyn Fn() -> Result<()>>, "Run `airis init` to regenerate manifest.toml"),
+            ("manifest", Box::new(|| validate_manifest_impl(true)) as Box<dyn Fn() -> Result<()>>, "Run `airis init` to regenerate manifest.toml"),
         ],
         ValidateAction::Ports => vec![
-            ("ports", Box::new(validate_ports), "Use `expose:` instead of `ports:` in docker-compose.yml"),
+            ("ports", Box::new(|| validate_ports_impl(true)), "Use `expose:` instead of `ports:` in docker-compose.yml"),
         ],
         ValidateAction::Networks => vec![
-            ("networks", Box::new(validate_networks), "Check Traefik network configuration"),
+            ("networks", Box::new(|| validate_networks_impl(true)), "Check Traefik network configuration"),
         ],
         ValidateAction::Env => vec![
-            ("env", Box::new(validate_env), "Check .env files for disallowed public keys"),
+            ("env", Box::new(|| validate_env_impl(true)), "Check .env files for disallowed public keys"),
         ],
         ValidateAction::Dependencies | ValidateAction::Architecture => vec![
-            ("dependencies", Box::new(validate_dependencies), "Run `npx dependency-cruiser` to check architecture"),
+            ("dependencies", Box::new(|| validate_dependencies_impl(true)), "Run `npx dependency-cruiser` to check architecture"),
         ],
         ValidateAction::All => vec![
-            ("manifest", Box::new(validate_manifest) as Box<dyn Fn() -> Result<()>>, "Run `airis init` to regenerate"),
-            ("ports", Box::new(validate_ports), "Use `expose:` instead of `ports:`"),
-            ("networks", Box::new(validate_networks), "Check Traefik network config"),
-            ("env", Box::new(validate_env), "Check .env files"),
-            ("dependencies", Box::new(validate_dependencies), "Run dependency-cruiser"),
+            ("manifest", Box::new(|| validate_manifest_impl(true)) as Box<dyn Fn() -> Result<()>>, "Run `airis init` to regenerate"),
+            ("ports", Box::new(|| validate_ports_impl(true)), "Use `expose:` instead of `ports:`"),
+            ("networks", Box::new(|| validate_networks_impl(true)), "Check Traefik network config"),
+            ("env", Box::new(|| validate_env_impl(true)), "Check .env files"),
+            ("dependencies", Box::new(|| validate_dependencies_impl(true)), "Run dependency-cruiser"),
         ],
     };
 
@@ -164,7 +164,13 @@ fn run_json(action: ValidateAction) -> Result<()> {
 
 /// Validate that no ports: mapping exists in application docker-compose files
 fn validate_ports() -> Result<()> {
-    println!("{}", "🔍 Checking for ports: mapping in application docker-compose files...".bright_blue());
+    validate_ports_impl(false)
+}
+
+fn validate_ports_impl(quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("{}", "🔍 Checking for ports: mapping in application docker-compose files...".bright_blue());
+    }
 
     // Use ripgrep to find ports: mappings
     let output = Command::new("rg")
@@ -181,44 +187,56 @@ fn validate_ports() -> Result<()> {
     let matches = String::from_utf8_lossy(&output.stdout);
 
     if !matches.is_empty() {
-        println!();
-        println!("{}", "❌ ERROR: Found ports: mapping in application docker-compose.".red());
-        println!();
-        println!("Found:");
-        for line in matches.lines() {
-            println!("  {}", line);
+        if !quiet {
+            println!();
+            println!("{}", "❌ ERROR: Found ports: mapping in application docker-compose.".red());
+            println!();
+            println!("Found:");
+            for line in matches.lines() {
+                println!("  {}", line);
+            }
+            println!();
+            println!("   {} Wrong:", "❌".red());
+            println!("   ports:");
+            println!("     - \"4010:3000\"");
+            println!();
+            println!("   {} Right:", "✅".green());
+            println!("   expose:");
+            println!("     - \"3000\"");
+            println!("   labels:");
+            println!("     - traefik.enable=true");
+            println!("     - traefik.http.routers.app.rule=Host(`app.localhost`)");
+            println!("     - traefik.http.services.app.loadbalancer.server.port=3000");
+            println!();
+            println!("   Exception: Only allowed in:");
+            println!("   - Infrastructure (traefik/, supabase/)");
+            println!("   - Override files (compose.*.override.yml, compose.dev.yml)");
         }
-        println!();
-        println!("   {} Wrong:", "❌".red());
-        println!("   ports:");
-        println!("     - \"4010:3000\"");
-        println!();
-        println!("   {} Right:", "✅".green());
-        println!("   expose:");
-        println!("     - \"3000\"");
-        println!("   labels:");
-        println!("     - traefik.enable=true");
-        println!("     - traefik.http.routers.app.rule=Host(`app.localhost`)");
-        println!("     - traefik.http.services.app.loadbalancer.server.port=3000");
-        println!();
-        println!("   Exception: Only allowed in:");
-        println!("   - Infrastructure (traefik/, supabase/)");
-        println!("   - Override files (compose.*.override.yml, compose.dev.yml)");
 
         bail!("Found ports: mapping in application docker-compose files");
     }
 
-    println!("{}", "✅ No ports: mapping found in application docker-compose.".green());
+    if !quiet {
+        println!("{}", "✅ No ports: mapping found in application docker-compose.".green());
+    }
     Ok(())
 }
 
 /// Validate Traefik network wiring in application docker-compose files
 fn validate_networks() -> Result<()> {
-    println!("{}", "🔍 Checking Traefik network wiring in apps/*/docker-compose.yml...".bright_blue());
+    validate_networks_impl(false)
+}
+
+fn validate_networks_impl(quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("{}", "🔍 Checking Traefik network wiring in apps/*/docker-compose.yml...".bright_blue());
+    }
 
     let apps_dir = Path::new("apps");
     if !apps_dir.exists() {
-        println!("  {} No apps directory found", "⏭️".dimmed());
+        if !quiet {
+            println!("  {} No apps directory found", "⏭️".dimmed());
+        }
         return Ok(());
     }
 
@@ -251,37 +269,53 @@ fn validate_networks() -> Result<()> {
 
         // Check for agiletec_default network
         if !content.contains("agiletec_default") {
-            println!("  {} {}: networks.default should reference 'agiletec_default'", "❌".red(), project);
+            if !quiet {
+                println!("  {} {}: networks.default should reference 'agiletec_default'", "❌".red(), project);
+            }
             failures += 1;
         }
 
         // Check for proxy network
         if !content.contains(&proxy_network) && !content.contains("EXTERNAL_PROXY_NETWORK") {
-            println!("  {} {}: networks.proxy should reference '{}' or EXTERNAL_PROXY_NETWORK", "❌".red(), project, proxy_network);
+            if !quiet {
+                println!("  {} {}: networks.proxy should reference '{}' or EXTERNAL_PROXY_NETWORK", "❌".red(), project, proxy_network);
+            }
             failures += 1;
         }
 
         // Check for traefik.docker.network label
         if content.contains("traefik.enable=true")
             && !content.contains("traefik.docker.network=") {
-                println!("  {} {}: Traefik-enabled services need traefik.docker.network label", "❌".red(), project);
+                if !quiet {
+                    println!("  {} {}: Traefik-enabled services need traefik.docker.network label", "❌".red(), project);
+                }
                 failures += 1;
             }
     }
 
     if failures > 0 {
-        println!();
-        println!("⚠️  Traefik ネットワーク設定を修正してください");
+        if !quiet {
+            println!();
+            println!("⚠️  Traefik ネットワーク設定を修正してください");
+        }
         bail!("Found {} network configuration issues", failures);
     }
 
-    println!("{}", "✅ Traefik network wiring looks good.".green());
+    if !quiet {
+        println!("{}", "✅ Traefik network wiring looks good.".green());
+    }
     Ok(())
 }
 
 /// Validate frontend environment variables
 fn validate_env() -> Result<()> {
-    println!("{}", "🔍 Checking frontend environment variables...".bright_blue());
+    validate_env_impl(false)
+}
+
+fn validate_env_impl(quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("{}", "🔍 Checking frontend environment variables...".bright_blue());
+    }
 
     let allowed_keys = vec![
         "NEXT_PUBLIC_SUPABASE_URL",
@@ -314,17 +348,21 @@ fn validate_env() -> Result<()> {
     }
 
     if !disallowed.is_empty() {
-        println!();
-        println!("{}", "Disallowed public environment keys detected:".red());
-        for item in &disallowed {
-            println!("  - {}", item);
+        if !quiet {
+            println!();
+            println!("{}", "Disallowed public environment keys detected:".red());
+            for item in &disallowed {
+                println!("  - {}", item);
+            }
+            println!();
+            println!("Allowed keys: {}", allowed_keys.join(", "));
         }
-        println!();
-        println!("Allowed keys: {}", allowed_keys.join(", "));
         bail!("Found {} disallowed public environment keys", disallowed.len());
     }
 
-    println!("{}", "✅ Environment variables look good.".green());
+    if !quiet {
+        println!("{}", "✅ Environment variables look good.".green());
+    }
     Ok(())
 }
 
@@ -357,12 +395,20 @@ fn check_env_file(path: &Path, allowed: &[&str], disallowed: &mut Vec<String>) -
 /// Validate dependency architecture rules
 /// Checks that apps only depend on libs (public API), and no cross-app dependencies exist
 fn validate_dependencies() -> Result<()> {
-    println!("{}", "🔍 Validating dependency architecture...".bright_blue());
+    validate_dependencies_impl(false)
+}
+
+fn validate_dependencies_impl(quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("{}", "🔍 Validating dependency architecture...".bright_blue());
+    }
 
     // Check if dependency-cruiser config exists
     let config_path = Path::new("tools/dependency-cruiser.cjs");
     if !config_path.exists() {
-        println!("  {} dependency-cruiser config not found, skipping", "⏭️".yellow());
+        if !quiet {
+            println!("  {} dependency-cruiser config not found, skipping", "⏭️".yellow());
+        }
         return Ok(());
     }
 
@@ -372,14 +418,18 @@ fn validate_dependencies() -> Result<()> {
         .output();
 
     if check.is_err() {
-        println!("  {} dependency-cruiser not installed, skipping", "⏭️".yellow());
-        println!("  {} Install with: pnpm add -D dependency-cruiser", "💡".dimmed());
+        if !quiet {
+            println!("  {} dependency-cruiser not installed, skipping", "⏭️".yellow());
+            println!("  {} Install with: pnpm add -D dependency-cruiser", "💡".dimmed());
+        }
         return Ok(());
     }
 
     // Run dependency-cruiser
-    println!("  {} Running dependency-cruiser...", "⚙️".dimmed());
-    let status = Command::new("npx")
+    if !quiet {
+        println!("  {} Running dependency-cruiser...", "⚙️".dimmed());
+    }
+    let output = Command::new("npx")
         .args([
             "dependency-cruiser",
             "--config",
@@ -389,20 +439,28 @@ fn validate_dependencies() -> Result<()> {
             "apps",
             "libs",
         ])
-        .status()
+        .output()
         .context("Failed to run dependency-cruiser")?;
 
-    if !status.success() {
+    if !output.status.success() {
         bail!("Dependency architecture validation failed. Fix violations above.");
     }
 
-    println!("  {} No architecture violations found", "✅".green());
+    if !quiet {
+        println!("  {} No architecture violations found", "✅".green());
+    }
     Ok(())
 }
 
 /// Validate manifest.toml: syntax, app paths, port conflicts, required env vars
 fn validate_manifest() -> Result<()> {
-    println!("{}", "🔍 Validating manifest.toml...".bright_blue());
+    validate_manifest_impl(false)
+}
+
+fn validate_manifest_impl(quiet: bool) -> Result<()> {
+    if !quiet {
+        println!("{}", "🔍 Validating manifest.toml...".bright_blue());
+    }
 
     let manifest_path = Path::new(MANIFEST_FILE);
     if !manifest_path.exists() {
@@ -412,7 +470,9 @@ fn validate_manifest() -> Result<()> {
     // 1. Syntax validation (parse TOML)
     let manifest = Manifest::load(manifest_path)
         .context("Failed to parse manifest.toml")?;
-    println!("  {} Syntax valid", "✅".green());
+    if !quiet {
+        println!("  {} Syntax valid", "✅".green());
+    }
 
     let mut failures = 0;
 
@@ -420,11 +480,13 @@ fn validate_manifest() -> Result<()> {
     for app_name in manifest.apps.keys() {
         let app_path = Path::new("apps").join(app_name);
         if !app_path.exists() {
-            println!("  {} App path not found: apps/{}", "❌".red(), app_name);
+            if !quiet {
+                println!("  {} App path not found: apps/{}", "❌".red(), app_name);
+            }
             failures += 1;
         }
     }
-    if manifest.apps.is_empty() || failures == 0 {
+    if !quiet && (manifest.apps.is_empty() || failures == 0) {
         println!("  {} App paths valid", "✅".green());
     }
 
@@ -432,11 +494,13 @@ fn validate_manifest() -> Result<()> {
     for lib_name in manifest.libs.keys() {
         let lib_path = Path::new("libs").join(lib_name);
         if !lib_path.exists() {
-            println!("  {} Lib path not found: libs/{}", "❌".red(), lib_name);
+            if !quiet {
+                println!("  {} Lib path not found: libs/{}", "❌".red(), lib_name);
+            }
             failures += 1;
         }
     }
-    if manifest.libs.is_empty() || failures == 0 {
+    if !quiet && (manifest.libs.is_empty() || failures == 0) {
         println!("  {} Lib paths valid", "✅".green());
     }
 
@@ -446,39 +510,45 @@ fn validate_manifest() -> Result<()> {
     for (service_name, service) in &manifest.service {
         if let Some(port) = service.port {
             if !ports.insert(port) {
-                println!("  {} Port conflict: {} uses port {} (already in use)", "❌".red(), service_name, port);
+                if !quiet {
+                    println!("  {} Port conflict: {} uses port {} (already in use)", "❌".red(), service_name, port);
+                }
                 port_conflicts += 1;
             }
         }
     }
-    if port_conflicts == 0 {
+    if !quiet && port_conflicts == 0 {
         println!("  {} No port conflicts", "✅".green());
     }
     failures += port_conflicts;
 
     // 5. Validate required environment variables from [env] section
     if !manifest.env.required.is_empty() {
-        let env_failures = validate_required_env_vars(&manifest)?;
+        let env_failures = validate_required_env_vars_impl(&manifest, quiet)?;
         failures += env_failures;
     }
 
     // 6. Validate env patterns if defined
-    let pattern_failures = validate_env_patterns(&manifest)?;
+    let pattern_failures = validate_env_patterns_impl(&manifest, quiet)?;
     failures += pattern_failures;
 
     if failures > 0 {
         bail!("manifest.toml validation failed with {} errors", failures);
     }
 
-    println!("{}", "✅ manifest.toml validation passed!".green());
+    if !quiet {
+        println!("{}", "✅ manifest.toml validation passed!".green());
+    }
     Ok(())
 }
 
 /// Validate required environment variables are set
-fn validate_required_env_vars(manifest: &Manifest) -> Result<usize> {
+fn validate_required_env_vars_impl(manifest: &Manifest, quiet: bool) -> Result<usize> {
     let mut failures = 0;
 
-    println!("  {} Checking required environment variables...", "🔍".dimmed());
+    if !quiet {
+        println!("  {} Checking required environment variables...", "🔍".dimmed());
+    }
 
     for var_name in &manifest.env.required {
         if std::env::var(var_name).is_err() {
@@ -495,17 +565,19 @@ fn validate_required_env_vars(manifest: &Manifest) -> Result<usize> {
                 }
             }
             if !found {
-                let description = manifest.env.validation.get(var_name)
-                    .and_then(|v| v.description.as_ref())
-                    .map(|d| format!(" ({})", d))
-                    .unwrap_or_default();
-                println!("  {} Missing required env var: {}{}", "❌".red(), var_name, description);
+                if !quiet {
+                    let description = manifest.env.validation.get(var_name)
+                        .and_then(|v| v.description.as_ref())
+                        .map(|d| format!(" ({})", d))
+                        .unwrap_or_default();
+                    println!("  {} Missing required env var: {}{}", "❌".red(), var_name, description);
+                }
                 failures += 1;
             }
         }
     }
 
-    if failures == 0 && !manifest.env.required.is_empty() {
+    if !quiet && failures == 0 && !manifest.env.required.is_empty() {
         println!("  {} Required env vars present", "✅".green());
     }
 
@@ -513,7 +585,7 @@ fn validate_required_env_vars(manifest: &Manifest) -> Result<usize> {
 }
 
 /// Validate environment variable patterns
-fn validate_env_patterns(manifest: &Manifest) -> Result<usize> {
+fn validate_env_patterns_impl(manifest: &Manifest, quiet: bool) -> Result<usize> {
     let mut failures = 0;
 
     for (var_name, validation) in &manifest.env.validation {
@@ -537,20 +609,24 @@ fn validate_env_patterns(manifest: &Manifest) -> Result<usize> {
                 match Regex::new(pattern) {
                     Ok(re) => {
                         if !re.is_match(&val) {
-                            let desc = validation.description.as_deref().unwrap_or("invalid format");
-                            println!("  {} {} does not match pattern '{}': {}", "❌".red(), var_name, pattern, desc);
+                            if !quiet {
+                                let desc = validation.description.as_deref().unwrap_or("invalid format");
+                                println!("  {} {} does not match pattern '{}': {}", "❌".red(), var_name, pattern, desc);
+                            }
                             failures += 1;
                         }
                     }
                     Err(e) => {
-                        println!("  {} Invalid regex pattern for {}: {}", "⚠️".yellow(), var_name, e);
+                        if !quiet {
+                            println!("  {} Invalid regex pattern for {}: {}", "⚠️".yellow(), var_name, e);
+                        }
                     }
                 }
             }
         }
     }
 
-    if failures == 0 && !manifest.env.validation.is_empty() {
+    if !quiet && failures == 0 && !manifest.env.validation.is_empty() {
         println!("  {} Env var patterns valid", "✅".green());
     }
 
