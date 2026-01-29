@@ -1,12 +1,16 @@
 //! Validate command: workspace configuration validation
 //!
-//! Validates Traefik ports, networks, and environment variables.
+//! Validates Traefik ports, networks, environment variables, and manifest.toml.
 
 use anyhow::{bail, Context, Result};
 use colored::Colorize;
+use regex::Regex;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+
+use crate::manifest::{Manifest, MANIFEST_FILE};
 
 /// Validate action types
 pub enum ValidateAction {
@@ -15,6 +19,8 @@ pub enum ValidateAction {
     Env,
     Dependencies,
     Architecture,
+    /// Validate manifest.toml syntax, app paths, port conflicts
+    Manifest,
     All,
 }
 
@@ -25,11 +31,17 @@ pub fn run(action: ValidateAction) -> Result<()> {
         ValidateAction::Networks => validate_networks(),
         ValidateAction::Env => validate_env(),
         ValidateAction::Dependencies | ValidateAction::Architecture => validate_dependencies(),
+        ValidateAction::Manifest => validate_manifest(),
         ValidateAction::All => {
             let mut failures = 0;
 
             println!("{}", "🔍 Running all validations...".bright_blue());
             println!();
+
+            if let Err(e) = validate_manifest() {
+                eprintln!("  {} Manifest validation failed: {}", "❌".red(), e);
+                failures += 1;
+            }
 
             if let Err(e) = validate_ports() {
                 eprintln!("  {} Ports validation failed: {}", "❌".red(), e);
@@ -298,4 +310,161 @@ fn validate_dependencies() -> Result<()> {
 
     println!("  {} No architecture violations found", "✅".green());
     Ok(())
+}
+
+/// Validate manifest.toml: syntax, app paths, port conflicts, required env vars
+fn validate_manifest() -> Result<()> {
+    println!("{}", "🔍 Validating manifest.toml...".bright_blue());
+
+    let manifest_path = Path::new(MANIFEST_FILE);
+    if !manifest_path.exists() {
+        bail!("manifest.toml not found. Run `airis init` to create one.");
+    }
+
+    // 1. Syntax validation (parse TOML)
+    let manifest = Manifest::load(manifest_path)
+        .context("Failed to parse manifest.toml")?;
+    println!("  {} Syntax valid", "✅".green());
+
+    let mut failures = 0;
+
+    // 2. Validate app paths exist
+    for app_name in manifest.apps.keys() {
+        let app_path = Path::new("apps").join(app_name);
+        if !app_path.exists() {
+            println!("  {} App path not found: apps/{}", "❌".red(), app_name);
+            failures += 1;
+        }
+    }
+    if manifest.apps.is_empty() || failures == 0 {
+        println!("  {} App paths valid", "✅".green());
+    }
+
+    // 3. Validate lib paths exist
+    for lib_name in manifest.libs.keys() {
+        let lib_path = Path::new("libs").join(lib_name);
+        if !lib_path.exists() {
+            println!("  {} Lib path not found: libs/{}", "❌".red(), lib_name);
+            failures += 1;
+        }
+    }
+    if manifest.libs.is_empty() || failures == 0 {
+        println!("  {} Lib paths valid", "✅".green());
+    }
+
+    // 4. Check for port conflicts in services
+    let mut ports: HashSet<u16> = HashSet::new();
+    let mut port_conflicts = 0;
+    for (service_name, service) in &manifest.service {
+        if let Some(port) = service.port {
+            if !ports.insert(port) {
+                println!("  {} Port conflict: {} uses port {} (already in use)", "❌".red(), service_name, port);
+                port_conflicts += 1;
+            }
+        }
+    }
+    if port_conflicts == 0 {
+        println!("  {} No port conflicts", "✅".green());
+    }
+    failures += port_conflicts;
+
+    // 5. Validate required environment variables from [env] section
+    if !manifest.env.required.is_empty() {
+        let env_failures = validate_required_env_vars(&manifest)?;
+        failures += env_failures;
+    }
+
+    // 6. Validate env patterns if defined
+    let pattern_failures = validate_env_patterns(&manifest)?;
+    failures += pattern_failures;
+
+    if failures > 0 {
+        bail!("manifest.toml validation failed with {} errors", failures);
+    }
+
+    println!("{}", "✅ manifest.toml validation passed!".green());
+    Ok(())
+}
+
+/// Validate required environment variables are set
+fn validate_required_env_vars(manifest: &Manifest) -> Result<usize> {
+    let mut failures = 0;
+
+    println!("  {} Checking required environment variables...", "🔍".dimmed());
+
+    for var_name in &manifest.env.required {
+        if std::env::var(var_name).is_err() {
+            // Also check .env file in project root
+            let env_file = Path::new(".env");
+            let mut found = false;
+            if env_file.exists() {
+                let content = fs::read_to_string(env_file)?;
+                for line in content.lines() {
+                    if line.starts_with(&format!("{}=", var_name)) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if !found {
+                let description = manifest.env.validation.get(var_name)
+                    .and_then(|v| v.description.as_ref())
+                    .map(|d| format!(" ({})", d))
+                    .unwrap_or_default();
+                println!("  {} Missing required env var: {}{}", "❌".red(), var_name, description);
+                failures += 1;
+            }
+        }
+    }
+
+    if failures == 0 && !manifest.env.required.is_empty() {
+        println!("  {} Required env vars present", "✅".green());
+    }
+
+    Ok(failures)
+}
+
+/// Validate environment variable patterns
+fn validate_env_patterns(manifest: &Manifest) -> Result<usize> {
+    let mut failures = 0;
+
+    for (var_name, validation) in &manifest.env.validation {
+        if let Some(pattern) = &validation.pattern {
+            // Get the value from environment or .env file
+            let value = std::env::var(var_name).ok().or_else(|| {
+                let env_file = Path::new(".env");
+                if env_file.exists() {
+                    if let Ok(content) = fs::read_to_string(env_file) {
+                        for line in content.lines() {
+                            if line.starts_with(&format!("{}=", var_name)) {
+                                return line.split('=').nth(1).map(|s| s.to_string());
+                            }
+                        }
+                    }
+                }
+                None
+            });
+
+            if let Some(val) = value {
+                match Regex::new(pattern) {
+                    Ok(re) => {
+                        if !re.is_match(&val) {
+                            let desc = validation.description.as_deref().unwrap_or("invalid format");
+                            println!("  {} {} does not match pattern '{}': {}", "❌".red(), var_name, pattern, desc);
+                            failures += 1;
+                        }
+                    }
+                    Err(e) => {
+                        println!("  {} Invalid regex pattern for {}: {}", "⚠️".yellow(), var_name, e);
+                    }
+                }
+            }
+        }
+    }
+
+    if failures == 0 && !manifest.env.validation.is_empty() {
+        println!("  {} Env var patterns valid", "✅".green());
+    }
+
+    Ok(failures)
 }

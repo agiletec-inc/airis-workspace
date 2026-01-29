@@ -442,6 +442,8 @@ enum ManifestCommands {
 
 #[derive(Subcommand)]
 enum ValidateCommands {
+    /// Validate manifest.toml syntax, app paths, port conflicts, required env vars
+    Manifest,
     /// Check for ports: mapping in docker-compose files
     Ports,
     /// Check Traefik network wiring
@@ -595,6 +597,7 @@ fn main() -> Result<()> {
             use commands::validate_cmd::{self, ValidateAction};
 
             let validate_action = match action {
+                ValidateCommands::Manifest => ValidateAction::Manifest,
                 ValidateCommands::Ports => ValidateAction::Ports,
                 ValidateCommands::Networks => ValidateAction::Networks,
                 ValidateCommands::Env => ValidateAction::Env,

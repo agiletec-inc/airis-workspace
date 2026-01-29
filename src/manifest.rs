@@ -80,6 +80,9 @@ pub struct Manifest {
     /// Runtime aliases for airis new
     #[serde(default)]
     pub runtimes: RuntimesSection,
+    /// Environment variable validation
+    #[serde(default)]
+    pub env: EnvSection,
 }
 
 impl Manifest {
@@ -266,6 +269,7 @@ impl Manifest {
             ci: CiSection::default(),
             templates: TemplatesSection::default(),
             runtimes: RuntimesSection::default(),
+            env: EnvSection::default(),
         }
     }
 }
@@ -718,6 +722,44 @@ pub struct JustSection {
     pub output: String,
     #[serde(default)]
     pub features: Vec<String>,
+}
+
+/// Environment variable validation section
+/// Example:
+/// ```toml
+/// [env]
+/// required = ["DATABASE_URL", "API_KEY"]
+/// optional = ["SENTRY_DSN", "DEBUG"]
+///
+/// [env.validation.DATABASE_URL]
+/// pattern = "^postgresql://"
+/// description = "PostgreSQL connection string"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct EnvSection {
+    /// Required environment variables (must be set)
+    #[serde(default)]
+    pub required: Vec<String>,
+    /// Optional environment variables
+    #[serde(default)]
+    pub optional: Vec<String>,
+    /// Validation rules for specific variables
+    #[serde(default)]
+    pub validation: IndexMap<String, EnvValidation>,
+}
+
+/// Validation rules for an environment variable
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct EnvValidation {
+    /// Regex pattern to validate the value
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    /// Human-readable description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Example value (used in .env.example)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub example: Option<String>,
 }
 
 /// Runtime configuration for Docker builds

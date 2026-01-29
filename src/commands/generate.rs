@@ -163,6 +163,14 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
         }
     }
 
+    // Generate .env.example if [env] section has required or optional vars
+    let env_example_generated = if !manifest.env.required.is_empty() || !manifest.env.optional.is_empty() {
+        generate_env_example(manifest, &engine)?;
+        true
+    } else {
+        false
+    };
+
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
@@ -179,6 +187,9 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     }
     if !manifest.app.is_empty() {
         println!("   - {} app package.json files", manifest.app.len());
+    }
+    if env_example_generated {
+        println!("   - .env.example");
     }
     println!();
     println!("{}", "Next steps:".bright_yellow());
@@ -313,6 +324,18 @@ fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine) -> Resu
         fs::write(compose_path, &compose_content)
             .with_context(|| "Failed to write docker-compose.yml")?;
     }
+
+    Ok(())
+}
+
+fn generate_env_example(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
+    let content = engine.render_env_example(manifest)?;
+    let path = Path::new(".env.example");
+
+    fs::write(path, &content)
+        .with_context(|| "Failed to write .env.example")?;
+
+    println!("   {} Generated .env.example from [env] section", "📄".green());
 
     Ok(())
 }
