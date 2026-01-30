@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Core Philosophy**: Prevent host pollution by blocking direct `pnpm`/`npm`/`yarn` execution and forcing Docker-first workflow via `airis` CLI commands. Special exception for Rust projects (local builds for GPU support).
 
-**Current Version**: v1.42.0
+**Current Version**: v1.54.0
 
 **AIRIS Ecosystem** (responsibility separation):
 - **airis-workspace** (this repo): Monorepo management only
@@ -22,6 +22,7 @@ Key milestones:
 - v1.38: Bundle & deploy (`airis bundle`)
 - v1.39: Policy gates (`airis policy check/enforce`)
 - v1.42: LTS version resolution from npm dist-tags
+- v1.54: LLM Truth output (`airis manifest json`, `airis doctor --truth`)
 
 ## Build & Development Commands
 
@@ -65,6 +66,50 @@ airis bundle <project>
 
 # Policy check before deploy
 airis policy check
+```
+
+### LLM Truth Commands (v1.54+)
+
+These commands output workspace "truth" for LLM consumption, preventing confusion from wrong directories or implicit compose detection.
+
+```bash
+# JSON output of workspace configuration (for LLM/automation)
+airis manifest json
+
+# Human-readable startup truth
+airis doctor --truth
+
+# JSON output (same as manifest json)
+airis doctor --truth-json
+```
+
+**Output includes**:
+- `workspace_root`: Absolute path to workspace
+- `compose_files`: List of compose files
+- `compose_command`: Full docker compose command with -f flags
+- `service`: Primary service name
+- `workdir`: Container working directory
+- `package_manager`: pnpm/npm/yarn/bun
+- `recommended_commands`: Map of airis commands (up, dev, shell, etc.)
+
+**Example output**:
+```json
+{
+  "format": "airis.manifest.v1",
+  "schema_version": 1,
+  "workspace_root": "/path/to/workspace",
+  "compose_files": ["docker-compose.yml"],
+  "compose_command": "docker compose -f docker-compose.yml",
+  "service": "workspace",
+  "workdir": "/app",
+  "package_manager": "pnpm",
+  "cwd_policy": "repo_root_required",
+  "recommended_commands": {
+    "up": "airis up",
+    "dev": "airis dev",
+    "shell": "airis shell"
+  }
+}
 ```
 
 ## ⚠️ airis init Specification (Strictly Enforced)
@@ -162,6 +207,12 @@ airis generate files
 - `.airis/policies.toml` for pre-deployment validation
 - `airis policy check/enforce`
 
+**LLM Truth Output (v1.54+)**:
+- `airis manifest json` outputs workspace configuration as JSON
+- `airis doctor --truth` shows human-readable startup info
+- Strict workspace detection: errors if manifest.toml not found (escape: `AIRIS_ALLOW_PWD_FALLBACK=1`)
+- Strict compose file: errors if no compose file found (with resolution steps)
+
 **Auto-Generation Markers**: All generated files include `DO NOT EDIT` warnings and `_generated` metadata to prevent manual edits.
 
 ### Module Responsibilities
@@ -170,7 +221,7 @@ airis generate files
 - **src/manifest.rs**: manifest.toml schema/helpers + Mode enum
 - **src/commands/init.rs**: Creates manifest.toml template (if not exists)
 - **src/commands/generate.rs**: Regenerates workspace files from manifest.toml
-- **src/commands/manifest_cmd.rs**: Implements `airis manifest ...` plumbing
+- **src/commands/manifest_cmd.rs**: Implements `airis manifest ...` plumbing + JSON truth output (v1.54+)
 - **src/commands/run.rs**: Executes commands from `[commands]` section (v1.0.2+)
 - **src/commands/bump_version.rs**: Version bumping with Conventional Commits (v1.1.0+)
 - **src/commands/hooks.rs**: Git hooks installation (v1.1.0+)
@@ -221,6 +272,8 @@ When adding features:
 - Build matrix (linux/amd64, linux/arm64 cross-build)
 
 **Recently implemented**:
+- ✅ LLM Truth output (`airis manifest json`, `airis doctor --truth`, v1.54)
+- ✅ Strict workspace/compose detection with helpful errors (v1.54)
 - ✅ LLM context generation (`.workspace/llm-context.md`, v1.52)
 - ✅ Structured error output (`airis validate --json`, v1.52)
 - ✅ Environment variable validation (`[env]` section, v1.51)
