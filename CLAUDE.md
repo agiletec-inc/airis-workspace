@@ -217,22 +217,47 @@ airis generate files
 
 ### Module Responsibilities
 
+**Core:**
 - **src/main.rs**: CLI entry point using `clap` derive macros
 - **src/manifest.rs**: manifest.toml schema/helpers + Mode enum
+- **src/templates/mod.rs**: Handlebars engine driven by MANIFEST data
+- **src/ownership.rs**: File ownership tracking (tool-generated vs user-owned)
+
+**Commands:**
 - **src/commands/init.rs**: Creates manifest.toml template (if not exists)
 - **src/commands/generate.rs**: Regenerates workspace files from manifest.toml
-- **src/commands/manifest_cmd.rs**: Implements `airis manifest ...` plumbing + JSON truth output (v1.54+)
+- **src/commands/manifest_cmd.rs**: `airis manifest ...` plumbing + JSON truth output (v1.54+)
 - **src/commands/run.rs**: Executes commands from `[commands]` section (v1.0.2+)
+- **src/commands/doctor.rs**: Workspace health diagnostics + `--truth` output (v1.54+)
+- **src/commands/validate_cmd.rs**: Manifest validation with `--json` output
+- **src/commands/shim.rs**: Docker-first shim generation (`airis shim install`)
 - **src/commands/bump_version.rs**: Version bumping with Conventional Commits (v1.1.0+)
 - **src/commands/hooks.rs**: Git hooks installation (v1.1.0+)
 - **src/commands/sync_deps.rs**: Catalog version resolution (deprecated, now in init)
-- **src/commands/build.rs**: DAG-based parallel Docker builds
 - **src/commands/bundle.rs**: Deployment package generation
 - **src/commands/policy.rs**: Pre-deployment validation gates
+- **src/commands/discover.rs**: Auto-discovery of apps/libs (v1.43+)
+- **src/commands/migrate.rs**: Safe migration with backups (v1.43+)
+- **src/commands/guards.rs**: Docker-first guard enforcement
+- **src/commands/affected.rs**: Affected project detection for builds
+- **src/commands/clean.rs**: Workspace cleanup
+- **src/commands/new_cmd.rs**: Scaffold new apps/libs
+- **src/commands/docs.rs**: Documentation generation
+- **src/commands/network.rs**: Docker network management
+- **src/commands/verify.rs**: Workspace verification
+- **src/commands/generate_types.rs**: TypeScript type generation
+
+**Build System:**
 - **src/dag.rs**: DAG construction and topological sort
 - **src/executor.rs**: Parallel task execution
 - **src/docker_build.rs**: Dockerfile generation and build context
-- **src/templates/mod.rs**: Handlebars engine driven by MANIFEST data
+- **src/remote_cache.rs**: S3/OCI remote cache support
+
+**Utilities:**
+- **src/pnpm.rs**: pnpm-specific helpers
+- **src/safe_fs.rs**: Safe filesystem operations with backups
+- **src/channel.rs**: Communication channels for parallel execution
+- **src/generators/**: Package-specific generators (package.json, etc.)
 
 ## Important Constraints
 
@@ -265,6 +290,28 @@ When adding features:
 2. Use `tempfile` crate for filesystem tests (already in dev-dependencies)
 3. Test TOML parsing/serialization roundtrips
 4. Verify template rendering produces valid output (valid JSON, TOML, YAML)
+
+**Thread-safe directory testing pattern** (required when using `std::env::set_current_dir`):
+```rust
+use std::sync::Mutex;
+static DIR_LOCK: Mutex<()> = Mutex::new(());
+
+#[test]
+fn test_with_directory_change() {
+    let _guard = DIR_LOCK.lock().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+
+    let result = std::panic::catch_unwind(|| {
+        // Test logic here
+    });
+
+    std::env::set_current_dir(original_dir).unwrap(); // Always restore
+    result.unwrap();
+}
+```
+This pattern prevents race conditions when tests run in parallel.
 
 ## Future Implementation Notes
 

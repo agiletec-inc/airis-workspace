@@ -952,19 +952,12 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
 
     let mut cmds = IndexMap::new();
 
-    // Docker compose commands (no package manager)
-    cmds.insert("up".to_string(), build_compose_command(manifest, "up -d")?);
-    cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
-    cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
-    cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
-    cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service))?);
-
     // Detect project type: Rust or Node
     let is_rust_project = !manifest.project.rust_edition.is_empty()
         || !manifest.project.binary_name.is_empty();
 
     if is_rust_project {
-        // Rust project: use cargo commands
+        // Rust project: use cargo commands (no docker compose required)
         cmds.insert("install".to_string(), "cargo install --path .".to_string());
         cmds.insert("build".to_string(), "cargo build --release".to_string());
         cmds.insert("test".to_string(), "cargo test".to_string());
@@ -972,6 +965,13 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
         cmds.insert("format".to_string(), "cargo fmt".to_string());
         cmds.insert("dev".to_string(), "cargo watch -x run".to_string());
     } else {
+        // Docker/Node project: docker compose commands required
+        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d")?);
+        cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
+        cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
+        cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
+        cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service))?);
+
         // Node project: use package manager commands (auto-inferred from manifest.workspace.package_manager)
         cmds.insert("install".to_string(), build_compose_command(manifest, &format!("exec {} {} install", service, pm))?);
         cmds.insert("dev".to_string(), build_compose_command(manifest, &format!("exec {} {} dev", service, pm))?);
