@@ -169,6 +169,12 @@ enum Commands {
         /// Automatically fix detected issues
         #[arg(long)]
         fix: bool,
+        /// Show startup truth (workspace root, compose files, commands)
+        #[arg(long)]
+        truth: bool,
+        /// Output startup truth as JSON (for LLM/automation)
+        #[arg(long)]
+        truth_json: bool,
     },
 
     /// Sync dependencies: resolve catalog policies to actual versions
@@ -441,6 +447,10 @@ enum ManifestCommands {
         /// Rule name inside MANIFEST.toml (e.g. verify, ci)
         name: String,
     },
+
+    /// Output workspace truth as JSON (for LLM consumption)
+    #[command(name = "json")]
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -574,6 +584,7 @@ fn main() -> Result<()> {
             let manifest_action = match action {
                 ManifestCommands::DevApps => ManifestAction::DevApps,
                 ManifestCommands::Rule { name } => ManifestAction::Rule { name },
+                ManifestCommands::Json => ManifestAction::Json,
             };
 
             manifest_cmd::run(manifest_action)?;
@@ -612,7 +623,13 @@ fn main() -> Result<()> {
             validate_cmd::run(validate_action, json)?;
         }
         Commands::Verify => commands::verify::run()?,
-        Commands::Doctor { fix } => commands::doctor::run(fix)?,
+        Commands::Doctor { fix, truth, truth_json } => {
+            if truth || truth_json {
+                commands::doctor::run_truth(truth_json)?;
+            } else {
+                commands::doctor::run(fix)?;
+            }
+        }
         Commands::SyncDeps { migrate } => {
             if migrate {
                 commands::sync_deps::run_migrate()?;

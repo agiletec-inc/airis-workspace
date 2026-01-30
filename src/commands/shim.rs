@@ -233,6 +233,11 @@ pub fn exec(cmd: &str, args: &[String]) -> Result<()> {
 }
 
 /// Find workspace root (directory containing manifest.toml)
+///
+/// STRICT MODE (default): Returns error if manifest.toml is not found.
+/// This prevents LLM/user confusion from running in wrong directory.
+///
+/// ESCAPE HATCH: Set AIRIS_ALLOW_PWD_FALLBACK=1 to allow fallback to cwd.
 fn find_workspace_root(start: &Path) -> Result<PathBuf> {
     let mut dir = start.to_path_buf();
     loop {
@@ -240,7 +245,16 @@ fn find_workspace_root(start: &Path) -> Result<PathBuf> {
             return Ok(dir);
         }
         if !dir.pop() {
-            return Ok(start.to_path_buf());
+            // Check for escape hatch
+            if env::var("AIRIS_ALLOW_PWD_FALLBACK").is_ok() {
+                return Ok(start.to_path_buf());
+            }
+            // Strict mode: fail with helpful error
+            anyhow::bail!(
+                "manifest.toml not found. Run from within an airis workspace.\n\n\
+                 Hint: Run `airis manifest json` to verify workspace root.\n\
+                 Override: Set AIRIS_ALLOW_PWD_FALLBACK=1 to allow fallback to current directory."
+            );
         }
     }
 }

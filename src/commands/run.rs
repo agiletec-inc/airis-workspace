@@ -762,7 +762,10 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
 }
 
 /// Build docker compose command with orchestration files
-fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
+///
+/// STRICT: Always requires explicit -f flag to prevent cwd-dependent behavior.
+/// Returns Result to allow proper error handling when no compose file is found.
+fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> {
     // Check if orchestration.dev is configured
     if let Some(dev) = &manifest.orchestration.dev {
         let mut compose_files = Vec::new();
@@ -785,7 +788,7 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
         }
 
         if !compose_files.is_empty() {
-            return format!("docker compose {} {}", compose_files.join(" "), base_cmd);
+            return Ok(format!("docker compose {} {}", compose_files.join(" "), base_cmd));
         }
     }
 
@@ -793,10 +796,16 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> String {
     let workspace_compose = Path::new("docker-compose.yml");
     if workspace_compose.exists() {
         // If we have a root docker-compose.yml, use it
-        return format!("docker compose -f docker-compose.yml {}", base_cmd);
+        return Ok(format!("docker compose -f docker-compose.yml {}", base_cmd));
     }
 
-    format!("docker compose {}", base_cmd)
+    // STRICT: No compose file found - return error with resolution steps
+    bail!(
+        "No compose file found.\n\n\
+         Expected: docker-compose.yml or [orchestration.dev] config in manifest.toml\n\
+         Verify:   airis manifest json\n\
+         Generate: airis generate files"
+    );
 }
 
 /// Validate a clean path/pattern is safe (no path traversal, no absolute paths)
@@ -937,18 +946,18 @@ fn build_clean_command(manifest: &Manifest) -> String {
 }
 
 /// Default commands - CLI is the source of truth, manifest can override
-fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
+fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
     let pm = get_package_manager(manifest);
     let service = &manifest.workspace.service;
 
     let mut cmds = IndexMap::new();
 
     // Docker compose commands (no package manager)
-    cmds.insert("up".to_string(), build_compose_command(manifest, "up -d"));
-    cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans"));
-    cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f"));
-    cmds.insert("ps".to_string(), build_compose_command(manifest, "ps"));
-    cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service)));
+    cmds.insert("up".to_string(), build_compose_command(manifest, "up -d")?);
+    cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
+    cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
+    cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
+    cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service))?);
 
     // Detect project type: Rust or Node
     let is_rust_project = !manifest.project.rust_edition.is_empty()
@@ -964,19 +973,19 @@ fn default_commands(manifest: &Manifest) -> IndexMap<String, String> {
         cmds.insert("dev".to_string(), "cargo watch -x run".to_string());
     } else {
         // Node project: use package manager commands (auto-inferred from manifest.workspace.package_manager)
-        cmds.insert("install".to_string(), build_compose_command(manifest, &format!("exec {} {} install", service, pm)));
-        cmds.insert("dev".to_string(), build_compose_command(manifest, &format!("exec {} {} dev", service, pm)));
-        cmds.insert("build".to_string(), build_compose_command(manifest, &format!("exec {} {} build", service, pm)));
-        cmds.insert("test".to_string(), build_compose_command(manifest, &format!("exec {} {} test", service, pm)));
-        cmds.insert("lint".to_string(), build_compose_command(manifest, &format!("exec {} {} lint", service, pm)));
-        cmds.insert("typecheck".to_string(), build_compose_command(manifest, &format!("exec {} {} typecheck", service, pm)));
-        cmds.insert("format".to_string(), build_compose_command(manifest, &format!("exec {} {} format", service, pm)));
+        cmds.insert("install".to_string(), build_compose_command(manifest, &format!("exec {} {} install", service, pm))?);
+        cmds.insert("dev".to_string(), build_compose_command(manifest, &format!("exec {} {} dev", service, pm))?);
+        cmds.insert("build".to_string(), build_compose_command(manifest, &format!("exec {} {} build", service, pm))?);
+        cmds.insert("test".to_string(), build_compose_command(manifest, &format!("exec {} {} test", service, pm))?);
+        cmds.insert("lint".to_string(), build_compose_command(manifest, &format!("exec {} {} lint", service, pm))?);
+        cmds.insert("typecheck".to_string(), build_compose_command(manifest, &format!("exec {} {} typecheck", service, pm))?);
+        cmds.insert("format".to_string(), build_compose_command(manifest, &format!("exec {} {} format", service, pm))?);
     }
 
     // Clean command
     cmds.insert("clean".to_string(), build_clean_command(manifest));
 
-    cmds
+    Ok(cmds)
 }
 
 /// Check if orchestration is configured in manifest
@@ -1012,7 +1021,7 @@ pub fn run(task: &str) -> Result<()> {
     }
 
     // Merge: defaults + manifest overrides (manifest wins)
-    let mut commands = default_commands(&manifest);
+    let mut commands = default_commands(&manifest)?;
     for (key, value) in manifest.commands.iter() {
         commands.insert(key.clone(), value.clone());
     }
@@ -1083,7 +1092,7 @@ pub fn run_logs(service: Option<&str>, follow: bool, tail: Option<u32>) -> Resul
         args.push(svc.to_string());
     }
 
-    let cmd = build_compose_command(&manifest, &args.join(" "));
+    let cmd = build_compose_command(&manifest, &args.join(" "))?;
 
     println!("🚀 Running: {}", cmd.cyan());
 
@@ -1125,7 +1134,7 @@ pub fn run_exec(service: &str, cmd: &[String]) -> Result<()> {
     }
 
     let exec_cmd = format!("exec {} {}", service, cmd.join(" "));
-    let full_cmd = build_compose_command(&manifest, &exec_cmd);
+    let full_cmd = build_compose_command(&manifest, &exec_cmd)?;
 
     println!("🚀 Running: {}", full_cmd.cyan());
 
@@ -1255,7 +1264,7 @@ pub fn run_build_quick(app: &str) -> Result<()> {
 
     // Build in workspace
     let exec_cmd = format!("exec workspace sh -c 'cd {} && pnpm build'", app_dir);
-    let full_cmd = build_compose_command(&manifest, &exec_cmd);
+    let full_cmd = build_compose_command(&manifest, &exec_cmd)?;
 
     println!("🚀 Running: {}", full_cmd.cyan());
 
@@ -1279,7 +1288,7 @@ pub fn run_build_quick(app: &str) -> Result<()> {
         "exec workspace sh -c 'ls -lh {0}/.next/standalone/ 2>/dev/null || echo \"Standalone output not found\"'",
         app_dir
     );
-    let check_full_cmd = build_compose_command(&manifest, &check_cmd);
+    let check_full_cmd = build_compose_command(&manifest, &check_cmd)?;
 
     let _ = Command::new("sh")
         .arg("-c")
@@ -1308,7 +1317,7 @@ pub fn run_restart(service: Option<&str>) -> Result<()> {
         None => "restart".to_string(),
     };
 
-    let full_cmd = build_compose_command(&manifest, &restart_cmd);
+    let full_cmd = build_compose_command(&manifest, &restart_cmd)?;
 
     println!("🚀 Running: {}", full_cmd.cyan());
 
@@ -1351,7 +1360,7 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
 
     // Run tests with coverage in workspace
     let test_cmd = "exec workspace pnpm test:coverage";
-    let full_cmd = build_compose_command(&manifest, test_cmd);
+    let full_cmd = build_compose_command(&manifest, test_cmd)?;
 
     println!("🚀 Running: {}", full_cmd.cyan());
 
@@ -1409,31 +1418,47 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use tempfile::tempdir;
+
+    // Helper to run tests with serialization since set_current_dir is not thread-safe
+    use std::sync::Mutex;
+    static DIR_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_run_missing_manifest() {
+        let _guard = DIR_LOCK.lock().unwrap();
         let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        let result = run("test");
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("manifest.toml not found"));
+        let result = std::panic::catch_unwind(|| {
+            let result = run("test");
+            assert!(result.is_err());
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("manifest.toml not found"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 
     #[test]
     fn test_run_missing_command() {
-        // Note: This test checks run_with_manifest directly to avoid
+        // Note: This test checks default_commands directly to avoid
         // directory change race conditions with other tests
+        // Use Rust project to avoid needing docker-compose.yml
         let manifest_content = r#"
 version = 1
 
 [workspace]
 name = "test"
+
+[project]
+rust_edition = "2024"
+binary_name = "test"
 
 [commands]
 test = "echo 'test'"
@@ -1441,11 +1466,8 @@ test = "echo 'test'"
         let manifest: crate::manifest::Manifest =
             toml::from_str(manifest_content).unwrap();
 
-        // Merge defaults with manifest commands
-        let mut commands = default_commands(&manifest);
-        for (key, value) in manifest.commands.iter() {
-            commands.insert(key.clone(), value.clone());
-        }
+        // Merge defaults with manifest commands (Rust project doesn't need compose)
+        let commands = default_commands(&manifest).unwrap();
 
         // Check that nonexistent command is not in the map
         assert!(
@@ -1520,6 +1542,14 @@ name = "test"
 
     #[test]
     fn test_default_commands_uses_package_manager() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // Create docker-compose.yml for Node project test
+        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+
         let manifest_content = r#"
 version = 1
 
@@ -1528,19 +1558,32 @@ name = "test"
 package_manager = "bun@1.0.0"
 service = "app"
 "#;
-        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
-        let cmds = default_commands(&manifest);
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+            let cmds = default_commands(&manifest).unwrap();
 
-        // Should use bun instead of pnpm
-        assert!(cmds.get("install").unwrap().contains("bun install"));
-        assert!(cmds.get("dev").unwrap().contains("bun dev"));
-        assert!(cmds.get("test").unwrap().contains("bun test"));
-        // Should use custom service name
-        assert!(cmds.get("shell").unwrap().contains("exec -it app sh"));
+            // Should use bun instead of pnpm
+            assert!(cmds.get("install").unwrap().contains("bun install"));
+            assert!(cmds.get("dev").unwrap().contains("bun dev"));
+            assert!(cmds.get("test").unwrap().contains("bun test"));
+            // Should use custom service name
+            assert!(cmds.get("shell").unwrap().contains("exec -it app sh"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 
     #[test]
     fn test_manifest_commands_override_defaults() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // Create docker-compose.yml for Node project test
+        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+
         let manifest_content = r#"
 version = 1
 
@@ -1551,24 +1594,37 @@ package_manager = "pnpm@10.0.0"
 [commands]
 test = "custom test command"
 "#;
-        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
 
-        // Simulate merge logic
-        let mut commands = default_commands(&manifest);
-        for (key, value) in manifest.commands.iter() {
-            commands.insert(key.clone(), value.clone());
-        }
+            // Simulate merge logic
+            let mut commands = default_commands(&manifest).unwrap();
+            for (key, value) in manifest.commands.iter() {
+                commands.insert(key.clone(), value.clone());
+            }
 
-        // test should be overridden
-        assert_eq!(commands.get("test").unwrap(), "custom test command");
-        // up should still be default
-        assert!(commands.get("up").unwrap().contains("docker compose"));
-        // dev should still use pnpm
-        assert!(commands.get("dev").unwrap().contains("pnpm dev"));
+            // test should be overridden
+            assert_eq!(commands.get("test").unwrap(), "custom test command");
+            // up should still be default
+            assert!(commands.get("up").unwrap().contains("docker compose"));
+            // dev should still use pnpm
+            assert!(commands.get("dev").unwrap().contains("pnpm dev"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 
     #[test]
     fn test_manifest_can_add_custom_commands() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // Create docker-compose.yml for Node project test
+        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+
         let manifest_content = r#"
 version = 1
 
@@ -1578,19 +1634,24 @@ name = "test"
 [commands]
 my-custom = "echo custom"
 "#;
-        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
 
-        // Simulate merge logic
-        let mut commands = default_commands(&manifest);
-        for (key, value) in manifest.commands.iter() {
-            commands.insert(key.clone(), value.clone());
-        }
+            // Simulate merge logic
+            let mut commands = default_commands(&manifest).unwrap();
+            for (key, value) in manifest.commands.iter() {
+                commands.insert(key.clone(), value.clone());
+            }
 
-        // Custom command should exist
-        assert_eq!(commands.get("my-custom").unwrap(), "echo custom");
-        // Defaults should still exist
-        assert!(commands.contains_key("up"));
-        assert!(commands.contains_key("down"));
+            // Custom command should exist
+            assert_eq!(commands.get("my-custom").unwrap(), "echo custom");
+            // Defaults should still exist
+            assert!(commands.contains_key("up"));
+            assert!(commands.contains_key("down"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 
     // Security tests for clean command validation
@@ -1692,5 +1753,95 @@ recursive = ["node_modules", "'; rm -rf /;"]
         assert!(cmd.contains("Skipped unsafe clean path: ../dangerous"));
         assert!(cmd.contains("Skipped unsafe clean path: /etc"));
         assert!(cmd.contains("Skipped unsafe recursive pattern"));
+    }
+
+    #[test]
+    fn test_build_compose_command_no_compose_file_errors() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // No docker-compose.yml, no orchestration config
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+"#;
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+
+            // Should error because no compose file exists
+            let result = build_compose_command(&manifest, "up -d");
+            assert!(result.is_err());
+            let err_msg = result.unwrap_err().to_string();
+            assert!(err_msg.contains("No compose file found"));
+            assert!(err_msg.contains("airis manifest json"));
+            assert!(err_msg.contains("airis generate files"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_build_compose_command_with_compose_file_succeeds() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // Create docker-compose.yml
+        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+"#;
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+            let result = build_compose_command(&manifest, "up -d");
+            assert!(result.is_ok());
+            let cmd = result.unwrap();
+            assert!(cmd.contains("-f docker-compose.yml"));
+            assert!(cmd.contains("up -d"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_build_compose_command_with_orchestration_succeeds() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // No docker-compose.yml, but orchestration config exists
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+
+[orchestration.dev]
+workspace = "docker-compose.yml"
+traefik = "traefik/docker-compose.yml"
+"#;
+        let result = std::panic::catch_unwind(|| {
+            let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+            let result = build_compose_command(&manifest, "up -d");
+            assert!(result.is_ok());
+            let cmd = result.unwrap();
+            assert!(cmd.contains("-f docker-compose.yml"));
+            assert!(cmd.contains("-f traefik/docker-compose.yml"));
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 }

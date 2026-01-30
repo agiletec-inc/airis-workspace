@@ -2,6 +2,8 @@
 //!
 //! Detects drift between manifest.toml and generated files,
 //! then automatically repairs them.
+//!
+//! Also provides "truth" output for LLM consumption via --truth and --truth-json flags.
 
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -9,6 +11,7 @@ use indexmap::IndexMap;
 use std::fs;
 use std::path::Path;
 
+use crate::commands::manifest_cmd::WorkspaceTruth;
 use crate::commands::sync_deps::resolve_version;
 use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
@@ -27,6 +30,54 @@ pub struct Issue {
     pub file: String,
     pub description: String,
     pub severity: Severity,
+}
+
+/// Run the doctor --truth command
+///
+/// Outputs workspace startup truth for LLM consumption.
+/// Uses manifest_cmd::WorkspaceTruth internally (single source of truth).
+pub fn run_truth(json_output: bool) -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+    if !manifest_path.exists() {
+        anyhow::bail!(
+            "manifest.toml not found.\n\n\
+             Hint: Run `airis init` to create one.\n\
+             This command requires an airis workspace."
+        );
+    }
+
+    let manifest = Manifest::load(manifest_path)
+        .context("Failed to load manifest.toml")?;
+
+    let truth = WorkspaceTruth::from_manifest(&manifest)?;
+
+    if json_output {
+        // JSON output for automation/LLM
+        println!("{}", truth.to_json()?);
+    } else {
+        // Human-readable output
+        println!("{}", "📋 Startup Truth".bright_blue().bold());
+        println!("{}", "━".repeat(44).dimmed());
+        println!();
+        println!("{:<12} {}", "Root:".bright_yellow(), truth.workspace_root);
+        println!("{:<12} {}", "Compose:".bright_yellow(), truth.compose_command);
+        println!("{:<12} {}", "Service:".bright_yellow(), truth.service);
+        println!("{:<12} {}", "Workdir:".bright_yellow(), truth.workdir);
+        println!("{:<12} {}", "PM:".bright_yellow(), truth.package_manager);
+        println!();
+        println!("{}", "Commands:".bright_yellow());
+        for (name, cmd) in &truth.recommended_commands {
+            println!("  {:<10} {}", format!("{}:", name), cmd.cyan());
+        }
+        println!();
+        println!("{}", "━".repeat(44).dimmed());
+        println!(
+            "{}",
+            "Use `airis doctor --truth-json` for machine-readable output.".dimmed()
+        );
+    }
+
+    Ok(())
 }
 
 /// Run the doctor command
