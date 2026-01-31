@@ -269,7 +269,7 @@ fn scan_libs(catalog: &IndexMap<String, String>) -> Result<Vec<DetectedLib>> {
     }
 
     // Scan top-level libs
-    scan_libs_in_dir(&libs_dir, "libs", catalog, &mut libs)?;
+    scan_libs_in_dir(libs_dir, "libs", catalog, &mut libs)?;
 
     // Scan nested libs (e.g., libs/supabase/*)
     let nested_dirs = ["supabase"];
@@ -425,24 +425,24 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
 
     // Check for compose files in apps/ directories
     let apps_dir = Path::new("apps");
-    if apps_dir.exists() {
-        if let Ok(entries) = fs::read_dir(apps_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    for compose_name in ["docker-compose.yml", "docker-compose.yaml"] {
-                        let compose_path = path.join(compose_name);
-                        if compose_path.exists() {
-                            let rel_path = compose_path
-                                .strip_prefix(".")
-                                .unwrap_or(&compose_path)
-                                .to_string_lossy()
-                                .to_string();
-                            files.push(DetectedCompose {
-                                path: rel_path,
-                                location: ComposeLocation::App,
-                            });
-                        }
+    if apps_dir.exists()
+        && let Ok(entries) = fs::read_dir(apps_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                for compose_name in ["docker-compose.yml", "docker-compose.yaml"] {
+                    let compose_path = path.join(compose_name);
+                    if compose_path.exists() {
+                        let rel_path = compose_path
+                            .strip_prefix(".")
+                            .unwrap_or(&compose_path)
+                            .to_string_lossy()
+                            .to_string();
+                        files.push(DetectedCompose {
+                            path: rel_path,
+                            location: ComposeLocation::App,
+                        });
                     }
                 }
             }
@@ -574,29 +574,29 @@ fn extract_catalog_from_path(base_path: &Path) -> Result<IndexMap<String, String
 
     // Also check pnpm-workspace.yaml for existing catalog
     let pnpm_workspace_path = base_path.join("pnpm-workspace.yaml");
-    if pnpm_workspace_path.exists() {
-        if let Ok(content) = fs::read_to_string(pnpm_workspace_path) {
-            // Simple YAML parsing for catalog section
-            // Format: catalog:
-            //           package: "version"
-            let mut in_catalog = false;
-            for line in content.lines() {
-                if line.trim() == "catalog:" {
-                    in_catalog = true;
-                    continue;
+    if pnpm_workspace_path.exists()
+        && let Ok(content) = fs::read_to_string(pnpm_workspace_path)
+    {
+        // Simple YAML parsing for catalog section
+        // Format: catalog:
+        //           package: "version"
+        let mut in_catalog = false;
+        for line in content.lines() {
+            if line.trim() == "catalog:" {
+                in_catalog = true;
+                continue;
+            }
+            if in_catalog {
+                if !line.starts_with(' ') && !line.starts_with('\t') && !line.is_empty() {
+                    break; // End of catalog section
                 }
-                if in_catalog {
-                    if !line.starts_with(' ') && !line.starts_with('\t') && !line.is_empty() {
-                        break; // End of catalog section
-                    }
-                    // Parse "  package: version" or "  package: \"version\""
-                    let trimmed = line.trim();
-                    if let Some((key, value)) = trimmed.split_once(':') {
-                        let key = key.trim().trim_matches('"');
-                        let value = value.trim().trim_matches('"').trim_matches('\'');
-                        if !key.is_empty() && !value.is_empty() {
-                            catalog.insert(key.to_string(), value.to_string());
-                        }
+                // Parse "  package: version" or "  package: \"version\""
+                let trimmed = line.trim();
+                if let Some((key, value)) = trimmed.split_once(':') {
+                    let key = key.trim().trim_matches('"');
+                    let value = value.trim().trim_matches('"').trim_matches('\'');
+                    if !key.is_empty() && !value.is_empty() {
+                        catalog.insert(key.to_string(), value.to_string());
                     }
                 }
             }

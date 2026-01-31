@@ -417,11 +417,10 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
         }
 
         // Check file size
-        if let Ok(meta) = path.metadata() {
-            if meta.len() > max_size {
+        if let Ok(meta) = path.metadata()
+            && meta.len() > max_size {
                 continue;
             }
-        }
 
         // Read and scan
         if let Ok(content) = fs::read_to_string(path) {

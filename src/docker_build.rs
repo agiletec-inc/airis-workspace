@@ -319,8 +319,8 @@ fn generate_nextjs_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -386,8 +386,8 @@ fn generate_node_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -452,8 +452,8 @@ fn generate_bun_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -494,8 +494,8 @@ fn generate_deno_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -526,8 +526,8 @@ fn generate_edge_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -559,8 +559,8 @@ fn generate_rust_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     let app_name = target.rsplit('/').next().unwrap_or(target);
@@ -598,8 +598,8 @@ fn generate_python_dockerfile(
     build_args: &BTreeMap<String, String>,
 ) -> String {
     let extra_args: String = build_args
-        .iter()
-        .map(|(k, _)| format!("ARG {}\n", k))
+        .keys()
+        .map(|k| format!("ARG {}\n", k))
         .collect();
 
     format!(
@@ -829,8 +829,8 @@ pub fn docker_build(root: &Path, config: BuildConfig) -> Result<BuildResult> {
     println!("📋 Input hash: {}", final_hash.yellow());
 
     // 7. Check cache (skip if --no-cache)
-    if !config.no_cache {
-        if let Some(cached) = cache_hit(&config.target, &final_hash) {
+    if !config.no_cache
+        && let Some(cached) = cache_hit(&config.target, &final_hash) {
             println!();
             println!("{}", "==================================".bright_blue());
             println!("{}", "⚡ Cache hit! Skipping build.".green().bold());
@@ -845,7 +845,6 @@ pub fn docker_build(root: &Path, config: BuildConfig) -> Result<BuildResult> {
                 duration_secs: 0,
             });
         }
-    }
 
     // 8. Generate Dockerfile based on runtime family
     let dockerfile = generate_dockerfile_for_toolchain(&config.target, &toolchain, &config.build_args);

@@ -311,11 +311,10 @@ impl TemplateEngine {
             lines.push("# Required environment variables".to_string());
             for var in &manifest.env.required {
                 let validation = manifest.env.validation.get(var);
-                if let Some(v) = validation {
-                    if let Some(desc) = &v.description {
+                if let Some(v) = validation
+                    && let Some(desc) = &v.description {
                         lines.push(format!("# {}", desc));
                     }
-                }
                 let example_value = validation
                     .and_then(|v| v.example.as_ref())
                     .map(|e| e.as_str())
@@ -330,11 +329,10 @@ impl TemplateEngine {
             lines.push("# Optional environment variables".to_string());
             for var in &manifest.env.optional {
                 let validation = manifest.env.validation.get(var);
-                if let Some(v) = validation {
-                    if let Some(desc) = &v.description {
+                if let Some(v) = validation
+                    && let Some(desc) = &v.description {
                         lines.push(format!("# {}", desc));
                     }
-                }
                 let example_value = validation
                     .and_then(|v| v.example.as_ref())
                     .map(|e| e.as_str())

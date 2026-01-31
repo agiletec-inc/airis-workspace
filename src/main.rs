@@ -36,32 +36,27 @@ fn resolve_channel_for_project(cli_channel: Option<String>, project_path: &str) 
     }
 
     // Try to read from manifest.toml
-    if let Ok(content) = std::fs::read_to_string("manifest.toml") {
-        if let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
+    if let Ok(content) = std::fs::read_to_string("manifest.toml")
+        && let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
             // Extract project name from path (e.g., "apps/web" -> "web")
             let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
 
             // Look for [projects.<name>.runner.channel]
-            if let Some(projects) = manifest.get("projects") {
-                if let Some(project) = projects.get(project_name) {
-                    if let Some(runner) = project.get("runner") {
+            if let Some(projects) = manifest.get("projects")
+                && let Some(project) = projects.get(project_name)
+                    && let Some(runner) = project.get("runner") {
                         // Check channel first
-                        if let Some(channel) = runner.get("channel") {
-                            if let Some(ch) = channel.as_str() {
+                        if let Some(channel) = runner.get("channel")
+                            && let Some(ch) = channel.as_str() {
                                 return ch.to_string();
                             }
-                        }
                         // Check version (mode=exact)
-                        if let Some(version) = runner.get("version") {
-                            if let Some(v) = version.as_str() {
+                        if let Some(version) = runner.get("version")
+                            && let Some(v) = version.as_str() {
                                 return v.to_string();
                             }
-                        }
                     }
-                }
-            }
         }
-    }
 
     // Default to lts
     "lts".to_string()
@@ -74,7 +69,7 @@ fn convert_package_to_path(package_name: &str) -> String {
     let name = package_name
         .trim_start_matches('@')
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(package_name);
 
     // Try to find the actual path by checking directories
@@ -725,8 +720,8 @@ fn main() -> Result<()> {
                                 }
 
                                 // Check remote cache
-                                if let Some(ref remote) = remote {
-                                    if let Some(artifact) = remote_cache::remote_hit(&task.target, &hash, remote)? {
+                                if let Some(ref remote) = remote
+                                    && let Some(artifact) = remote_cache::remote_hit(&task.target, &hash, remote)? {
                                         docker_build::cache_store(&task.target, &hash, &artifact)?;
                                         return Ok(executor::TaskResult {
                                             task_id: task.id,
@@ -735,7 +730,6 @@ fn main() -> Result<()> {
                                             error: None,
                                         });
                                     }
-                                }
 
                                 // Build
                                 let config = docker_build::BuildConfig {
@@ -824,14 +818,13 @@ fn main() -> Result<()> {
                     }
 
                     // Check remote cache if configured
-                    if let Some(ref remote) = remote {
-                        if let Some(artifact) = remote_cache::remote_hit(&target, &final_hash, remote)? {
+                    if let Some(ref remote) = remote
+                        && let Some(artifact) = remote_cache::remote_hit(&target, &final_hash, remote)? {
                             println!("{}", format!("  ✅ Remote cache hit: {}", artifact.image_ref).green());
                             // Store to local cache for next time
                             docker_build::cache_store(&target, &final_hash, &artifact)?;
                             continue;
                         }
-                    }
 
                     // Generate image name with target suffix for multi-target
                     let target_image_name = if build_targets.len() > 1 {

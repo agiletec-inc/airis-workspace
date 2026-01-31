@@ -508,14 +508,13 @@ fn validate_manifest_impl(quiet: bool) -> Result<()> {
     let mut ports: HashSet<u16> = HashSet::new();
     let mut port_conflicts = 0;
     for (service_name, service) in &manifest.service {
-        if let Some(port) = service.port {
-            if !ports.insert(port) {
+        if let Some(port) = service.port
+            && !ports.insert(port) {
                 if !quiet {
                     println!("  {} Port conflict: {} uses port {} (already in use)", "❌".red(), service_name, port);
                 }
                 port_conflicts += 1;
             }
-        }
     }
     if !quiet && port_conflicts == 0 {
         println!("  {} No port conflicts", "✅".green());
@@ -593,15 +592,14 @@ fn validate_env_patterns_impl(manifest: &Manifest, quiet: bool) -> Result<usize>
             // Get the value from environment or .env file
             let value = std::env::var(var_name).ok().or_else(|| {
                 let env_file = Path::new(".env");
-                if env_file.exists() {
-                    if let Ok(content) = fs::read_to_string(env_file) {
+                if env_file.exists()
+                    && let Ok(content) = fs::read_to_string(env_file) {
                         for line in content.lines() {
                             if line.starts_with(&format!("{}=", var_name)) {
                                 return line.split('=').nth(1).map(|s| s.to_string());
                             }
                         }
                     }
-                }
                 None
             });
 

@@ -187,7 +187,7 @@ pub fn get_npm_lts(package: &str) -> Result<String> {
         .context("Invalid UTF-8 from npm")?;
 
     let tags: serde_json::Value = serde_json::from_str(&json_str)
-        .unwrap_or_else(|_| serde_json::Value::Null);
+        .unwrap_or(serde_json::Value::Null);
 
     // Priority: "lts" tag > "*-lts" pattern (highest version) > "latest"
     if let Some(lts) = tags.get("lts").and_then(|v| v.as_str()) {

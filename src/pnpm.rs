@@ -166,7 +166,7 @@ impl PnpmWorkspace {
 pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage> {
     let mut map = HashMap::new();
 
-    for (path, _importer) in &lock.importers {
+    for path in lock.importers.keys() {
         if path == "." {
             continue; // Skip root
         }

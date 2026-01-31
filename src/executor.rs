@@ -208,8 +208,8 @@ impl ParallelExecutor {
                 results.push(result);
 
                 // If successful, check dependents
-                if success {
-                    if let Some(deps) = dependents.get(&task_id) {
+                if success
+                    && let Some(deps) = dependents.get(&task_id) {
                         for dep_id in deps {
                             let should_run = {
                                 let states_guard = states.lock().await;
@@ -265,7 +265,6 @@ impl ParallelExecutor {
                             }
                         }
                     }
-                }
             }
         }
 

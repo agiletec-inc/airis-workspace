@@ -356,7 +356,7 @@ fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<String> {
             lines.push("[[app]]".to_string());
             lines.push(format!("name = \"{}\"", app.name));
             lines.push(format!("path = \"{}\"", app.path));
-            lines.push(format!("kind = \"app\""));
+            lines.push("kind = \"app\"".to_string());
             lines.push(format!("framework = \"{}\"", app.framework));
 
             // Scripts as inline table
@@ -387,7 +387,7 @@ fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<String> {
             lines.push("[[app]]".to_string());
             lines.push(format!("name = \"{}\"", lib.name));
             lines.push(format!("path = \"{}\"", lib.path));
-            lines.push(format!("kind = \"lib\""));
+            lines.push("kind = \"lib\"".to_string());
 
             // Scripts as inline table
             if !lib.scripts.is_empty() {

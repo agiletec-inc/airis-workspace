@@ -57,11 +57,10 @@ impl WorkspaceTruth {
 
         // Add from orchestration config if present
         if let Some(dev) = &manifest.orchestration.dev {
-            if let Some(workspace) = &dev.workspace {
-                if !compose_files.contains(workspace) {
+            if let Some(workspace) = &dev.workspace
+                && !compose_files.contains(workspace) {
                     compose_files.push(workspace.clone());
                 }
-            }
             if let Some(supabase) = &dev.supabase {
                 for f in supabase {
                     if !compose_files.contains(f) {
@@ -69,11 +68,10 @@ impl WorkspaceTruth {
                     }
                 }
             }
-            if let Some(traefik) = &dev.traefik {
-                if !compose_files.contains(traefik) {
+            if let Some(traefik) = &dev.traefik
+                && !compose_files.contains(traefik) {
                     compose_files.push(traefik.clone());
                 }
-            }
         }
 
         // Add from dev section
@@ -84,11 +82,10 @@ impl WorkspaceTruth {
                 }
             }
         }
-        if let Some(traefik) = &manifest.dev.traefik {
-            if !compose_files.contains(traefik) {
+        if let Some(traefik) = &manifest.dev.traefik
+            && !compose_files.contains(traefik) {
                 compose_files.push(traefik.clone());
             }
-        }
 
         // If still empty, use docker.compose from manifest
         if compose_files.is_empty() && !manifest.docker.compose.is_empty() {
