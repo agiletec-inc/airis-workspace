@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Core Philosophy**: Prevent host pollution by blocking direct `pnpm`/`npm`/`yarn` execution and forcing Docker-first workflow via `airis` CLI commands. Special exception for Rust projects (local builds for GPU support).
 
-**Current Version**: v1.54.0
+**Current Version**: v1.56.0
 
 **AIRIS Ecosystem** (responsibility separation):
 - **airis-workspace** (this repo): Monorepo management only
