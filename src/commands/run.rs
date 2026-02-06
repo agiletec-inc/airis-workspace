@@ -1001,7 +1001,39 @@ fn has_orchestration(manifest: &Manifest) -> bool {
 pub fn run(task: &str) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
 
+    // Allow up/down without manifest.toml if docker-compose.yml exists
     if !manifest_path.exists() {
+        if matches!(task, "up" | "down") {
+            // Check for docker-compose files
+            let compose_yml = Path::new("docker-compose.yml");
+            let compose_yaml = Path::new("docker-compose.yaml");
+
+            if compose_yml.exists() || compose_yaml.exists() {
+                let compose_file = if compose_yml.exists() { "docker-compose.yml" } else { "docker-compose.yaml" };
+                let action = if task == "up" { "up -d --remove-orphans" } else { "down" };
+                let cmd = format!("docker compose -f {} {}", compose_file, action);
+
+                println!("🚀 Running: {}", cmd.cyan());
+
+                let status = if cfg!(target_os = "windows") {
+                    Command::new("cmd")
+                        .args(["/C", &cmd])
+                        .status()
+                } else {
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg(&cmd)
+                        .status()
+                }
+                .with_context(|| format!("Failed to execute: {}", cmd))?;
+
+                if !status.success() {
+                    bail!("Command failed with exit code: {:?}", status.code());
+                }
+                return Ok(());
+            }
+        }
+
         bail!(
             "❌ manifest.toml not found. Run {} first.",
             "airis init".bold()
