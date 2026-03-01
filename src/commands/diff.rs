@@ -217,7 +217,7 @@ fn check_file_with_content(path: &str, expected: String) -> Result<FileDiff> {
 /// Format diff for a new file (all additions)
 fn format_new_file_diff(path: &str, content: &str) -> String {
     let mut output = String::new();
-    output.push_str(&format!("--- /dev/null\n"));
+    output.push_str("--- /dev/null\n");
     output.push_str(&format!("+++ {} (generated)\n", path));
     output.push_str("@@ -0,0 +1 @@\n");
     for line in content.lines() {
@@ -308,20 +308,20 @@ fn compute_unified_diff(path: &str, current: &str, expected: &str) -> (usize, us
                 .rposition(|l| l.starts_with('+') || l.starts_with('-'));
             if let Some(last_idx) = last_change_idx {
                 let context_after = current_hunk.len() - last_idx - 1;
-                if context_after >= context_lines {
-                    if let Some(start) = hunk_start.take() {
-                        hunks.push((start, std::mem::take(&mut current_hunk)));
-                    }
+                if context_after >= context_lines
+                    && let Some(start) = hunk_start.take()
+                {
+                    hunks.push((start, std::mem::take(&mut current_hunk)));
                 }
             }
         }
     }
 
     // Push remaining hunk
-    if !current_hunk.is_empty() {
-        if let Some(start) = hunk_start {
-            hunks.push((start, current_hunk));
-        }
+    if !current_hunk.is_empty()
+        && let Some(start) = hunk_start
+    {
+        hunks.push((start, current_hunk));
     }
 
     // Format hunks

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::env;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// GitHub Release response structure
@@ -272,7 +272,7 @@ fn download_file(url: &str, path: &PathBuf) -> Result<()> {
 }
 
 /// Extract a .tar.gz file
-fn extract_tar_gz(archive: &PathBuf, dest: &PathBuf) -> Result<()> {
+fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
     let output = Command::new("tar")
         .args([
             "-xzf",
