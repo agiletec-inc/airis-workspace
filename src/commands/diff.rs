@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
-use crate::commands::sync_deps::resolve_version;
+use crate::version_resolver::resolve_version;
 use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::templates::TemplateEngine;
 

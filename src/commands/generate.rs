@@ -7,7 +7,7 @@ use std::fs;
 use std::io::IsTerminal;
 use std::path::Path;
 
-use crate::commands::sync_deps::resolve_version;
+use crate::version_resolver::resolve_version;
 use crate::generators::package_json::generate_project_package_json;
 use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};

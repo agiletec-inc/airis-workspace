@@ -235,7 +235,6 @@ airis generate files
 - **src/commands/shim.rs**: Docker-first shim generation (`airis shim install`)
 - **src/commands/bump_version.rs**: Version bumping with Conventional Commits (v1.1.0+)
 - **src/commands/hooks.rs**: Git hooks installation (v1.1.0+)
-- **src/commands/sync_deps.rs**: Catalog version resolution (deprecated, now in init)
 - **src/commands/bundle.rs**: Deployment package generation
 - **src/commands/policy.rs**: Pre-deployment validation gates
 - **src/commands/discover.rs**: Auto-discovery of apps/libs (v1.43+)
@@ -261,6 +260,7 @@ airis generate files
 - **src/safe_fs.rs**: Safe filesystem operations with backups
 - **src/channel.rs**: Communication channels for parallel execution
 - **src/generators/**: Package-specific generators (package.json, etc.)
+- **src/version_resolver.rs**: npm version resolution (latest, lts policies)
 
 ## Important Constraints
 
