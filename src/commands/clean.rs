@@ -6,8 +6,6 @@
 //! - Never deletes user data without explicit confirmation
 //! - Provides clear feedback on what was/would be deleted
 
-use std::path::Path;
-
 use anyhow::{Context, Result};
 use colored::Colorize;
 use glob::glob;
@@ -181,40 +179,39 @@ fn print_result(action: &SafeAction, path: &str, cleaned: &mut usize, skipped: &
     }
 }
 
-/// Check if a path should be protected from cleaning
-#[allow(dead_code)]
-fn is_protected_path(path: &Path) -> bool {
-    let path_str = path.to_string_lossy();
-
-    // Never clean these
-    let protected = [
-        "manifest.toml",
-        "package.json",
-        "pnpm-lock.yaml",
-        "Cargo.toml",
-        "Cargo.lock",
-        ".git",
-        ".env",
-        ".envrc",
-        "src",
-        "apps",
-        "libs",
-        "supabase",
-        "infra",
-    ];
-
-    for p in protected {
-        if path_str == p || path_str.starts_with(&format!("{}/", p)) {
-            return true;
-        }
-    }
-
-    false
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::Path;
+
+    /// Check if a path should be protected from cleaning (test helper)
+    fn is_protected_path(path: &Path) -> bool {
+        let path_str = path.to_string_lossy();
+
+        // Never clean these
+        let protected = [
+            "manifest.toml",
+            "package.json",
+            "pnpm-lock.yaml",
+            "Cargo.toml",
+            "Cargo.lock",
+            ".git",
+            ".env",
+            ".envrc",
+            "src",
+            "apps",
+            "libs",
+            "supabase",
+            "infra",
+        ];
+
+        for p in protected {
+            if path_str == p || path_str.starts_with(&format!("{}/", p)) {
+                return true;
+            }
+        }
+
+        false
+    }
 
     #[test]
     fn test_protected_paths() {

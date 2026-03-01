@@ -296,22 +296,6 @@ pub fn generate_dockerfile_for_toolchain(
     }
 }
 
-/// Generate Dockerfile for Node.js app (legacy, kept for compatibility)
-#[allow(dead_code)]
-pub fn generate_dockerfile(
-    target: &str,
-    node_version: &str,
-    build_args: &BTreeMap<String, String>,
-) -> String {
-    // Detect if this is a Next.js project from package.json
-    let is_nextjs = detect_nextjs(target);
-
-    if is_nextjs {
-        generate_nextjs_dockerfile(target, node_version, build_args)
-    } else {
-        generate_node_dockerfile(target, node_version, build_args)
-    }
-}
 
 fn generate_nextjs_dockerfile(
     target: &str,

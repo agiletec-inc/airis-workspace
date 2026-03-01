@@ -3,7 +3,7 @@
 
 [package]
 name = "airis"
-version = "1.62.0"
+version = "1.69.0"
 edition = "2024"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -39,6 +39,7 @@ walkdir = "2.5"
 ignore = "0.4"       # .gitignore handling
 tempfile = "3.13"
 dialoguer = "0.11"   # Interactive prompts
+dirs = "5.0"         # Home directory resolution
 
 [dev-dependencies]
 assert_cmd = "2.0"

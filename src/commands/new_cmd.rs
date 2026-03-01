@@ -7,46 +7,6 @@ use std::path::Path;
 
 use crate::manifest::{Manifest, MANIFEST_FILE};
 
-/// Template types available for scaffolding (legacy - kept for compatibility)
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub enum TemplateType {
-    /// Hono-based TypeScript API
-    Api,
-    /// Next.js web application
-    Web,
-    /// TypeScript library
-    Lib,
-    /// Rust service
-    RustService,
-    /// Python FastAPI service
-    PyApi,
-}
-
-impl TemplateType {
-    #[allow(dead_code)]
-    fn base_dir(&self) -> &str {
-        match self {
-            TemplateType::Api => "apps",
-            TemplateType::Web => "apps",
-            TemplateType::Lib => "libs",
-            TemplateType::RustService => "apps",
-            TemplateType::PyApi => "apps",
-        }
-    }
-
-    #[allow(dead_code)]
-    fn display_name(&self) -> &str {
-        match self {
-            TemplateType::Api => "Hono API",
-            TemplateType::Web => "Next.js Web App",
-            TemplateType::Lib => "TypeScript Library",
-            TemplateType::RustService => "Rust Service",
-            TemplateType::PyApi => "Python FastAPI",
-        }
-    }
-}
-
 /// Get the base directory for a template category
 fn get_base_dir(category: &str) -> &str {
     match category {
@@ -148,19 +108,6 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
     println!("  3. Start development with {}", "airis dev".cyan());
 
     Ok(())
-}
-
-/// Run the new command to scaffold a project (legacy interface)
-#[allow(dead_code)]
-pub fn run(template_type: TemplateType, name: &str) -> Result<()> {
-    let (category, runtime) = match template_type {
-        TemplateType::Api => ("api", "hono"),
-        TemplateType::Web => ("web", "nextjs"),
-        TemplateType::Lib => ("lib", "ts"),
-        TemplateType::RustService => ("api", "rust-axum"),
-        TemplateType::PyApi => ("api", "fastapi"),
-    };
-    run_with_runtime(category, name, runtime)
 }
 
 /// Generate a Hono API project
@@ -991,24 +938,24 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_template_type_base_dir() {
-        assert_eq!(TemplateType::Api.base_dir(), "apps");
-        assert_eq!(TemplateType::Web.base_dir(), "apps");
-        assert_eq!(TemplateType::Lib.base_dir(), "libs");
-        assert_eq!(TemplateType::RustService.base_dir(), "apps");
-        assert_eq!(TemplateType::PyApi.base_dir(), "apps");
+    fn test_get_base_dir() {
+        assert_eq!(get_base_dir("api"), "apps");
+        assert_eq!(get_base_dir("web"), "apps");
+        assert_eq!(get_base_dir("lib"), "libs");
+        assert_eq!(get_base_dir("worker"), "apps");
+        assert_eq!(get_base_dir("edge"), "supabase/functions");
     }
 
     #[test]
     fn test_empty_name_rejected() {
-        let result = run(TemplateType::Api, "");
+        let result = run_with_runtime("api", "", "hono");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("cannot be empty"));
     }
 
     #[test]
     fn test_invalid_name_rejected() {
-        let result = run(TemplateType::Api, "my app");
+        let result = run_with_runtime("api", "my app", "hono");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("alphanumeric"));
     }

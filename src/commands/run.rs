@@ -25,6 +25,27 @@ fn get_package_manager(manifest: &Manifest) -> &str {
     }
 }
 
+/// Find the compose file in the current directory.
+/// Checks in order of priority: compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml
+/// Returns the filename if found, None otherwise.
+fn find_compose_file() -> Option<&'static str> {
+    // Modern naming (preferred)
+    if Path::new("compose.yaml").exists() {
+        return Some("compose.yaml");
+    }
+    if Path::new("compose.yml").exists() {
+        return Some("compose.yml");
+    }
+    // Legacy naming (backwards compatibility)
+    if Path::new("docker-compose.yaml").exists() {
+        return Some("docker-compose.yaml");
+    }
+    if Path::new("docker-compose.yml").exists() {
+        return Some("docker-compose.yml");
+    }
+    None
+}
+
 /// Execute a shell command and return success status
 fn exec_command(cmd: &str) -> Result<bool> {
     let status = if cfg!(target_os = "windows") {
@@ -150,63 +171,6 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str]) -> Result<boo
     }
 
     Ok(true)
-}
-
-/// Extract published ports from a docker-compose file
-#[allow(dead_code)]
-fn get_compose_ports(compose_file: &str) -> Vec<(String, String, u16)> {
-    let output = Command::new("docker")
-        .args(["compose", "-f", compose_file, "config", "--format", "json"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
-
-    let mut results = Vec::new();
-
-    if let Ok(output) = output
-        && output.status.success()
-            && let Ok(config) = serde_json::from_slice::<Value>(&output.stdout)
-                && let Some(services) = config.get("services").and_then(|s| s.as_object()) {
-                    for (service_name, service) in services {
-                        // Get container_name or use service name
-                        let display_name = service
-                            .get("container_name")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or(service_name)
-                            .to_string();
-
-                        // Get ports
-                        if let Some(ports) = service.get("ports").and_then(|p| p.as_array()) {
-                            for port in ports {
-                                // Port can be string "8080:80" or object {target: 80, published: 8080}
-                                if let Some(port_str) = port.as_str() {
-                                    // Parse "host:container" or just "container"
-                                    if let Some((host, _)) = port_str.split_once(':')
-                                        && let Ok(p) = host.parse::<u16>() {
-                                            results.push((service_name.clone(), display_name.clone(), p));
-                                        }
-                                } else if let Some(obj) = port.as_object()
-                                    && let Some(published) = obj.get("published") {
-                                        let p = if let Some(p) = published.as_u64() {
-                                            p as u16
-                                        } else if let Some(s) = published.as_str() {
-                                            s.parse().unwrap_or(0)
-                                        } else {
-                                            0
-                                        };
-                                        if p > 0 {
-                                            results.push((service_name.clone(), display_name.clone(), p));
-                                        }
-                                    }
-                            }
-                        }
-
-                        // Note: Traefik-routed services don't expose ports directly
-                        // They are accessible via the Traefik proxy
-                    }
-                }
-
-    results
 }
 
 /// Discovered service information
@@ -640,12 +604,11 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 3. Start workspace container (root docker-compose.yml)
-    let workspace_compose = Path::new("docker-compose.yml");
-    if workspace_compose.exists() {
+    // 3. Start workspace container (root compose.yml or docker-compose.yml)
+    if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
-        if !smart_compose_up(None, &["docker-compose.yml"])? {
+        if !smart_compose_up(None, &[compose_file])? {
             println!("   {} Workspace failed to start, continuing anyway...", "⚠️".yellow());
             println!("   {} Apps will run without shared workspace container", "ℹ️".dimmed());
         }
@@ -732,12 +695,11 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 2. Stop workspace (root docker-compose.yml)
-    let workspace_compose = Path::new("docker-compose.yml");
-    if workspace_compose.exists() {
+    // 2. Stop workspace (root compose.yml or docker-compose.yml)
+    if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛑 Stopping workspace...".cyan().bold());
-        let cmd = "docker compose -f docker-compose.yml down --remove-orphans";
-        let _ = exec_command(cmd);
+        let cmd = format!("docker compose -f {} down --remove-orphans", compose_file);
+        let _ = exec_command(&cmd);
     }
 
     // 3. Stop Traefik
@@ -792,17 +754,15 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
         }
     }
 
-    // Fall back to default (docker-compose.yml if exists)
-    let workspace_compose = Path::new("docker-compose.yml");
-    if workspace_compose.exists() {
-        // If we have a root docker-compose.yml, use it
-        return Ok(format!("docker compose -f docker-compose.yml {}", base_cmd));
+    // Fall back to default (compose.yml or docker-compose.yml if exists)
+    if let Some(compose_file) = find_compose_file() {
+        return Ok(format!("docker compose -f {} {}", compose_file, base_cmd));
     }
 
     // STRICT: No compose file found - return error with resolution steps
     bail!(
         "No compose file found.\n\n\
-         Expected: docker-compose.yml or [orchestration.dev] config in manifest.toml\n\
+         Expected: compose.yml (or docker-compose.yml) or [orchestration.dev] config in manifest.toml\n\
          Verify:   airis manifest json\n\
          Generate: airis generate files"
     );
@@ -1001,15 +961,11 @@ fn has_orchestration(manifest: &Manifest) -> bool {
 pub fn run(task: &str) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
 
-    // Allow up/down without manifest.toml if docker-compose.yml exists
+    // Allow up/down without manifest.toml if compose file exists
     if !manifest_path.exists() {
         if matches!(task, "up" | "down") {
-            // Check for docker-compose files
-            let compose_yml = Path::new("docker-compose.yml");
-            let compose_yaml = Path::new("docker-compose.yaml");
-
-            if compose_yml.exists() || compose_yaml.exists() {
-                let compose_file = if compose_yml.exists() { "docker-compose.yml" } else { "docker-compose.yaml" };
+            // Check for compose files (modern: compose.yml, legacy: docker-compose.yml)
+            if let Some(compose_file) = find_compose_file() {
                 let action = if task == "up" { "up -d --remove-orphans" } else { "down" };
                 let cmd = format!("docker compose -f {} {}", compose_file, action);
 

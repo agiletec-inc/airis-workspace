@@ -372,6 +372,26 @@ enum Commands {
         #[command(subcommand)]
         action: DepsCommands,
     },
+
+    /// Preview changes between manifest.toml and generated files
+    Diff {
+        /// Output as JSON (for CI/automation)
+        #[arg(long)]
+        json: bool,
+        /// Show statistics only (file count, line changes)
+        #[arg(long)]
+        stat: bool,
+    },
+
+    /// Upgrade airis to the latest version
+    Upgrade {
+        /// Only check for updates (don't install)
+        #[arg(long)]
+        check: bool,
+        /// Install specific version (e.g., 1.60.0)
+        #[arg(long)]
+        version: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -407,13 +427,27 @@ enum DepsCommands {
 
 #[derive(Subcommand)]
 enum GuardsCommands {
-    /// Install command guards (.airis/bin/*)
-    Install,
+    /// Install command guards (.airis/bin/* or ~/.airis/bin/ for global)
+    Install {
+        /// Install global guards (~/.airis/bin/) that block commands outside airis projects
+        #[arg(long)]
+        global: bool,
+    },
     /// Check if running inside Docker container
     #[command(name = "check-docker")]
     CheckDocker,
     /// Show guard status
-    Status,
+    Status {
+        /// Show global guards status
+        #[arg(long)]
+        global: bool,
+    },
+    /// Uninstall command guards
+    Uninstall {
+        /// Uninstall global guards
+        #[arg(long)]
+        global: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -606,9 +640,28 @@ fn main() -> Result<()> {
             manifest_cmd::run(manifest_action)?;
         }
         Commands::Guards { action } => match action {
-            GuardsCommands::Install => commands::guards::install()?,
+            GuardsCommands::Install { global } => {
+                if global {
+                    commands::guards::install_global()?;
+                } else {
+                    commands::guards::install()?;
+                }
+            }
             GuardsCommands::CheckDocker => commands::guards::check_docker()?,
-            GuardsCommands::Status => commands::guards::status()?,
+            GuardsCommands::Status { global } => {
+                if global {
+                    commands::guards::status_global()?;
+                } else {
+                    commands::guards::status()?;
+                }
+            }
+            GuardsCommands::Uninstall { global } => {
+                if global {
+                    commands::guards::uninstall_global()?;
+                } else {
+                    commands::guards::uninstall()?;
+                }
+            }
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
@@ -1001,6 +1054,24 @@ fn main() -> Result<()> {
             DepsCommands::Show { package } => commands::deps::show(&package)?,
             DepsCommands::Check => commands::deps::check()?,
         },
+        Commands::Diff { json, stat } => {
+            use commands::diff::DiffFormat;
+            let format = if json {
+                DiffFormat::Json
+            } else if stat {
+                DiffFormat::Stat
+            } else {
+                DiffFormat::Unified
+            };
+            commands::diff::run(format)?;
+        }
+        Commands::Upgrade { check, version } => {
+            if check {
+                commands::upgrade::run_check()?;
+            } else {
+                commands::upgrade::run(version)?;
+            }
+        }
     }
 
     Ok(())

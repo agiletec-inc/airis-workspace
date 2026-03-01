@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// pnpm-lock.yaml v9 structure (minimal for dependency resolution)
@@ -39,19 +39,10 @@ pub struct Dependency {
     pub version: String,
 }
 
-/// pnpm-workspace.yaml structure
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub struct PnpmWorkspace {
-    pub packages: Vec<String>,
-}
-
-/// Resolved workspace info
+/// Resolved workspace info (path is stored as HashMap key, not duplicated here)
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct WorkspacePackage {
     pub name: String,
-    pub path: String,
     pub workspace_deps: Vec<String>, // names of workspace packages this depends on
 }
 
@@ -136,29 +127,6 @@ impl PnpmLock {
         Some(components.join("/"))
     }
 
-    /// Get all workspace package paths from importers
-    #[allow(dead_code)]
-    pub fn get_all_workspace_paths(&self) -> Vec<String> {
-        self.importers
-            .keys()
-            .filter(|k| *k != ".")
-            .cloned()
-            .collect()
-    }
-}
-
-impl PnpmWorkspace {
-    /// Load from pnpm-workspace.yaml
-    #[allow(dead_code)]
-    pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("Failed to read {}", path.display()))?;
-
-        let ws: PnpmWorkspace = serde_yaml::from_str(&content)
-            .with_context(|| "Failed to parse pnpm-workspace.yaml")?;
-
-        Ok(ws)
-    }
 }
 
 /// Build workspace package map from lockfile
@@ -186,59 +154,12 @@ pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage>
             path.clone(),
             WorkspacePackage {
                 name,
-                path: path.clone(),
                 workspace_deps,
             },
         );
     }
 
     map
-}
-
-/// Resolve full dependency chain for a target package
-/// Returns packages in topological order (dependencies first)
-#[allow(dead_code)]
-pub fn resolve_deps_order(
-    target_path: &str,
-    workspace_map: &HashMap<String, WorkspacePackage>,
-) -> Result<Vec<String>> {
-    let mut visited = HashSet::new();
-    let mut order = Vec::new();
-
-    fn visit(
-        path: &str,
-        workspace_map: &HashMap<String, WorkspacePackage>,
-        visited: &mut HashSet<String>,
-        order: &mut Vec<String>,
-        stack: &mut HashSet<String>,
-    ) -> Result<()> {
-        if visited.contains(path) {
-            return Ok(());
-        }
-
-        if stack.contains(path) {
-            anyhow::bail!("Circular dependency detected: {}", path);
-        }
-
-        stack.insert(path.to_string());
-
-        if let Some(pkg) = workspace_map.get(path) {
-            for dep_path in &pkg.workspace_deps {
-                visit(dep_path, workspace_map, visited, order, stack)?;
-            }
-        }
-
-        stack.remove(path);
-        visited.insert(path.to_string());
-        order.push(path.to_string());
-
-        Ok(())
-    }
-
-    let mut stack = HashSet::new();
-    visit(target_path, workspace_map, &mut visited, &mut order, &mut stack)?;
-
-    Ok(order)
 }
 
 #[cfg(test)]

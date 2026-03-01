@@ -229,6 +229,8 @@ airis generate files
 - **src/commands/manifest_cmd.rs**: `airis manifest ...` plumbing + JSON truth output (v1.54+)
 - **src/commands/run.rs**: Executes commands from `[commands]` section (v1.0.2+)
 - **src/commands/doctor.rs**: Workspace health diagnostics + `--truth` output (v1.54+)
+- **src/commands/diff.rs**: Preview manifest → generated files diff (`airis diff`, v1.66+)
+- **src/commands/upgrade.rs**: Self-update from GitHub releases (`airis upgrade`, v1.67+)
 - **src/commands/validate_cmd.rs**: Manifest validation with `--json` output
 - **src/commands/shim.rs**: Docker-first shim generation (`airis shim install`)
 - **src/commands/bump_version.rs**: Version bumping with Conventional Commits (v1.1.0+)
