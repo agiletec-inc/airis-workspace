@@ -10,6 +10,7 @@ mod pnpm;
 mod remote_cache;
 mod safe_fs;
 mod templates;
+mod version_resolver;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
@@ -170,14 +171,6 @@ enum Commands {
         /// Output startup truth as JSON (for LLM/automation)
         #[arg(long)]
         truth_json: bool,
-    },
-
-    /// Sync dependencies: resolve catalog policies to actual versions
-    #[command(name = "sync-deps")]
-    SyncDeps {
-        /// Migrate packages to use pnpm catalog references
-        #[arg(long)]
-        migrate: bool,
     },
 
     /// Run a command defined in manifest.toml [commands]
@@ -697,13 +690,6 @@ fn main() -> Result<()> {
                 commands::doctor::run_truth(truth_json)?;
             } else {
                 commands::doctor::run(fix)?;
-            }
-        }
-        Commands::SyncDeps { migrate } => {
-            if migrate {
-                commands::sync_deps::run_migrate()?;
-            } else {
-                commands::sync_deps::run()?;
             }
         }
         Commands::Run { task } => commands::run::run(&task)?,

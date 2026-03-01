@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde_json::json;
 use std::process::Command;
 
-use crate::commands::sync_deps::resolve_version;
+use crate::version_resolver::resolve_version;
 use crate::manifest::{MANIFEST_FILE, Manifest, Mode};
 
 /// Resolve dependency versions by expanding catalog references and version policies

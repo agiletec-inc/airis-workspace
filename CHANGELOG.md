@@ -5,6 +5,31 @@ All notable changes to airis-monorepo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.70.0] - 2026-03-02
+
+### Removed
+
+#### Breaking Changes
+- **`airis sync-deps` command removed**: This command has been deprecated since v1.43.0.
+  - Use `airis init` instead, which resolves catalog versions automatically
+  - Version resolution functions moved to `src/version_resolver.rs` module
+  - The `--migrate` flag functionality is no longer available
+
+### Changed
+- Refactored version resolution logic into standalone `version_resolver` module
+- Internal: Improved code organization by separating npm version resolution from CLI command handling
+
+### Migration Guide
+If you were using `airis sync-deps`:
+```bash
+# Before (deprecated)
+airis sync-deps
+
+# After
+airis init        # resolves catalog versions during initialization
+airis generate files  # regenerates workspace files with resolved versions
+```
+
 ## [1.43.0] - 2025-01-09
 
 ### Added
