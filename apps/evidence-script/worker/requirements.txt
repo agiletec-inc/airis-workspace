@@ -1,0 +1,28 @@
+# Evidence Script Worker Dependencies
+
+# WhisperX (includes faster-whisper, pyannote-audio, transformers)
+# Install from git for latest features
+git+https://github.com/m-bain/whisperX.git
+
+# Kotoba-Whisper dependencies
+transformers>=4.40.0
+accelerate>=0.27.0
+
+# Speaker diarization (shared by both backends)
+pyannote.audio>=3.3.0
+
+# PyTorch (CUDA 12.4 compatible)
+torch>=2.1.0
+torchaudio>=2.1.0
+
+# API Server
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+
+# HTTP client for Supabase
+httpx>=0.26.0
+
+# Settings management
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
