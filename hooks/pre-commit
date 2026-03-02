@@ -71,3 +71,31 @@ if [ "$HAS_CARGO" = true ]; then
 fi
 
 echo "✅ Version auto-bumped and staged"
+
+# -------------------------------------------------------
+# Safety checks: .env, node_modules, secrets
+# -------------------------------------------------------
+
+# Block stray .env files (allow .env.example / .env.template)
+ENV_FILES=$(git diff --cached --name-only | grep -E '\.env($|\..*)' | grep -vE '\.env\.(example|template)$' || true)
+if [ -n "$ENV_FILES" ]; then
+    echo "❌ Detected .env files staged for commit:"
+    echo "$ENV_FILES"
+    echo "   Remove them or convert to .env.example/.env.template."
+    exit 1
+fi
+
+# Block host-side node_modules pollution
+if git diff --cached --name-only | grep -q '^node_modules/'; then
+    echo "❌ Host node_modules/ staged for commit."
+    echo "   Run: airis clean && airis install"
+    exit 1
+fi
+
+# --- Uncomment to enable gitleaks secret scanning ---
+# if command -v gitleaks >/dev/null 2>&1; then
+#     gitleaks protect --staged --redact || {
+#         echo "❌ Secrets detected by gitleaks."
+#         exit 1
+#     }
+# fi

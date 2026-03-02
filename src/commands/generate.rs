@@ -190,6 +190,12 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     // Generate .envrc for direnv
     generate_envrc(manifest, &engine)?;
 
+    // Generate git hooks (.husky/pre-commit, .husky/pre-push)
+    generate_git_hooks(&engine)?;
+
+    // Generate native hooks (hooks/pre-commit, hooks/pre-push) for airis hooks install
+    generate_native_hooks()?;
+
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
@@ -213,10 +219,15 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     println!("   - .workspace/llm-context.md");
     println!("   - CLAUDE.md");
     println!("   - .envrc");
+    println!("   - .husky/pre-commit");
+    println!("   - .husky/pre-push");
+    println!("   - hooks/pre-commit");
+    println!("   - hooks/pre-push");
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!("  1. Run `airis up` to start the workspace");
-    println!("  2. Cache directories (.next, .swc, .turbo, node_modules) stay in Docker volumes");
+    println!("  2. Run `airis hooks install` to install Git hooks");
+    println!("  3. Cache directories (.next, .swc, .turbo, node_modules) stay in Docker volumes");
 
     Ok(())
 }
@@ -425,6 +436,13 @@ fn generate_claude_md(manifest: &Manifest, engine: &TemplateEngine) -> Result<()
             missing_sections.push("commands");
         }
 
+        // Check for Workspace Workflow section
+        let has_workflow = existing_lower.contains("workspace workflow")
+            || existing_lower.contains("single source of truth");
+        if !has_workflow {
+            missing_sections.push("workflow");
+        }
+
         if missing_sections.is_empty() {
             println!(
                 "   {} CLAUDE.md exists with airis sections",
@@ -443,6 +461,7 @@ fn generate_claude_md(manifest: &Manifest, engine: &TemplateEngine) -> Result<()
             let name = match *section {
                 "docker_first" => "Docker First Development",
                 "commands" => "Available Commands",
+                "workflow" => "Workspace Workflow",
                 _ => section,
             };
             println!("   - {}", name);
@@ -526,6 +545,92 @@ fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     fs::write(path, &content)
         .with_context(|| "Failed to write .envrc")?;
     println!("   {} Generated .envrc for direnv", "📁".green());
+
+    Ok(())
+}
+
+fn generate_git_hooks(_engine: &TemplateEngine) -> Result<()> {
+    let husky_dir = Path::new(".husky");
+    fs::create_dir_all(husky_dir).context("Failed to create .husky directory")?;
+
+    let pre_commit_content = include_str!("../../hooks/pre-commit");
+    let pre_push_content = include_str!("../../hooks/pre-push");
+
+    // Pre-commit hook
+    let pre_commit_path = husky_dir.join("pre-commit");
+    fs::write(&pre_commit_path, pre_commit_content)
+        .with_context(|| "Failed to write .husky/pre-commit")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&pre_commit_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set .husky/pre-commit permissions")?;
+    }
+
+    // Pre-push hook
+    let pre_push_path = husky_dir.join("pre-push");
+    fs::write(&pre_push_path, pre_push_content)
+        .with_context(|| "Failed to write .husky/pre-push")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&pre_push_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set .husky/pre-push permissions")?;
+    }
+
+    println!(
+        "   {} Generated .husky/pre-commit and .husky/pre-push",
+        "🔒".green()
+    );
+
+    Ok(())
+}
+
+/// Generate native hooks (hooks/pre-commit, hooks/pre-push) for `airis hooks install`.
+/// Skips if the hooks/ directory already exists (preserves user customizations).
+fn generate_native_hooks() -> Result<()> {
+    let hooks_dir = Path::new("hooks");
+
+    if hooks_dir.exists() {
+        println!(
+            "   {} hooks/ directory exists, skipping (user customizations preserved)",
+            "⏭️".cyan()
+        );
+        return Ok(());
+    }
+
+    fs::create_dir_all(hooks_dir).context("Failed to create hooks/ directory")?;
+
+    let pre_commit_content = include_str!("../../hooks/pre-commit");
+    let pre_push_content = include_str!("../../hooks/pre-push");
+
+    let pre_commit_path = hooks_dir.join("pre-commit");
+    let pre_push_path = hooks_dir.join("pre-push");
+
+    fs::write(&pre_commit_path, pre_commit_content)
+        .with_context(|| "Failed to write hooks/pre-commit")?;
+    fs::write(&pre_push_path, pre_push_content)
+        .with_context(|| "Failed to write hooks/pre-push")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&pre_commit_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set hooks/pre-commit permissions")?;
+        fs::set_permissions(&pre_push_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set hooks/pre-push permissions")?;
+    }
+
+    println!(
+        "   {} Generated hooks/pre-commit and hooks/pre-push",
+        "🔒".green()
+    );
+    println!(
+        "   {} Run `airis hooks install` to install them to .git/hooks/",
+        "💡".cyan()
+    );
 
     Ok(())
 }
