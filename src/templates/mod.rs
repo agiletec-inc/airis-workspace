@@ -21,8 +21,8 @@ fn resolve_dependencies(
     let mut resolved = IndexMap::new();
 
     for (package, version_spec) in deps {
-        let resolved_version = if version_spec == "catalog:" {
-            // "catalog:" → use package name as key
+        let resolved_version = if version_spec == "catalog:" || version_spec == "catalog" {
+            // "catalog:" or "catalog" (legacy) → use package name as key
             resolved_catalog
                 .get(package)
                 .cloned()
@@ -1950,5 +1950,49 @@ path = "libs/utils"
         assert!(result.contains("## Libraries"));
         assert!(result.contains("**ui**: `libs/ui`"));
         assert!(result.contains("**utils**: `libs/utils`"));
+    }
+
+    #[test]
+    fn test_resolve_dependencies_catalog_with_colon() {
+        let mut deps = IndexMap::new();
+        deps.insert("react".to_string(), "catalog:".to_string());
+        deps.insert("typescript".to_string(), "^5.0.0".to_string());
+
+        let mut catalog = IndexMap::new();
+        catalog.insert("react".to_string(), "^19.2.0".to_string());
+
+        let result = resolve_dependencies(&deps, &catalog).unwrap();
+
+        assert_eq!(result.get("react").unwrap(), "^19.2.0");
+        assert_eq!(result.get("typescript").unwrap(), "^5.0.0");
+    }
+
+    #[test]
+    fn test_resolve_dependencies_catalog_legacy() {
+        let mut deps = IndexMap::new();
+        deps.insert("react".to_string(), "catalog".to_string());
+        deps.insert("next".to_string(), "catalog".to_string());
+
+        let mut catalog = IndexMap::new();
+        catalog.insert("react".to_string(), "^19.2.0".to_string());
+        catalog.insert("next".to_string(), "^15.0.0".to_string());
+
+        let result = resolve_dependencies(&deps, &catalog).unwrap();
+
+        assert_eq!(result.get("react").unwrap(), "^19.2.0");
+        assert_eq!(result.get("next").unwrap(), "^15.0.0");
+    }
+
+    #[test]
+    fn test_resolve_dependencies_catalog_with_key() {
+        let mut deps = IndexMap::new();
+        deps.insert("my-react".to_string(), "catalog:react".to_string());
+
+        let mut catalog = IndexMap::new();
+        catalog.insert("react".to_string(), "^19.2.0".to_string());
+
+        let result = resolve_dependencies(&deps, &catalog).unwrap();
+
+        assert_eq!(result.get("my-react").unwrap(), "^19.2.0");
     }
 }
