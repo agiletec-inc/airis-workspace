@@ -4,9 +4,8 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.22.0",
-  "dependencies": {
-  },
   "devDependencies": {
+    "turbo": "^2.8.12"
   },
   "scripts": {
     "build": "echo 'Run: just build-<app-name>'",
