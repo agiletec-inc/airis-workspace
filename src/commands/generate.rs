@@ -190,6 +190,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     // Generate .envrc for direnv
     generate_envrc(manifest, &engine)?;
 
+    // Generate git hooks (.husky/pre-commit, .husky/pre-push)
+    generate_git_hooks(&engine)?;
+
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
@@ -213,6 +216,8 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     println!("   - .workspace/llm-context.md");
     println!("   - CLAUDE.md");
     println!("   - .envrc");
+    println!("   - .husky/pre-commit");
+    println!("   - .husky/pre-push");
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!("  1. Run `airis up` to start the workspace");
@@ -526,6 +531,45 @@ fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     fs::write(path, &content)
         .with_context(|| "Failed to write .envrc")?;
     println!("   {} Generated .envrc for direnv", "📁".green());
+
+    Ok(())
+}
+
+fn generate_git_hooks(engine: &TemplateEngine) -> Result<()> {
+    let husky_dir = Path::new(".husky");
+    fs::create_dir_all(husky_dir).context("Failed to create .husky directory")?;
+
+    // Pre-commit hook
+    let pre_commit_path = husky_dir.join("pre-commit");
+    let pre_commit_content = engine.render_pre_commit_hook();
+    fs::write(&pre_commit_path, &pre_commit_content)
+        .with_context(|| "Failed to write .husky/pre-commit")?;
+
+    // Make executable (Unix only)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&pre_commit_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set .husky/pre-commit permissions")?;
+    }
+
+    // Pre-push hook
+    let pre_push_path = husky_dir.join("pre-push");
+    let pre_push_content = engine.render_pre_push_hook();
+    fs::write(&pre_push_path, &pre_push_content)
+        .with_context(|| "Failed to write .husky/pre-push")?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&pre_push_path, fs::Permissions::from_mode(0o755))
+            .with_context(|| "Failed to set .husky/pre-push permissions")?;
+    }
+
+    println!(
+        "   {} Generated .husky/pre-commit and .husky/pre-push",
+        "🔒".green()
+    );
 
     Ok(())
 }

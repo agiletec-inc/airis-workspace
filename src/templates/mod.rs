@@ -605,6 +605,16 @@ impl TemplateEngine {
         Ok(lines.join("\n"))
     }
 
+    /// Render pre-commit hook content
+    pub fn render_pre_commit_hook(&self) -> String {
+        PRE_COMMIT_HOOK.to_string()
+    }
+
+    /// Render pre-push hook content
+    pub fn render_pre_push_hook(&self) -> String {
+        PRE_PUSH_HOOK.to_string()
+    }
+
     /// Generate LLM context markdown from manifest.toml
     /// This provides a comprehensive overview for AI assistants
     pub fn render_llm_context(&self, manifest: &Manifest) -> Result<String> {
@@ -1393,6 +1403,97 @@ jobs:
 
 // Note: CARGO_TOML_TEMPLATE removed - Cargo.toml is source of truth for Rust projects
 // Use `airis bump-version` to sync versions between manifest.toml and Cargo.toml
+
+/// Git pre-commit hook: blocks .env files, host node_modules, and secrets
+const PRE_COMMIT_HOOK: &str = r#"#!/usr/bin/env bash
+set -euo pipefail
+
+# Block stray .env files (allow templates/examples)
+if find . -type f \( -name '.env' -o -name '.env.*' \) \
+  -not -name '.env.example' -not -name '.env.template' \
+  -not -path './supabase/.env' -not -path './.git/*' \
+  2>/dev/null | grep -q .; then
+  echo '❌ Detected raw .env files. Remove them or convert to .env.example/.env.template.'
+  exit 1
+fi
+
+# Block host-side node_modules pollution (top-level + nested packages)
+if find . -maxdepth 3 -type d -name node_modules \
+  -not -path './supabase/*' -not -path './.git/*' 2>/dev/null | grep -q .; then
+  echo '❌ Host node_modules detected. Run: airis clean && airis install'
+  exit 1
+fi
+
+# Secrets scan via gitleaks when available
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --redact; then
+    echo '❌ Secrets detected by gitleaks.'
+    exit 1
+  fi
+fi
+"#;
+
+/// Git pre-push hook: runs lint, typecheck, and build before push
+const PRE_PUSH_HOOK: &str = r#"#!/bin/sh
+
+# Pre-push hook - CIで落ちるコードをpushさせない
+# lint, typecheck, build を必ず通す
+
+echo "🔍 Running pre-push checks..."
+
+# Check if airis CLI is available
+if command -v airis &> /dev/null; then
+  echo "📦 Running lint..."
+  airis lint || {
+    echo "❌ Lint failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "📦 Running typecheck..."
+  airis typecheck || {
+    echo "❌ Typecheck failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "📦 Running build..."
+  airis build || {
+    echo "❌ Build failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "✅ All pre-push checks passed!"
+elif [ -n "$DOCKER_CONTAINER" ]; then
+  # Inside Docker container
+  echo "📦 Running lint..."
+  pnpm lint || {
+    echo "❌ Lint failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "📦 Running typecheck..."
+  pnpm typecheck || {
+    echo "❌ Typecheck failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "📦 Running build..."
+  pnpm build || {
+    echo "❌ Build failed. Fix errors before pushing."
+    exit 1
+  }
+
+  echo "✅ All pre-push checks passed!"
+else
+  echo "⚠️  Neither airis CLI nor Docker container detected."
+  echo "⚠️  Run 'airis lint && airis typecheck && airis build' manually before pushing."
+  echo ""
+  read -p "Continue anyway? (y/N) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    exit 1
+  fi
+fi
+"#;
 
 #[cfg(test)]
 mod tests {
