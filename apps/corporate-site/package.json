@@ -11,7 +11,7 @@
   "devDependencies": {
     "eslint": "^9.39.1",
     "typescript": "^5.9.3",
-    "vite": "catalog",
+    "vite": "^7.3.1",
     "vitest": "^4.0.10"
   },
   "name": "@workspace/corporate-site",
