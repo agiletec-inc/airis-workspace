@@ -943,6 +943,18 @@ pub struct CiSection {
     /// Homebrew tap repository (e.g., "agiletec-inc/homebrew-tap")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homebrew_tap: Option<String>,
+    /// CI runner label (e.g., "self-hosted"). Default: "ubuntu-latest"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<String>,
+    /// Node.js version (e.g., "24"). Default: "22"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_version: Option<String>,
+    /// Use turbo --affected for incremental builds
+    #[serde(default)]
+    pub affected: bool,
+    /// Enable concurrency cancel-in-progress
+    #[serde(default = "default_true")]
+    pub concurrency_cancel: bool,
 }
 
 impl Default for CiSection {
@@ -953,6 +965,10 @@ impl Default for CiSection {
             auto_version: true,
             repository: None,
             homebrew_tap: None,
+            runner: None,
+            node_version: None,
+            affected: false,
+            concurrency_cancel: true,
         }
     }
 }

@@ -201,6 +201,10 @@ impl TemplateEngine {
             "project_id": manifest.project.id,
             "description": manifest.project.description,
             "repository": repository,
+            "runner": manifest.ci.runner.as_deref().unwrap_or("ubuntu-latest"),
+            "node_version": manifest.ci.node_version.as_deref().unwrap_or("22"),
+            "affected": manifest.ci.affected,
+            "concurrency_cancel": manifest.ci.concurrency_cancel,
         }))
     }
 
@@ -1190,6 +1194,10 @@ on:
     branches:
       - {{target_branch}}
 
+concurrency:
+  group: $\{{github.workflow}}-$\{{github.ref}}
+  cancel-in-progress: {{concurrency_cancel}}
+
 jobs:
   test:
 {{#if is_rust_project}}
@@ -1207,7 +1215,7 @@ jobs:
       - name: Build release
         run: cargo build --release
 {{else}}
-    runs-on: ubuntu-latest
+    runs-on: {{runner}}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -1218,17 +1226,31 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '{{node_version}}'
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
-      - name: Run tests
-        run: pnpm test
+{{#if affected}}
+      - name: Lint (affected)
+        run: pnpm turbo run lint --affected
+
+      - name: Typecheck (affected)
+        run: pnpm turbo run typecheck --affected
+
+      - name: Build (affected)
+        run: pnpm turbo run build --affected
+{{else}}
+      - name: Lint
+        run: pnpm lint:check
+
+      - name: Typecheck
+        run: pnpm typecheck
 
       - name: Build
         run: pnpm build
+{{/if}}
 {{/if}}
 
 {{#if auto_merge_enabled}}
