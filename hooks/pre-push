@@ -1,0 +1,38 @@
+#!/bin/bash
+# airis-monorepo pre-push hook
+# Recommended checks before pushing to remote.
+# All checks are commented out by default — enable as your project matures.
+
+set -e
+
+# -------------------------------------------------------
+# Lint check
+# Enable when: your project has a working `airis lint` command
+# -------------------------------------------------------
+# echo "🔍 Running lint..."
+# airis lint || {
+#     echo "❌ Lint failed. Fix errors before pushing."
+#     exit 1
+# }
+
+# -------------------------------------------------------
+# Type check
+# Enable when: TypeScript is configured and `airis typecheck` works
+# -------------------------------------------------------
+# echo "🔍 Running typecheck..."
+# airis typecheck || {
+#     echo "❌ Typecheck failed. Fix errors before pushing."
+#     exit 1
+# }
+
+# -------------------------------------------------------
+# Build check
+# Enable when: `airis build` is stable and you want CI-parity locally
+# -------------------------------------------------------
+# echo "🔍 Running build..."
+# airis build || {
+#     echo "❌ Build failed. Fix errors before pushing."
+#     exit 1
+# }
+
+echo "✅ Pre-push checks passed"
