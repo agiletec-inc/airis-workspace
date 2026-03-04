@@ -188,11 +188,11 @@ impl Manifest {
 
         // Remap common commands to airis
         let mut remap = IndexMap::new();
-        remap.insert("npm install".to_string(), "airis install".to_string());
-        remap.insert("pnpm install".to_string(), "airis install".to_string());
-        remap.insert("yarn install".to_string(), "airis install".to_string());
-        remap.insert("npm run dev".to_string(), "airis dev".to_string());
-        remap.insert("pnpm dev".to_string(), "airis dev".to_string());
+        remap.insert("npm install".to_string(), "airis up".to_string());
+        remap.insert("pnpm install".to_string(), "airis up".to_string());
+        remap.insert("yarn install".to_string(), "airis up".to_string());
+        remap.insert("npm run dev".to_string(), "airis up".to_string());
+        remap.insert("pnpm dev".to_string(), "airis up".to_string());
         remap.insert("docker compose up".to_string(), "airis up".to_string());
         remap.insert("docker compose down".to_string(), "airis down".to_string());
 
@@ -247,11 +247,9 @@ impl Manifest {
             orchestration: OrchestrationSection::default(),
             commands: {
                 let mut cmds = IndexMap::new();
-                cmds.insert("up".to_string(), "docker compose up -d".to_string());
+                cmds.insert("up".to_string(), "docker compose up -d --build".to_string());
                 cmds.insert("down".to_string(), "docker compose down --remove-orphans".to_string());
                 cmds.insert("shell".to_string(), "docker compose exec -it workspace sh".to_string());
-                cmds.insert("install".to_string(), "docker compose exec workspace pnpm install".to_string());
-                cmds.insert("dev".to_string(), "docker compose exec workspace pnpm dev".to_string());
                 cmds.insert("build".to_string(), "docker compose exec workspace pnpm build".to_string());
                 cmds.insert("test".to_string(), "docker compose exec workspace pnpm test".to_string());
                 cmds.insert("lint".to_string(), "docker compose exec workspace pnpm lint".to_string());

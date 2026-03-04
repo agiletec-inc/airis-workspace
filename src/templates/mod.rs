@@ -636,22 +636,11 @@ impl TemplateEngine {
         lines.push("# 2. Regenerate workspace files".to_string());
         lines.push("airis generate files".to_string());
         lines.push(String::new());
-        lines.push("# 3. Install dependencies (inside Docker)".to_string());
-        if manifest.commands.contains_key("install") {
-            lines.push("airis install".to_string());
-        } else {
-            lines.push("airis shell  # then: pnpm install".to_string());
-        }
+        lines.push("# 3. Start services (builds, installs deps, starts all services)".to_string());
+        lines.push("airis up".to_string());
         lines.push(String::new());
         lines.push("# 4. Verify workspace health".to_string());
         lines.push("airis doctor".to_string());
-        lines.push(String::new());
-        lines.push("# 5. Start development".to_string());
-        if manifest.commands.contains_key("dev") {
-            lines.push("airis dev".to_string());
-        } else {
-            lines.push("airis up".to_string());
-        }
         lines.push("```\n".to_string());
 
         // Git Hooks
@@ -2136,10 +2125,6 @@ service = "workspace"
 image = "node:22-alpine"
 workdir = "/app"
 
-[commands]
-dev = "pnpm dev"
-install = "pnpm install"
-
 [versioning]
 strategy = "manual"
 
@@ -2158,8 +2143,10 @@ next = "^15.0.0"
         assert!(result.contains("Catalog Version Management"));
         assert!(result.contains("catalog:"));
 
-        // Should use `airis install` instead of `airis shell`
-        assert!(result.contains("airis install"));
+        // Should use `airis up` (dev/install are deprecated)
+        assert!(result.contains("airis up"));
+        assert!(!result.contains("airis install"));
+        assert!(!result.contains("airis dev"));
     }
 
     #[test]
