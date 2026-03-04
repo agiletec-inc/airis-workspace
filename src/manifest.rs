@@ -432,6 +432,9 @@ pub struct DevSection {
     /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub urls: Option<DevUrls>,
+    /// Commands to run after `airis up` (e.g., DB migration)
+    #[serde(default)]
+    pub post_up: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -459,6 +462,7 @@ impl Default for DevSection {
             supabase: None,
             traefik: None,
             urls: None,
+            post_up: Vec::new(),
         }
     }
 }

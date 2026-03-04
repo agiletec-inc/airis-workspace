@@ -46,6 +46,67 @@ fn find_compose_file() -> Option<&'static str> {
     None
 }
 
+/// Copy `.env.example` to `.env` if `.env` does not exist (idempotent)
+fn ensure_env_file() {
+    let env_path = Path::new(".env");
+    let example_path = Path::new(".env.example");
+
+    if !env_path.exists() && example_path.exists() {
+        match std::fs::copy(example_path, env_path) {
+            Ok(_) => println!(
+                "   {} Copied {} → {}",
+                "📋".dimmed(),
+                ".env.example".dimmed(),
+                ".env".bold()
+            ),
+            Err(e) => println!(
+                "   {} Failed to copy .env.example: {}",
+                "⚠️".yellow(),
+                e
+            ),
+        }
+    }
+}
+
+/// Run post_up hooks from manifest (idempotent, warns on failure)
+fn run_post_up(manifest: &Manifest) {
+    let hooks = &manifest.dev.post_up;
+    if hooks.is_empty() {
+        return;
+    }
+
+    println!("\n{}", "🔧 Running post_up hooks...".cyan().bold());
+    for hook in hooks {
+        println!("   {} {}", "→".dimmed(), hook.dimmed());
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(hook)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!("   {} Done", "✅".green());
+            }
+            Ok(s) => {
+                println!(
+                    "   {} post_up hook failed (exit {}): {}",
+                    "⚠️".yellow(),
+                    s.code().unwrap_or(-1),
+                    hook
+                );
+            }
+            Err(e) => {
+                println!(
+                    "   {} post_up hook error: {} — {}",
+                    "⚠️".yellow(),
+                    hook,
+                    e
+                );
+            }
+        }
+    }
+}
+
 /// Execute a shell command and return success status
 fn exec_command(cmd: &str) -> Result<bool> {
     let status = if cfg!(target_os = "windows") {
@@ -758,6 +819,7 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
 
 /// Orchestrated startup: supabase -> workspace -> apps
 fn orchestrated_up(manifest: &Manifest) -> Result<()> {
+    ensure_env_file();
     let dev = &manifest.dev;
 
     // 1. Start Supabase (if configured)
@@ -847,6 +909,9 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     }
 
     println!("\n{}", "✅ All services started!".green().bold());
+
+    // Run post_up hooks (e.g., DB migration)
+    run_post_up(manifest);
 
     // Display URLs - either from manifest config or auto-discover from compose files
     display_service_urls(manifest)?;
@@ -1158,7 +1223,8 @@ pub fn run(task: &str) -> Result<()> {
         if let Ok(manifest) = Manifest::load(manifest_path) {
             let is_rust = !manifest.project.rust_edition.is_empty()
                 || !manifest.project.binary_name.is_empty();
-            if !is_rust {
+            let has_custom_command = manifest.commands.contains_key(task);
+            if !is_rust && !has_custom_command {
                 eprintln!(
                     "{}",
                     format!(
@@ -1183,6 +1249,9 @@ pub fn run(task: &str) -> Result<()> {
         if matches!(task, "up" | "down") {
             // Check for compose files (modern: compose.yml, legacy: docker-compose.yml)
             if let Some(compose_file) = find_compose_file() {
+                if task == "up" {
+                    ensure_env_file();
+                }
                 let action = if task == "up" { "up -d --build --remove-orphans" } else { "down" };
                 let cmd = format!("docker compose -f {} {}", compose_file, action);
 
@@ -1251,6 +1320,10 @@ pub fn run(task: &str) -> Result<()> {
             )
         })?;
 
+    if task == "up" {
+        ensure_env_file();
+    }
+
     println!("🚀 Running: {}", cmd.cyan());
 
     // Execute command
@@ -1273,6 +1346,7 @@ pub fn run(task: &str) -> Result<()> {
     // Display URLs after successful "up" command
     if task == "up" {
         println!("\n{}", "✅ All services started!".green().bold());
+        run_post_up(&manifest);
         display_service_urls(&manifest)?;
     }
 
@@ -2285,5 +2359,108 @@ url = "http://localhost:8080"
         assert_eq!(urls.apps.len(), 2);
         assert_eq!(urls.apps[0].name, "Dashboard");
         assert_eq!(urls.apps[1].name, "API");
+    }
+
+    #[test]
+    fn test_ensure_env_file_copies_example() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            // Create .env.example
+            std::fs::write(".env.example", "DATABASE_URL=postgres://localhost").unwrap();
+
+            // .env should not exist yet
+            assert!(!Path::new(".env").exists());
+
+            ensure_env_file();
+
+            // .env should now exist with same content
+            assert!(Path::new(".env").exists());
+            let content = std::fs::read_to_string(".env").unwrap();
+            assert_eq!(content, "DATABASE_URL=postgres://localhost");
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_ensure_env_file_noop_when_env_exists() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            std::fs::write(".env.example", "NEW_VALUE=true").unwrap();
+            std::fs::write(".env", "EXISTING=keep").unwrap();
+
+            ensure_env_file();
+
+            // .env should retain original content (not overwritten)
+            let content = std::fs::read_to_string(".env").unwrap();
+            assert_eq!(content, "EXISTING=keep");
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_ensure_env_file_noop_when_no_example() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            // No .env.example → nothing should happen
+            ensure_env_file();
+            assert!(!Path::new(".env").exists());
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_dev_section_post_up_default_empty() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert!(manifest.dev.post_up.is_empty());
+    }
+
+    #[test]
+    fn test_dev_section_post_up_with_hooks() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+
+[dev]
+post_up = [
+    "docker compose exec workspace pnpm db:migrate",
+    "docker compose exec workspace pnpm db:seed",
+]
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(manifest.dev.post_up.len(), 2);
+        assert_eq!(
+            manifest.dev.post_up[0],
+            "docker compose exec workspace pnpm db:migrate"
+        );
+        assert_eq!(
+            manifest.dev.post_up[1],
+            "docker compose exec workspace pnpm db:seed"
+        );
     }
 }
