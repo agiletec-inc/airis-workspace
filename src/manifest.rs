@@ -490,12 +490,50 @@ pub struct ServiceConfig {
     pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(default)]
+    pub ports: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default)]
     pub volumes: Vec<String>,
     #[serde(default)]
     pub env: IndexMap<String, String>,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shm_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub extra_hosts: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<DeployConfig>,
+    #[serde(default)]
+    pub watch: Vec<WatchConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DeployConfig {
+    pub replicas: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WatchConfig {
+    pub path: String,
+    pub action: String,
+    pub target: String,
+    #[serde(default)]
+    pub initial_sync: bool,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -537,16 +575,6 @@ pub struct FollowConfig {
 impl Default for CatalogEntry {
     fn default() -> Self {
         CatalogEntry::Version("*".to_string())
-    }
-}
-
-impl CatalogEntry {
-    /// Get the follow target if this is a Follow entry
-    pub fn follow_target(&self) -> Option<&str> {
-        match self {
-            CatalogEntry::Follow(f) => Some(&f.follow),
-            _ => None,
-        }
     }
 }
 
@@ -957,6 +985,13 @@ pub struct CiSection {
     /// Enable concurrency cancel-in-progress
     #[serde(default = "default_true")]
     pub concurrency_cancel: bool,
+    /// Enable GitHub Actions cache for pnpm. Disable for self-hosted runners
+    /// that use persistent pnpm store volumes.
+    #[serde(default = "default_true")]
+    pub cache: bool,
+    /// Path to persistent pnpm store (for self-hosted runners with volumes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pnpm_store_path: Option<String>,
 }
 
 impl Default for CiSection {
@@ -971,6 +1006,8 @@ impl Default for CiSection {
             node_version: None,
             affected: false,
             concurrency_cancel: true,
+            cache: true,
+            pnpm_store_path: None,
         }
     }
 }

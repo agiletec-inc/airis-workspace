@@ -205,6 +205,9 @@ impl TemplateEngine {
             "node_version": manifest.ci.node_version.as_deref().unwrap_or("22"),
             "affected": manifest.ci.affected,
             "concurrency_cancel": manifest.ci.concurrency_cancel,
+            "cache": manifest.ci.cache,
+            "pnpm_store_path": manifest.ci.pnpm_store_path.as_deref().unwrap_or(""),
+            "has_pnpm_store_path": manifest.ci.pnpm_store_path.is_some(),
         }))
     }
 
@@ -861,9 +864,20 @@ impl TemplateEngine {
                     "name": name,
                     "image": svc.image,
                     "port": svc.port,
+                    "ports": svc.ports,
                     "command": svc.command,
                     "volumes": svc.volumes,
                     "env": svc.env,
+                    "profiles": svc.profiles,
+                    "depends_on": svc.depends_on,
+                    "restart": svc.restart,
+                    "shm_size": svc.shm_size,
+                    "container_name": svc.container_name,
+                    "working_dir": svc.working_dir,
+                    "extra_hosts": svc.extra_hosts,
+                    "deploy": svc.deploy,
+                    "watch": svc.watch,
+                    "extends": svc.extends,
                 })
             })
             .collect();
@@ -904,10 +918,35 @@ impl TemplateEngine {
 
         // Extract volume names for the volumes declaration section
         // Format: "volume-name:/path" -> "volume-name"
-        let volume_names: Vec<String> = workspace_volumes
+        let mut volume_names: Vec<String> = workspace_volumes
             .iter()
             .filter_map(|v| v.split(':').next())
             .map(String::from)
+            .collect();
+
+        // Also extract named volumes from service definitions
+        for svc in manifest.service.values() {
+            for vol in &svc.volumes {
+                // Named volumes have format "name:/path" (no ./ or / prefix)
+                if let Some(name) = vol.split(':').next() {
+                    if !name.starts_with('.') && !name.starts_with('/') && !volume_names.contains(&name.to_string()) {
+                        volume_names.push(name.to_string());
+                    }
+                }
+            }
+        }
+
+        // Extract workspace service env (for additional env vars on the workspace container)
+        let workspace_env: IndexMap<String, String> = manifest
+            .service
+            .get("workspace")
+            .map(|svc| svc.env.clone())
+            .unwrap_or_default();
+
+        // Filter out workspace from services list (it's rendered separately in template)
+        let services: Vec<serde_json::Value> = services
+            .into_iter()
+            .filter(|s| s.get("name").and_then(|n| n.as_str()) != Some("workspace"))
             .collect();
 
         Ok(json!({
@@ -920,6 +959,7 @@ impl TemplateEngine {
             "default_external": default_external,
             "workspace_volumes": workspace_volumes,
             "volume_names": volume_names,
+            "workspace_env": workspace_env,
         }))
     }
 
@@ -1079,6 +1119,24 @@ const DOCKER_COMPOSE_TEMPLATE: &str = r#"# =====================================
 # Source of truth: manifest.toml
 # ============================================================
 
+x-app-base: &app-base
+  image: {{project}}-{{workspace_service}}
+  working_dir: {{workdir}}
+  deploy:
+    replicas: 1
+  volumes:
+    - ./:{{workdir}}:delegated
+{{#each workspace_volumes}}
+    - {{this}}
+{{/each}}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  environment:
+    DOCKER_ENV: "true"
+    NODE_ENV: development
+    CHOKIDAR_USEPOLLING: "true"
+    WATCHPACK_POLLING: "true"
+
 services:
   {{workspace_service}}:
     container_name: ${COMPOSE_PROJECT_NAME:-{{project}}}-{{workspace_service}}
@@ -1101,9 +1159,14 @@ services:
       CHOKIDAR_INTERVAL: "200"
       WATCHPACK_POLLING: "true"
       NODE_ENV: ${NODE_ENV:-development}
+{{#each workspace_env}}
+      {{@key}}: "{{this}}"
+{{/each}}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     command: sleep infinity
+    profiles:
+      - "shell"
     networks:
       - default
       - traefik
@@ -1113,11 +1176,9 @@ services:
       - "traefik.http.routers.{{workspace_service}}-${COMPOSE_PROJECT_NAME:-dev}.entrypoints=web"
       - "traefik.http.services.{{workspace_service}}-${COMPOSE_PROJECT_NAME:-dev}.loadbalancer.server.port=3000"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      test: ["CMD", "true"]
+      interval: 60s
+      retries: 1
     develop:
       watch:
         - path: .
@@ -1131,13 +1192,63 @@ services:
 
 {{#each services}}
   {{name}}:
+{{#if extends}}
+    <<: *{{extends}}
+{{/if}}
+{{#if container_name}}
+    container_name: {{container_name}}
+{{/if}}
+{{#unless extends}}
     image: {{image}}
-{{#if port}}
+{{/unless}}
+{{#if working_dir}}
+{{#unless extends}}
+    working_dir: {{working_dir}}
+{{/unless}}
+{{/if}}
+{{#if deploy}}
+{{#unless extends}}
+    deploy:
+      replicas: {{deploy.replicas}}
+{{/unless}}
+{{/if}}
+{{#if command}}
+    command: {{{command}}}
+{{/if}}
+{{#if profiles}}
+    profiles:
+{{#each profiles}}
+      - "{{this}}"
+{{/each}}
+{{/if}}
+{{#if depends_on}}
+    depends_on:
+{{#each depends_on}}
+      - {{this}}
+{{/each}}
+{{/if}}
+{{#if ports}}
+    ports:
+{{#each ports}}
+      - "{{this}}"
+{{/each}}
+{{else if port}}
     ports:
       - "{{port}}:{{port}}"
 {{/if}}
-{{#if command}}
-    command: {{command}}
+{{#if extra_hosts}}
+{{#unless extends}}
+    extra_hosts:
+{{#each extra_hosts}}
+      - "{{this}}"
+{{/each}}
+{{/unless}}
+{{/if}}
+{{#if env}}
+    environment:
+{{#each env}}
+      {{@key}}: "{{this}}"
+{{/each}}
 {{/if}}
 {{#if volumes}}
     volumes:
@@ -1145,10 +1256,28 @@ services:
       - {{this}}
 {{/each}}
 {{/if}}
-{{#if env}}
-    environment:
-{{#each env}}
-      {{@key}}: "{{this}}"
+{{#if shm_size}}
+    shm_size: "{{shm_size}}"
+{{/if}}
+{{#if restart}}
+    restart: {{restart}}
+{{/if}}
+{{#if watch}}
+    develop:
+      watch:
+{{#each watch}}
+        - path: {{path}}
+          action: {{action}}
+          target: {{target}}
+{{#if initial_sync}}
+          initial_sync: true
+{{/if}}
+{{#if ignore}}
+          ignore:
+{{#each ignore}}
+            - {{this}}
+{{/each}}
+{{/if}}
 {{/each}}
 {{/if}}
 
@@ -1216,8 +1345,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '{{node_version}}'
+{{#if cache}}
           cache: 'pnpm'
+{{/if}}
 
+{{#if has_pnpm_store_path}}
+      - name: Configure pnpm store
+        run: pnpm config set store-dir {{pnpm_store_path}}
+
+{{/if}}
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 

@@ -352,21 +352,22 @@ fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, force: 
         }
     }
 
-    if compose_exists && !force {
-        // Write to .md for comparison (safe default)
+    // If compose.override.yml exists, use safe mode (write .md for comparison)
+    // Otherwise, always overwrite compose.yml since it's fully generated from manifest.toml
+    let override_path = Path::new("compose.override.yml");
+    if compose_exists && !force && override_path.exists() {
+        // Migration period: override file still exists, be safe
         let md_path = Path::new("compose.yml.md");
         fs::write(md_path, &compose_content)
             .with_context(|| "Failed to write compose.yml.md")?;
         println!(
-            "   {} compose.yml exists → wrote compose.yml.md for comparison",
+            "   {} compose.yml exists with override → wrote compose.yml.md for comparison",
             "📄".yellow()
         );
     } else {
         fs::write(compose_path, &compose_content)
             .with_context(|| "Failed to write compose.yml")?;
-        if force {
-            println!("   {} compose.yml (overwritten)", "✓".green());
-        }
+        println!("   {} compose.yml (generated)", "✓".green());
     }
 
     Ok(())

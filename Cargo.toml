@@ -3,7 +3,7 @@
 
 [package]
 name = "airis"
-version = "1.76.0"
+version = "1.77.0"
 edition = "2024"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -12,6 +12,21 @@ repository = "https://github.com/agiletec-inc/airis-monorepo"
 license = "MIT"
 keywords = ["monorepo", "docker", "workspace", "cli", "prototyping"]
 categories = ["command-line-utilities", "development-tools"]
+
+readme = "README.md"
+include = [
+    "/src/**/*",
+    "/examples/**/*",
+    "/hooks/**/*",
+    "/templates/**/*",
+    "/build.rs",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+]
 
 [[bin]]
 name = "airis"
