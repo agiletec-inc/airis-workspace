@@ -46,6 +46,67 @@ fn find_compose_file() -> Option<&'static str> {
     None
 }
 
+/// Copy `.env.example` to `.env` if `.env` does not exist (idempotent)
+fn ensure_env_file() {
+    let env_path = Path::new(".env");
+    let example_path = Path::new(".env.example");
+
+    if !env_path.exists() && example_path.exists() {
+        match std::fs::copy(example_path, env_path) {
+            Ok(_) => println!(
+                "   {} Copied {} → {}",
+                "📋".dimmed(),
+                ".env.example".dimmed(),
+                ".env".bold()
+            ),
+            Err(e) => println!(
+                "   {} Failed to copy .env.example: {}",
+                "⚠️".yellow(),
+                e
+            ),
+        }
+    }
+}
+
+/// Run post_up hooks from manifest (idempotent, warns on failure)
+fn run_post_up(manifest: &Manifest) {
+    let hooks = &manifest.dev.post_up;
+    if hooks.is_empty() {
+        return;
+    }
+
+    println!("\n{}", "🔧 Running post_up hooks...".cyan().bold());
+    for hook in hooks {
+        println!("   {} {}", "→".dimmed(), hook.dimmed());
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(hook)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!("   {} Done", "✅".green());
+            }
+            Ok(s) => {
+                println!(
+                    "   {} post_up hook failed (exit {}): {}",
+                    "⚠️".yellow(),
+                    s.code().unwrap_or(-1),
+                    hook
+                );
+            }
+            Err(e) => {
+                println!(
+                    "   {} post_up hook error: {} — {}",
+                    "⚠️".yellow(),
+                    hook,
+                    e
+                );
+            }
+        }
+    }
+}
+
 /// Execute a shell command and return success status
 fn exec_command(cmd: &str) -> Result<bool> {
     let status = if cfg!(target_os = "windows") {
@@ -154,7 +215,7 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str]) -> Result<boo
 
     // Execute docker compose up -d --remove-orphans
     let mut up_args = cmd_args.clone();
-    up_args.extend(&["up", "-d", "--remove-orphans"]);
+    up_args.extend(&["up", "-d", "--build", "--remove-orphans"]);
 
     let output = Command::new("docker")
         .args(&up_args)
@@ -181,22 +242,219 @@ struct DiscoveredService {
     is_reachable: bool,
 }
 
-/// Get running Docker containers
-fn get_running_containers() -> Vec<String> {
-    let output = Command::new("docker")
-        .args(["ps", "--format", "{{.Names}}"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output();
+/// Parse service ports from docker compose config JSON
+/// Returns Vec<(service_name, host_port)>
+fn parse_service_ports_from_config(config: &Value) -> Vec<(String, u16)> {
+    let mut results = Vec::new();
 
-    if let Ok(output) = output
-        && output.status.success() {
-            return String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(|s| s.to_string())
-                .collect();
+    if let Some(services) = config.get("services").and_then(|s| s.as_object()) {
+        for (svc_name, svc_config) in services {
+            // Use container_name if available, otherwise service name
+            let display_name = svc_config
+                .get("container_name")
+                .and_then(|c| c.as_str())
+                .unwrap_or(svc_name)
+                .to_string();
+
+            if let Some(ports) = svc_config.get("ports").and_then(|p| p.as_array()) {
+                for port in ports {
+                    // Object format (from docker compose config --format json)
+                    if let Some(published) = port.get("published") {
+                        let p = published
+                            .as_u64()
+                            .map(|p| p as u16)
+                            .or_else(|| published.as_str().and_then(|s| s.parse().ok()));
+                        if let Some(host_port) = p {
+                            if host_port > 0 {
+                                results.push((display_name.clone(), host_port));
+                            }
+                        }
+                    } else if let Some(port_str) = port.as_str() {
+                        // String format fallback: "HOST_PORT:CONTAINER_PORT" or "HOST:HOST_PORT:CONTAINER_PORT"
+                        let parts: Vec<&str> = port_str.split(':').collect();
+                        let host_port = match parts.len() {
+                            2 => parts[0].parse::<u16>().ok(),
+                            3 => parts[1].parse::<u16>().ok(),
+                            _ => None,
+                        };
+                        if let Some(p) = host_port {
+                            if p > 0 {
+                                results.push((display_name.clone(), p));
+                            }
+                        }
+                    }
+                }
+            }
         }
-    Vec::new()
+    }
+
+    results
+}
+
+/// Collect all compose files from manifest configuration
+fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
+    let mut files = Vec::new();
+
+    // Check orchestration.dev first
+    if let Some(dev) = &manifest.orchestration.dev {
+        if let Some(workspace) = &dev.workspace {
+            if Path::new(workspace).exists() {
+                files.push(workspace.clone());
+            }
+        }
+        if let Some(supabase_files) = &dev.supabase {
+            for f in supabase_files {
+                if Path::new(f).exists() && !files.contains(f) {
+                    files.push(f.clone());
+                }
+            }
+        }
+        if let Some(traefik) = &dev.traefik {
+            if Path::new(traefik).exists() && !files.contains(traefik) {
+                files.push(traefik.clone());
+            }
+        }
+    }
+
+    // Root compose file (if not already added)
+    if let Some(compose_file) = find_compose_file() {
+        let cf = compose_file.to_string();
+        if !files.contains(&cf) {
+            files.push(cf);
+        }
+    }
+
+    // Dev section compose files
+    if let Some(supabase_files) = &manifest.dev.supabase {
+        for f in supabase_files {
+            if Path::new(f).exists() && !files.contains(f) {
+                files.push(f.clone());
+            }
+        }
+    }
+    if let Some(traefik_file) = &manifest.dev.traefik {
+        if Path::new(traefik_file).exists() && !files.contains(traefik_file) {
+            files.push(traefik_file.clone());
+        }
+    }
+
+    // Apps pattern glob
+    if let Ok(entries) = glob(&manifest.dev.apps_pattern) {
+        for entry in entries.flatten() {
+            if let Some(path_str) = entry.to_str() {
+                let path_string = path_str.to_string();
+                if !files.contains(&path_string) {
+                    files.push(path_string);
+                }
+            }
+        }
+    }
+
+    files
+}
+
+/// Discover service URLs from compose file port mappings
+fn discover_compose_port_urls(compose_files: &[String]) -> Vec<DiscoveredService> {
+    let mut services = Vec::new();
+    let mut seen_ports = std::collections::HashSet::new();
+
+    for file in compose_files {
+        let output = Command::new("docker")
+            .args(["compose", "-f", file, "config", "--format", "json"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .output();
+
+        if let Ok(output) = output
+            && output.status.success()
+        {
+            if let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
+                for (name, port) in parse_service_ports_from_config(&config) {
+                    if seen_ports.contains(&port) {
+                        continue;
+                    }
+                    seen_ports.insert(port);
+
+                    let url = format!("http://localhost:{}", port);
+                    services.push(DiscoveredService {
+                        name,
+                        url,
+                        is_reachable: false,
+                    });
+                }
+            }
+        }
+    }
+
+    services
+}
+
+/// Display URLs discovered from compose file port mappings (no manifest required)
+fn display_compose_urls(compose_files: &[String]) {
+    let mut services = discover_compose_port_urls(compose_files);
+    for svc in &mut services {
+        svc.is_reachable = is_service_reachable(&svc.url);
+    }
+    display_url_table(&services);
+}
+
+/// Display URL table (shared between display_service_urls and run_ps)
+fn display_url_table(services: &[DiscoveredService]) {
+    if services.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("{}", "=== Services ===".bright_yellow());
+    for service in services {
+        let status = if service.is_reachable {
+            "✓".green()
+        } else {
+            "✗".red()
+        };
+        println!(
+            "  {} {:<24}{}",
+            status,
+            format!("{}:", service.name),
+            service.url
+        );
+    }
+    println!("{}", "===".bright_yellow());
+}
+
+/// Condense docker status string for compact display
+/// "Up 3 minutes" → "Up 3m", "Up About an hour" → "Up ~1h"
+fn condense_status(status: &str) -> String {
+    let s = status.trim();
+
+    if let Some(rest) = s.strip_prefix("Up ") {
+        // Handle "About an hour" / "About a minute"
+        if rest.starts_with("About an hour") {
+            return "Up ~1h".to_string();
+        }
+        if rest.starts_with("About a minute") {
+            return "Up ~1m".to_string();
+        }
+
+        // Parse "X unit" pattern (e.g., "3 minutes", "2 hours")
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        if parts.len() >= 2 {
+            if let Ok(_) = parts[0].parse::<u64>() {
+                let short_unit = match parts[1] {
+                    u if u.starts_with("second") => "s",
+                    u if u.starts_with("minute") => "m",
+                    u if u.starts_with("hour") => "h",
+                    u if u.starts_with("day") => "d",
+                    u if u.starts_with("week") => "w",
+                    u if u.starts_with("month") => "mo",
+                    _ => return s.to_string(),
+                };
+                return format!("Up {}{}", parts[0], short_unit);
+            }
+        }
+    }
+
+    s.to_string()
 }
 
 /// Parse Traefik dynamic config to get routers
@@ -433,41 +691,71 @@ fn get_docker_traefik_routers(workspace_name: &str) -> Vec<(String, String, Stri
     results
 }
 
-/// Display service URLs - dynamically discover from running containers and Traefik config
+/// Display service URLs - 3-tier priority discovery:
+/// 1. manifest.dev.urls (explicit, highest priority)
+/// 2. compose port mapping auto-detection
+/// 3. Traefik Docker labels + static config (lowest priority)
 fn display_service_urls(manifest: &Manifest) -> Result<()> {
-    let running_containers = get_running_containers();
+    let mut all_services: Vec<DiscoveredService> = Vec::new();
+    let mut seen_urls = std::collections::HashSet::new();
 
-    if running_containers.is_empty() {
-        println!();
-        println!("{}", "⚠️  No containers running".yellow());
-        return Ok(());
+    // Tier 1: manifest.dev.urls (explicit configuration)
+    if let Some(dev_urls) = &manifest.dev.urls {
+        for entry in dev_urls.infra.iter().chain(dev_urls.apps.iter()) {
+            if seen_urls.insert(entry.url.clone()) {
+                all_services.push(DiscoveredService {
+                    name: entry.name.clone(),
+                    url: entry.url.clone(),
+                    is_reachable: is_service_reachable(&entry.url),
+                });
+            }
+        }
     }
 
-    let mut infra_services: Vec<DiscoveredService> = Vec::new();
-    let mut app_services: Vec<DiscoveredService> = Vec::new();
+    // Tier 2: compose port mapping auto-detection
+    let compose_files = collect_all_compose_files(manifest);
+    for svc in discover_compose_port_urls(&compose_files) {
+        if seen_urls.insert(svc.url.clone()) {
+            all_services.push(DiscoveredService {
+                name: svc.name,
+                url: svc.url.clone(),
+                is_reachable: is_service_reachable(&svc.url),
+            });
+        }
+    }
 
-    // 1. Check Traefik port (usually 8081 for dev)
-    let traefik_port = if let Some(traefik_file) = &manifest.dev.traefik {
-        let output = Command::new("docker")
-            .args(["compose", "-f", traefik_file, "config", "--format", "json"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
+    // Tier 3: Traefik Docker labels + static config
+    if manifest.dev.traefik.is_some() {
+        // Extract Traefik port
+        let traefik_port = if let Some(traefik_file) = &manifest.dev.traefik {
+            let output = Command::new("docker")
+                .args(["compose", "-f", traefik_file, "config", "--format", "json"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .output();
 
-        if let Ok(output) = output {
-            if let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
-                config.get("services")
-                    .and_then(|s| s.get("traefik"))
-                    .and_then(|t| t.get("ports"))
-                    .and_then(|p| p.as_array())
-                    .and_then(|ports| {
-                        for port in ports {
-                            if let Some(published) = port.get("published") {
-                                return published.as_u64().map(|p| p as u16)
-                                    .or_else(|| published.as_str().and_then(|s| s.parse().ok()));
-                            }
-                        }
-                        None
+            if let Ok(output) = output {
+                serde_json::from_slice::<Value>(&output.stdout)
+                    .ok()
+                    .and_then(|config| {
+                        config
+                            .get("services")
+                            .and_then(|s| s.get("traefik"))
+                            .and_then(|t| t.get("ports"))
+                            .and_then(|p| p.as_array())
+                            .and_then(|ports| {
+                                for port in ports {
+                                    if let Some(published) = port.get("published") {
+                                        return published
+                                            .as_u64()
+                                            .map(|p| p as u16)
+                                            .or_else(|| {
+                                                published.as_str().and_then(|s| s.parse().ok())
+                                            });
+                                    }
+                                }
+                                None
+                            })
                     })
             } else {
                 None
@@ -475,96 +763,63 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
         } else {
             None
         }
-    } else {
-        None
-    }.unwrap_or(8081);
+        .unwrap_or(8081);
 
-    // 2. Get routers from Docker labels (dynamic discovery)
-    let workspace_name = &manifest.workspace.name;
-    let docker_routers = get_docker_traefik_routers(workspace_name);
-
-    // 3. Get routers from static Traefik config
-    let static_routers = if let Some(traefik_file) = &manifest.dev.traefik {
-        let traefik_dir = Path::new(traefik_file).parent().unwrap_or(Path::new("."));
-        parse_traefik_routers(traefik_dir.to_str().unwrap_or("."))
-    } else {
-        Vec::new()
-    };
-
-    // Combine and deduplicate routers
-    let mut seen_urls = std::collections::HashSet::new();
-
-    for (router_name, host, path) in docker_routers.into_iter().chain(static_routers.into_iter()) {
-        let url = format!("http://{}:{}{}", host, traefik_port, if path == "/" { "".to_string() } else { path.clone() });
-
-        if seen_urls.contains(&url) {
-            continue;
-        }
-        seen_urls.insert(url.clone());
-
-        let is_reachable = is_service_reachable(&url);
-
-        // Determine display name
-        let display_name = router_name
-            .replace("-", " ")
-            .replace("_", " ")
-            .split_whitespace()
-            .map(|w| {
-                let mut chars = w.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        let service = DiscoveredService {
-            name: display_name,
-            url,
-            is_reachable,
+        let workspace_name = &manifest.workspace.name;
+        let docker_routers = get_docker_traefik_routers(workspace_name);
+        let static_routers = if let Some(traefik_file) = &manifest.dev.traefik {
+            let traefik_dir = Path::new(traefik_file).parent().unwrap_or(Path::new("."));
+            parse_traefik_routers(traefik_dir.to_str().unwrap_or("."))
+        } else {
+            Vec::new()
         };
 
-        if router_name.contains("studio") || router_name.contains("api") && !router_name.contains("focustoday") {
-            infra_services.push(service);
-        } else {
-            app_services.push(service);
+        for (router_name, host, path) in
+            docker_routers.into_iter().chain(static_routers.into_iter())
+        {
+            let url = format!(
+                "http://{}:{}{}",
+                host,
+                traefik_port,
+                if path == "/" {
+                    "".to_string()
+                } else {
+                    path.clone()
+                }
+            );
+
+            if !host.is_empty() && host.contains('.') && seen_urls.insert(url.clone()) {
+                let is_reachable = is_service_reachable(&url);
+                let display_name = router_name
+                    .replace('-', " ")
+                    .replace('_', " ")
+                    .split_whitespace()
+                    .map(|w| {
+                        let mut chars = w.chars();
+                        match chars.next() {
+                            None => String::new(),
+                            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+
+                all_services.push(DiscoveredService {
+                    name: display_name,
+                    url,
+                    is_reachable,
+                });
+            }
         }
     }
 
-    // 4. Display results
-    if !infra_services.is_empty() {
-        println!();
-        println!("{}", "📋 Infrastructure:".bright_yellow());
-        for service in &infra_services {
-            let status = if service.is_reachable {
-                "✓".green()
-            } else {
-                "✗".red()
-            };
-            println!("   {} {:<20} {}", status, format!("{}:", service.name), service.url);
-        }
-    }
-
-    if !app_services.is_empty() {
-        println!();
-        println!("{}", "🚀 Apps:".bright_yellow());
-        for service in &app_services {
-            let status = if service.is_reachable {
-                "✓".green()
-            } else {
-                "✗".red()
-            };
-            println!("   {} {:<20} {}", status, format!("{}:", service.name), service.url);
-        }
-    }
-
-    println!();
+    display_url_table(&all_services);
     Ok(())
 }
 
 /// Orchestrated startup: supabase -> workspace -> apps
 fn orchestrated_up(manifest: &Manifest) -> Result<()> {
+    ensure_env_file();
     let dev = &manifest.dev;
 
     // 1. Start Supabase (if configured)
@@ -654,6 +909,9 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     }
 
     println!("\n{}", "✅ All services started!".green().bold());
+
+    // Run post_up hooks (e.g., DB migration)
+    run_post_up(manifest);
 
     // Display URLs - either from manifest config or auto-discover from compose files
     display_service_urls(manifest)?;
@@ -918,23 +1176,20 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
 
     if is_rust_project {
         // Rust project: use cargo commands (no docker compose required)
-        cmds.insert("install".to_string(), "cargo install --path .".to_string());
         cmds.insert("build".to_string(), "cargo build --release".to_string());
         cmds.insert("test".to_string(), "cargo test".to_string());
         cmds.insert("lint".to_string(), "cargo clippy".to_string());
         cmds.insert("format".to_string(), "cargo fmt".to_string());
-        cmds.insert("dev".to_string(), "cargo watch -x run".to_string());
     } else {
         // Docker/Node project: docker compose commands required
-        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d")?);
+        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d --build --remove-orphans")?);
         cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
         cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
         cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
         cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service))?);
 
         // Node project: use package manager commands (auto-inferred from manifest.workspace.package_manager)
-        cmds.insert("install".to_string(), build_compose_command(manifest, &format!("exec {} {} install", service, pm))?);
-        cmds.insert("dev".to_string(), build_compose_command(manifest, &format!("exec {} {} dev", service, pm))?);
+        // NOTE: "install" and "dev" are deprecated — use "airis up" instead (docker compose up -d --build)
         cmds.insert("build".to_string(), build_compose_command(manifest, &format!("exec {} {} build", service, pm))?);
         cmds.insert("test".to_string(), build_compose_command(manifest, &format!("exec {} {} test", service, pm))?);
         cmds.insert("lint".to_string(), build_compose_command(manifest, &format!("exec {} {} lint", service, pm))?);
@@ -951,10 +1206,16 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
 /// Check if orchestration is configured in manifest
 fn has_orchestration(manifest: &Manifest) -> bool {
     let dev = &manifest.dev;
-    // Check for any orchestration config (supabase, traefik, or non-default apps_pattern)
-    dev.supabase.is_some()
-        || dev.traefik.is_some()
-        || !dev.apps_pattern.is_empty()
+    if dev.supabase.is_some() || dev.traefik.is_some() {
+        return true;
+    }
+    // Only count apps_pattern as orchestration if it matches actual files
+    if !dev.apps_pattern.is_empty() {
+        if let Ok(mut entries) = glob(&dev.apps_pattern) {
+            return entries.next().is_some();
+        }
+    }
+    false
 }
 
 /// Execute a command defined in manifest.toml [commands] section
@@ -966,7 +1227,10 @@ pub fn run(task: &str) -> Result<()> {
         if matches!(task, "up" | "down") {
             // Check for compose files (modern: compose.yml, legacy: docker-compose.yml)
             if let Some(compose_file) = find_compose_file() {
-                let action = if task == "up" { "up -d --remove-orphans" } else { "down" };
+                if task == "up" {
+                    ensure_env_file();
+                }
+                let action = if task == "up" { "up -d --build --remove-orphans" } else { "down" };
                 let cmd = format!("docker compose -f {} {}", compose_file, action);
 
                 println!("🚀 Running: {}", cmd.cyan());
@@ -986,6 +1250,10 @@ pub fn run(task: &str) -> Result<()> {
                 if !status.success() {
                     bail!("Command failed with exit code: {:?}", status.code());
                 }
+                if task == "up" {
+                    println!("\n{}", "✅ All services started!".green().bold());
+                    display_compose_urls(&[compose_file.to_string()]);
+                }
                 return Ok(());
             }
         }
@@ -1000,7 +1268,8 @@ pub fn run(task: &str) -> Result<()> {
         .with_context(|| "Failed to load manifest.toml")?;
 
     // Special handling for up/down with orchestration
-    if has_orchestration(&manifest) {
+    // User-defined [commands] override always takes priority over orchestration
+    if !manifest.commands.contains_key(task) && has_orchestration(&manifest) {
         match task {
             "up" => return orchestrated_up(&manifest),
             "down" => return orchestrated_down(&manifest),
@@ -1030,6 +1299,10 @@ pub fn run(task: &str) -> Result<()> {
             )
         })?;
 
+    if task == "up" {
+        ensure_env_file();
+    }
+
     println!("🚀 Running: {}", cmd.cyan());
 
     // Execute command
@@ -1048,6 +1321,81 @@ pub fn run(task: &str) -> Result<()> {
     if !status.success() {
         bail!("Command failed with exit code: {:?}", status.code());
     }
+
+    // Display URLs after successful "up" command
+    if task == "up" {
+        println!("\n{}", "✅ All services started!".green().bold());
+        run_post_up(&manifest);
+        display_service_urls(&manifest)?;
+    }
+
+    Ok(())
+}
+
+/// Show running services with status and URLs
+pub fn run_ps() -> Result<()> {
+    // Get running containers with status
+    let output = Command::new("docker")
+        .args(["ps", "--format", "{{.Names}}\t{{.Status}}"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+        .with_context(|| "Failed to execute docker ps")?;
+
+    if !output.status.success() {
+        bail!("docker ps failed");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let containers: Vec<(&str, &str)> = stdout
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(2, '\t').collect();
+            if parts.len() == 2 {
+                Some((parts[0], parts[1]))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if containers.is_empty() {
+        println!("{}", "No running containers".yellow());
+        return Ok(());
+    }
+
+    // Build URL map from compose files
+    let url_map = {
+        let manifest_path = Path::new("manifest.toml");
+        let port_services = if manifest_path.exists() {
+            let manifest = Manifest::load(manifest_path)?;
+            let compose_files = collect_all_compose_files(&manifest);
+            discover_compose_port_urls(&compose_files)
+        } else if let Some(compose_file) = find_compose_file() {
+            discover_compose_port_urls(&[compose_file.to_string()])
+        } else {
+            Vec::new()
+        };
+
+        let mut map = std::collections::HashMap::new();
+        for svc in &port_services {
+            map.insert(svc.name.clone(), svc.url.clone());
+        }
+        map
+    };
+
+    println!();
+    println!("{}", "=== Running Services ===".bright_yellow());
+    for (name, status) in &containers {
+        let condensed = condense_status(status);
+        if let Some(url) = url_map.get(*name) {
+            println!("  {:<24}{:<10} {}", name, condensed, url);
+        } else {
+            println!("  {:<24}{}", name, condensed);
+        }
+    }
+    println!("{}", "===".bright_yellow());
+    println!();
 
     Ok(())
 }
@@ -1550,12 +1898,15 @@ service = "app"
             let manifest: Manifest = toml::from_str(manifest_content).unwrap();
             let cmds = default_commands(&manifest).unwrap();
 
-            // Should use bun instead of pnpm
-            assert!(cmds.get("install").unwrap().contains("bun install"));
-            assert!(cmds.get("dev").unwrap().contains("bun dev"));
+            // "install" and "dev" are deprecated — no longer in defaults
+            assert!(!cmds.contains_key("install"));
+            assert!(!cmds.contains_key("dev"));
+            // Should use bun for remaining commands
             assert!(cmds.get("test").unwrap().contains("bun test"));
             // Should use custom service name
             assert!(cmds.get("shell").unwrap().contains("exec -it app sh"));
+            // "up" should include --build
+            assert!(cmds.get("up").unwrap().contains("up -d --build"));
         });
 
         std::env::set_current_dir(original_dir).unwrap();
@@ -1593,10 +1944,12 @@ test = "custom test command"
 
             // test should be overridden
             assert_eq!(commands.get("test").unwrap(), "custom test command");
-            // up should still be default
+            // up should still be default with --build
             assert!(commands.get("up").unwrap().contains("docker compose"));
-            // dev should still use pnpm
-            assert!(commands.get("dev").unwrap().contains("pnpm dev"));
+            assert!(commands.get("up").unwrap().contains("--build"));
+            // dev/install are no longer in defaults
+            assert!(!commands.contains_key("dev"));
+            assert!(!commands.contains_key("install"));
         });
 
         std::env::set_current_dir(original_dir).unwrap();
@@ -1831,5 +2184,262 @@ traefik = "traefik/docker-compose.yml"
 
         std::env::set_current_dir(original_dir).unwrap();
         result.unwrap();
+    }
+
+    #[test]
+    fn test_condense_status_minutes() {
+        assert_eq!(condense_status("Up 3 minutes"), "Up 3m");
+        assert_eq!(condense_status("Up 38 minutes"), "Up 38m");
+        assert_eq!(condense_status("Up 1 minute"), "Up 1m");
+    }
+
+    #[test]
+    fn test_condense_status_hours() {
+        assert_eq!(condense_status("Up 2 hours"), "Up 2h");
+        assert_eq!(condense_status("Up About an hour"), "Up ~1h");
+    }
+
+    #[test]
+    fn test_condense_status_other() {
+        assert_eq!(condense_status("Up 5 seconds"), "Up 5s");
+        assert_eq!(condense_status("Up 3 days"), "Up 3d");
+        assert_eq!(condense_status("Up About a minute"), "Up ~1m");
+    }
+
+    #[test]
+    fn test_condense_status_passthrough() {
+        assert_eq!(condense_status("Exited (0)"), "Exited (0)");
+        assert_eq!(condense_status("Created"), "Created");
+    }
+
+    #[test]
+    fn test_parse_service_ports_object_format() {
+        let config: Value = serde_json::json!({
+            "services": {
+                "web": {
+                    "container_name": "my-web",
+                    "ports": [
+                        {
+                            "mode": "ingress",
+                            "target": 3000,
+                            "published": "3000",
+                            "protocol": "tcp"
+                        }
+                    ]
+                },
+                "api": {
+                    "ports": [
+                        {
+                            "mode": "ingress",
+                            "target": 8080,
+                            "published": 8080,
+                            "protocol": "tcp"
+                        }
+                    ]
+                }
+            }
+        });
+
+        let result = parse_service_ports_from_config(&config);
+        assert_eq!(result.len(), 2);
+        // BTreeMap sorts keys alphabetically: "api" before "web"
+        assert_eq!(result[0], ("api".to_string(), 8080));
+        assert_eq!(result[1], ("my-web".to_string(), 3000));
+    }
+
+    #[test]
+    fn test_parse_service_ports_string_format() {
+        let config: Value = serde_json::json!({
+            "services": {
+                "web": {
+                    "ports": ["3000:3000"]
+                },
+                "api": {
+                    "ports": ["8080:80"]
+                }
+            }
+        });
+
+        let result = parse_service_ports_from_config(&config);
+        assert_eq!(result.len(), 2);
+        // BTreeMap sorts keys alphabetically: "api" before "web"
+        assert_eq!(result[0], ("api".to_string(), 8080));
+        assert_eq!(result[1], ("web".to_string(), 3000));
+    }
+
+    #[test]
+    fn test_parse_service_ports_no_ports() {
+        let config: Value = serde_json::json!({
+            "services": {
+                "db": {
+                    "image": "postgres:15"
+                }
+            }
+        });
+
+        let result = parse_service_ports_from_config(&config);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_service_ports_empty_services() {
+        let config: Value = serde_json::json!({
+            "services": {}
+        });
+
+        let result = parse_service_ports_from_config(&config);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_service_ports_skips_zero_port() {
+        let config: Value = serde_json::json!({
+            "services": {
+                "web": {
+                    "ports": [
+                        {
+                            "target": 3000,
+                            "published": "0"
+                        }
+                    ]
+                }
+            }
+        });
+
+        let result = parse_service_ports_from_config(&config);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_manifest_dev_urls_parsing() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+
+[[dev.urls.infra]]
+name = "Supabase Studio"
+url = "http://localhost:54323"
+
+[[dev.urls.apps]]
+name = "Dashboard"
+url = "http://localhost:3000"
+
+[[dev.urls.apps]]
+name = "API"
+url = "http://localhost:8080"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        let urls = manifest.dev.urls.unwrap();
+        assert_eq!(urls.infra.len(), 1);
+        assert_eq!(urls.infra[0].name, "Supabase Studio");
+        assert_eq!(urls.infra[0].url, "http://localhost:54323");
+        assert_eq!(urls.apps.len(), 2);
+        assert_eq!(urls.apps[0].name, "Dashboard");
+        assert_eq!(urls.apps[1].name, "API");
+    }
+
+    #[test]
+    fn test_ensure_env_file_copies_example() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            // Create .env.example
+            std::fs::write(".env.example", "DATABASE_URL=postgres://localhost").unwrap();
+
+            // .env should not exist yet
+            assert!(!Path::new(".env").exists());
+
+            ensure_env_file();
+
+            // .env should now exist with same content
+            assert!(Path::new(".env").exists());
+            let content = std::fs::read_to_string(".env").unwrap();
+            assert_eq!(content, "DATABASE_URL=postgres://localhost");
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_ensure_env_file_noop_when_env_exists() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            std::fs::write(".env.example", "NEW_VALUE=true").unwrap();
+            std::fs::write(".env", "EXISTING=keep").unwrap();
+
+            ensure_env_file();
+
+            // .env should retain original content (not overwritten)
+            let content = std::fs::read_to_string(".env").unwrap();
+            assert_eq!(content, "EXISTING=keep");
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_ensure_env_file_noop_when_no_example() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            // No .env.example → nothing should happen
+            ensure_env_file();
+            assert!(!Path::new(".env").exists());
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_dev_section_post_up_default_empty() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert!(manifest.dev.post_up.is_empty());
+    }
+
+    #[test]
+    fn test_dev_section_post_up_with_hooks() {
+        let manifest_content = r#"
+version = 1
+
+[workspace]
+name = "test"
+
+[dev]
+post_up = [
+    "docker compose exec workspace pnpm db:migrate",
+    "docker compose exec workspace pnpm db:seed",
+]
+"#;
+        let manifest: Manifest = toml::from_str(manifest_content).unwrap();
+        assert_eq!(manifest.dev.post_up.len(), 2);
+        assert_eq!(
+            manifest.dev.post_up[0],
+            "docker compose exec workspace pnpm db:migrate"
+        );
+        assert_eq!(
+            manifest.dev.post_up[1],
+            "docker compose exec workspace pnpm db:seed"
+        );
     }
 }

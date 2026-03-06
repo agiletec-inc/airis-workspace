@@ -188,11 +188,11 @@ impl Manifest {
 
         // Remap common commands to airis
         let mut remap = IndexMap::new();
-        remap.insert("npm install".to_string(), "airis install".to_string());
-        remap.insert("pnpm install".to_string(), "airis install".to_string());
-        remap.insert("yarn install".to_string(), "airis install".to_string());
-        remap.insert("npm run dev".to_string(), "airis dev".to_string());
-        remap.insert("pnpm dev".to_string(), "airis dev".to_string());
+        remap.insert("npm install".to_string(), "airis up".to_string());
+        remap.insert("pnpm install".to_string(), "airis up".to_string());
+        remap.insert("yarn install".to_string(), "airis up".to_string());
+        remap.insert("npm run dev".to_string(), "airis up".to_string());
+        remap.insert("pnpm dev".to_string(), "airis up".to_string());
         remap.insert("docker compose up".to_string(), "airis up".to_string());
         remap.insert("docker compose down".to_string(), "airis down".to_string());
 
@@ -247,11 +247,9 @@ impl Manifest {
             orchestration: OrchestrationSection::default(),
             commands: {
                 let mut cmds = IndexMap::new();
-                cmds.insert("up".to_string(), "docker compose up -d".to_string());
+                cmds.insert("up".to_string(), "docker compose up -d --build".to_string());
                 cmds.insert("down".to_string(), "docker compose down --remove-orphans".to_string());
                 cmds.insert("shell".to_string(), "docker compose exec -it workspace sh".to_string());
-                cmds.insert("install".to_string(), "docker compose exec workspace pnpm install".to_string());
-                cmds.insert("dev".to_string(), "docker compose exec workspace pnpm dev".to_string());
                 cmds.insert("build".to_string(), "docker compose exec workspace pnpm build".to_string());
                 cmds.insert("test".to_string(), "docker compose exec workspace pnpm test".to_string());
                 cmds.insert("lint".to_string(), "docker compose exec workspace pnpm lint".to_string());
@@ -434,6 +432,9 @@ pub struct DevSection {
     /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub urls: Option<DevUrls>,
+    /// Commands to run after `airis up` (e.g., DB migration)
+    #[serde(default)]
+    pub post_up: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -461,6 +462,7 @@ impl Default for DevSection {
             supabase: None,
             traefik: None,
             urls: None,
+            post_up: Vec::new(),
         }
     }
 }
@@ -488,12 +490,50 @@ pub struct ServiceConfig {
     pub image: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
+    #[serde(default)]
+    pub ports: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default)]
     pub volumes: Vec<String>,
     #[serde(default)]
     pub env: IndexMap<String, String>,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shm_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+    #[serde(default)]
+    pub extra_hosts: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<DeployConfig>,
+    #[serde(default)]
+    pub watch: Vec<WatchConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extends: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DeployConfig {
+    pub replicas: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WatchConfig {
+    pub path: String,
+    pub action: String,
+    pub target: String,
+    #[serde(default)]
+    pub initial_sync: bool,
+    #[serde(default)]
+    pub ignore: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -535,16 +575,6 @@ pub struct FollowConfig {
 impl Default for CatalogEntry {
     fn default() -> Self {
         CatalogEntry::Version("*".to_string())
-    }
-}
-
-impl CatalogEntry {
-    /// Get the follow target if this is a Follow entry
-    pub fn follow_target(&self) -> Option<&str> {
-        match self {
-            CatalogEntry::Follow(f) => Some(&f.follow),
-            _ => None,
-        }
     }
 }
 
@@ -943,6 +973,25 @@ pub struct CiSection {
     /// Homebrew tap repository (e.g., "agiletec-inc/homebrew-tap")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homebrew_tap: Option<String>,
+    /// CI runner label (e.g., "self-hosted"). Default: "ubuntu-latest"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner: Option<String>,
+    /// Node.js version (e.g., "24"). Default: "22"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node_version: Option<String>,
+    /// Use turbo --affected for incremental builds
+    #[serde(default)]
+    pub affected: bool,
+    /// Enable concurrency cancel-in-progress
+    #[serde(default = "default_true")]
+    pub concurrency_cancel: bool,
+    /// Enable GitHub Actions cache for pnpm. Disable for self-hosted runners
+    /// that use persistent pnpm store volumes.
+    #[serde(default = "default_true")]
+    pub cache: bool,
+    /// Path to persistent pnpm store (for self-hosted runners with volumes)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pnpm_store_path: Option<String>,
 }
 
 impl Default for CiSection {
@@ -953,6 +1002,12 @@ impl Default for CiSection {
             auto_version: true,
             repository: None,
             homebrew_tap: None,
+            runner: None,
+            node_version: None,
+            affected: false,
+            concurrency_cancel: true,
+            cache: true,
+            pnpm_store_path: None,
         }
     }
 }

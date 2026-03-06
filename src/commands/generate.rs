@@ -105,8 +105,12 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
         }
 
         let path = Path::new(file);
+        let ownership = get_ownership(path);
         let status = if path.exists() {
-            "exists → would write .md for comparison".yellow()
+            match ownership {
+                Ownership::Tool => "exists → would overwrite (tool-owned)".green(),
+                _ => "exists → would write .md for comparison".yellow(),
+            }
         } else {
             "would be created".green()
         };
@@ -262,25 +266,15 @@ fn generate_package_json(
 fn generate_pnpm_workspace(
     manifest: &Manifest,
     engine: &TemplateEngine,
-    force: bool,
+    _force: bool,
 ) -> Result<()> {
     let path = Path::new("pnpm-workspace.yaml");
     let content = engine.render_pnpm_workspace(manifest)?;
 
-    if path.exists() && !force {
-        // Don't overwrite existing pnpm-workspace.yaml - write to .md for comparison
-        let md_path = Path::new("pnpm-workspace.yaml.md");
-        fs::write(md_path, &content)
-            .with_context(|| "Failed to write pnpm-workspace.yaml.md")?;
-        println!(
-            "   {} pnpm-workspace.yaml exists → wrote pnpm-workspace.yaml.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        write_with_backup(path, &content)?;
-        if force {
-            println!("   {} pnpm-workspace.yaml (overwritten)", "✓".green());
-        }
+    // pnpm-workspace.yaml is Tool-owned — always overwrite from manifest.toml
+    write_with_backup(path, &content)?;
+    if path.exists() {
+        println!("   {} pnpm-workspace.yaml (synced from manifest.toml)", "✓".green());
     }
     Ok(())
 }
@@ -358,21 +352,22 @@ fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, force: 
         }
     }
 
-    if compose_exists && !force {
-        // Write to .md for comparison (safe default)
+    // If compose.override.yml exists, use safe mode (write .md for comparison)
+    // Otherwise, always overwrite compose.yml since it's fully generated from manifest.toml
+    let override_path = Path::new("compose.override.yml");
+    if compose_exists && !force && override_path.exists() {
+        // Migration period: override file still exists, be safe
         let md_path = Path::new("compose.yml.md");
         fs::write(md_path, &compose_content)
             .with_context(|| "Failed to write compose.yml.md")?;
         println!(
-            "   {} compose.yml exists → wrote compose.yml.md for comparison",
+            "   {} compose.yml exists with override → wrote compose.yml.md for comparison",
             "📄".yellow()
         );
     } else {
         fs::write(compose_path, &compose_content)
             .with_context(|| "Failed to write compose.yml")?;
-        if force {
-            println!("   {} compose.yml (overwritten)", "✓".green());
-        }
+        println!("   {} compose.yml (generated)", "✓".green());
     }
 
     Ok(())
@@ -639,46 +634,21 @@ fn generate_native_hooks() -> Result<()> {
 // Cargo.toml is the source of truth for Rust projects and should not be auto-generated
 // Use `airis bump-version` to sync versions between manifest.toml and Cargo.toml
 
-fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine, force: bool) -> Result<()> {
+fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
     // Create .github/workflows directory
     let workflows_dir = Path::new(".github/workflows");
     fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 
-    // Generate ci.yml
+    // ci.yml and release.yml are Tool-owned — always overwrite from manifest.toml
     let ci_path = workflows_dir.join("ci.yml");
     let ci_content = engine.render_ci_yml(manifest)?;
-    if ci_path.exists() && !force {
-        let md_path = workflows_dir.join("ci.yml.md");
-        fs::write(&md_path, &ci_content)
-            .with_context(|| "Failed to write ci.yml.md")?;
-        println!(
-            "   {} ci.yml exists → wrote ci.yml.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        write_with_backup(&ci_path, &ci_content)?;
-        if force {
-            println!("   {} .github/workflows/ci.yml (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(&ci_path, &ci_content)?;
+    println!("   {} .github/workflows/ci.yml (synced from manifest.toml)", "✓".green());
 
-    // Generate release.yml
     let release_path = workflows_dir.join("release.yml");
     let release_content = engine.render_release_yml(manifest)?;
-    if release_path.exists() && !force {
-        let md_path = workflows_dir.join("release.yml.md");
-        fs::write(&md_path, &release_content)
-            .with_context(|| "Failed to write release.yml.md")?;
-        println!(
-            "   {} release.yml exists → wrote release.yml.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        write_with_backup(&release_path, &release_content)?;
-        if force {
-            println!("   {} .github/workflows/release.yml (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(&release_path, &release_content)?;
+    println!("   {} .github/workflows/release.yml (synced from manifest.toml)", "✓".green());
 
     Ok(())
 }

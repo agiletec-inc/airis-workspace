@@ -188,9 +188,6 @@ enum Commands {
     /// Enter workspace shell (alias for 'run shell')
     Shell,
 
-    /// Run development servers (alias for 'run dev')
-    Dev,
-
     /// Run tests (alias for 'run test')
     Test {
         /// Check coverage threshold
@@ -200,9 +197,6 @@ enum Commands {
         #[arg(long, default_value = "80")]
         min_coverage: u8,
     },
-
-    /// Install dependencies (alias for 'run install')
-    Install,
 
     /// Build all apps (alias for 'run build')
     Build {
@@ -441,6 +435,8 @@ enum GuardsCommands {
         #[arg(long)]
         global: bool,
     },
+    /// Verify global guards are properly installed and active
+    Verify,
 }
 
 #[derive(Subcommand)]
@@ -655,6 +651,7 @@ fn main() -> Result<()> {
                     commands::guards::uninstall()?;
                 }
             }
+            GuardsCommands::Verify => commands::guards::verify_global()?,
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
@@ -696,7 +693,6 @@ fn main() -> Result<()> {
         Commands::Up => commands::run::run("up")?,
         Commands::Down => commands::run::run("down")?,
         Commands::Shell => commands::run::run("shell")?,
-        Commands::Dev => commands::run::run("dev")?,
         Commands::Test { coverage_check, min_coverage } => {
             if coverage_check {
                 commands::run::run_test_coverage(min_coverage)?;
@@ -704,7 +700,6 @@ fn main() -> Result<()> {
                 commands::run::run("test")?;
             }
         }
-        Commands::Install => commands::run::run("install")?,
         Commands::Build { project, affected, base, head, docker, channel, targets, parallel, image, push, context_out, no_cache, remote_cache, prod, quick } => {
             if affected && docker {
                 // Parallel build for affected projects
@@ -950,7 +945,7 @@ fn main() -> Result<()> {
         Commands::Lint => commands::run::run("lint")?,
         Commands::Format => commands::run::run("format")?,
         Commands::Typecheck => commands::run::run("typecheck")?,
-        Commands::Ps => commands::run::run("ps")?,
+        Commands::Ps => commands::run::run_ps()?,
         Commands::Logs { service, follow, tail } => {
             commands::run::run_logs(service.as_deref(), follow, tail)?
         }

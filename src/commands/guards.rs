@@ -365,18 +365,51 @@ pub fn install_global() -> Result<()> {
         println!("   {} {}", "✓".green(), format!("{} (global guard)", cmd).dimmed());
     }
 
+    // Auto-add PATH to shell profiles
+    let path_line = "export PATH=\"$HOME/.airis/bin:$PATH\"  # airis guards";
+    let mut path_added = false;
+
+    for rc_file in &[".zshrc", ".bashrc"] {
+        let home = dirs::home_dir().context("Failed to detect home directory")?;
+        let rc_path = home.join(rc_file);
+
+        if !rc_path.exists() {
+            continue;
+        }
+
+        let content = fs::read_to_string(&rc_path)
+            .with_context(|| format!("Failed to read ~/{}", rc_file))?;
+
+        if content.contains(".airis/bin") {
+            println!("   {} {}", "✓".green(), format!("~/{} already has PATH entry", rc_file).dimmed());
+            continue;
+        }
+
+        // Append PATH entry
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&rc_path)
+            .with_context(|| format!("Failed to open ~/{} for writing", rc_file))?;
+
+        use std::io::Write;
+        writeln!(file)?;
+        writeln!(file, "{}", path_line)?;
+
+        println!("   {} {}", "✓".green(), format!("Added PATH to ~/{}", rc_file).cyan());
+        path_added = true;
+    }
+
     println!();
     println!("{}", format!("✅ {} global guard(s) installed", installed_count).green());
     println!();
     println!("{}", "📁 Config:".bright_yellow());
     println!("   {}", config_path.display());
-    println!();
-    println!("{}", "🔧 To activate, add to your shell profile (~/.zshrc or ~/.bashrc):".bright_yellow());
-    println!();
-    println!("   {}", "export PATH=\"$HOME/.airis/bin:$PATH\"".cyan());
-    println!();
-    println!("{}", "Then reload your shell or run:".dimmed());
-    println!("   {}", "source ~/.zshrc".dimmed());
+
+    if path_added {
+        println!();
+        println!("{}", "🔧 Reload your shell to activate:".bright_yellow());
+        println!("   {}", "source ~/.zshrc".cyan());
+    }
 
     Ok(())
 }
@@ -385,50 +418,39 @@ fn install_global_guard(bin_dir: &Path, cmd: &str) -> Result<()> {
     let script_path = bin_dir.join(cmd);
 
     // Global guard script that:
-    // 1. Searches upward for manifest.toml
-    // 2. If found: execute the real command (allow)
-    // 3. If not found: block with error message
+    // 1. Inside Docker/CI: pass through to real command
+    // 2. On host: always block (Docker-First enforcement)
     let content = format!(
         r#"#!/usr/bin/env bash
 # {GLOBAL_GUARD_MARKER}
 # DO NOT EDIT - managed by airis global guards
 
-# Find manifest.toml by walking up directories
-find_manifest() {{
-    local dir="$PWD"
-    while [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/manifest.toml" ]]; then
-            echo "$dir"
-            return 0
-        fi
-        dir="$(dirname "$dir")"
-    done
-    return 1
-}}
-
-# Check if we're in an airis project
-if find_manifest > /dev/null 2>&1; then
-    # Inside airis project: find and execute the real command
-    # Remove ~/.airis/bin from PATH to find the real command
+# Docker container: allow
+if [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ -f /.dockerenv ]]; then
     REAL_CMD=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which {cmd} 2>/dev/null)
     if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
         exec "$REAL_CMD" "$@"
-    else
-        echo "❌ ERROR: '{cmd}' not found in PATH (excluding ~/.airis/bin)"
-        exit 127
     fi
+    exit 127
 fi
 
-# Outside airis project: block
-echo "❌ ERROR: '{cmd}' is blocked outside of airis projects."
+# CI environment: allow
+if [[ "${{CI:-}}" == "true" ]] || [[ -n "${{GITHUB_ACTIONS:-}}" ]] || [[ -n "${{GITLAB_CI:-}}" ]]; then
+    REAL_CMD=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which {cmd} 2>/dev/null)
+    if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
+        exec "$REAL_CMD" "$@"
+    fi
+    exit 127
+fi
+
+# Host: always block
+echo "❌ '{cmd}' is blocked on this machine (Docker-First)."
 echo ""
-echo "You are not in a directory with manifest.toml."
+echo "Use airis commands instead:"
+echo "  airis up      # Start all services (docker compose up + build)"
+echo "  airis shell   # Enter container shell"
 echo ""
-echo "Either:"
-echo "  1. Navigate to an airis project directory first"
-echo "  2. Or use 'airis shell' to enter a Docker container"
-echo ""
-echo "To manage global guards:"
+echo "To manage guards:"
 echo "  airis guards --global status     # Check status"
 echo "  airis guards --global uninstall  # Remove guards"
 exit 1
@@ -542,6 +564,86 @@ pub fn uninstall_global() -> Result<()> {
 
     println!();
     println!("{}", format!("✅ {} global guard(s) uninstalled", removed_count).green());
+
+    Ok(())
+}
+
+/// Verify global guards are properly installed and active
+pub fn verify_global() -> Result<()> {
+    let bin_dir = GlobalConfig::bin_dir()?;
+    let config = GlobalConfig::load()?;
+
+    println!("{}", "🔍 Guard Verification".bright_blue());
+    println!();
+
+    let mut all_ok = true;
+
+    // 1. Check ~/.airis/bin/ directory exists
+    if bin_dir.exists() {
+        println!("  {} ~/.airis/bin/ exists", "✓".green());
+    } else {
+        println!("  {} ~/.airis/bin/ does not exist", "✗".red());
+        all_ok = false;
+    }
+
+    // 2. Check each guard script exists and has correct marker
+    for cmd in &config.guards.deny {
+        let guard_path = bin_dir.join(cmd);
+        if guard_path.exists() {
+            if is_global_guard(&guard_path)? {
+                println!("  {} {} guard installed", "✓".green(), cmd);
+            } else {
+                println!("  {} {} exists but is NOT an airis guard", "✗".red(), cmd);
+                all_ok = false;
+            }
+        } else {
+            println!("  {} {} guard not installed", "✗".red(), cmd);
+            all_ok = false;
+        }
+    }
+
+    // 3. Check PATH contains ~/.airis/bin
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let bin_dir_str = bin_dir.to_string_lossy();
+    if path_var.contains(&*bin_dir_str) {
+        println!("  {} ~/.airis/bin is in PATH", "✓".green());
+    } else {
+        println!("  {} ~/.airis/bin is NOT in PATH", "✗".red());
+        all_ok = false;
+    }
+
+    // 4. Check which <cmd> points to guard script
+    for cmd in &config.guards.deny {
+        let output = std::process::Command::new("which")
+            .arg(cmd)
+            .output();
+
+        match output {
+            Ok(out) if out.status.success() => {
+                let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if resolved.contains(".airis/bin") {
+                    println!("  {} which {} → {} (guarded)", "✓".green(), cmd, resolved.dimmed());
+                } else {
+                    println!("  {} which {} → {} (NOT guarded)", "✗".red(), cmd, resolved.yellow());
+                    all_ok = false;
+                }
+            }
+            _ => {
+                println!("  {} which {} → not found", "?".yellow(), cmd);
+            }
+        }
+    }
+
+    println!();
+    if all_ok {
+        println!("{}", "✅ All guards are active!".green().bold());
+    } else {
+        println!("{}", "⚠️  Some guards are not properly configured.".yellow());
+        println!();
+        println!("Run to fix:");
+        println!("  {}", "airis guards --global install".cyan());
+        println!("  {}", "source ~/.zshrc".cyan());
+    }
 
     Ok(())
 }
