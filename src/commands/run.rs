@@ -1176,15 +1176,13 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
 
     if is_rust_project {
         // Rust project: use cargo commands (no docker compose required)
-        cmds.insert("install".to_string(), "cargo install --path .".to_string());
         cmds.insert("build".to_string(), "cargo build --release".to_string());
         cmds.insert("test".to_string(), "cargo test".to_string());
         cmds.insert("lint".to_string(), "cargo clippy".to_string());
         cmds.insert("format".to_string(), "cargo fmt".to_string());
-        cmds.insert("dev".to_string(), "cargo watch -x run".to_string());
     } else {
         // Docker/Node project: docker compose commands required
-        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d --build")?);
+        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d --build --remove-orphans")?);
         cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
         cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
         cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
@@ -1208,41 +1206,21 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
 /// Check if orchestration is configured in manifest
 fn has_orchestration(manifest: &Manifest) -> bool {
     let dev = &manifest.dev;
-    // Check for any orchestration config (supabase, traefik, or non-default apps_pattern)
-    dev.supabase.is_some()
-        || dev.traefik.is_some()
-        || !dev.apps_pattern.is_empty()
+    if dev.supabase.is_some() || dev.traefik.is_some() {
+        return true;
+    }
+    // Only count apps_pattern as orchestration if it matches actual files
+    if !dev.apps_pattern.is_empty() {
+        if let Ok(mut entries) = glob(&dev.apps_pattern) {
+            return entries.next().is_some();
+        }
+    }
+    false
 }
 
 /// Execute a command defined in manifest.toml [commands] section
 pub fn run(task: &str) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
-
-    // Deprecate "dev" and "install" for Docker/Node projects → redirect to "up"
-    let task = if manifest_path.exists() && matches!(task, "dev" | "install") {
-        if let Ok(manifest) = Manifest::load(manifest_path) {
-            let is_rust = !manifest.project.rust_edition.is_empty()
-                || !manifest.project.binary_name.is_empty();
-            let has_custom_command = manifest.commands.contains_key(task);
-            if !is_rust && !has_custom_command {
-                eprintln!(
-                    "{}",
-                    format!(
-                        "⚠️  `airis {}` is deprecated. Use `airis up` instead.",
-                        task
-                    )
-                    .yellow()
-                );
-                "up"
-            } else {
-                task
-            }
-        } else {
-            task
-        }
-    } else {
-        task
-    };
 
     // Allow up/down without manifest.toml if compose file exists
     if !manifest_path.exists() {
@@ -1290,7 +1268,8 @@ pub fn run(task: &str) -> Result<()> {
         .with_context(|| "Failed to load manifest.toml")?;
 
     // Special handling for up/down with orchestration
-    if has_orchestration(&manifest) {
+    // User-defined [commands] override always takes priority over orchestration
+    if !manifest.commands.contains_key(task) && has_orchestration(&manifest) {
         match task {
             "up" => return orchestrated_up(&manifest),
             "down" => return orchestrated_down(&manifest),

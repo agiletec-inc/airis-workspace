@@ -10,8 +10,123 @@ on:
   workflow_dispatch:
 
 jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            os: macos
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            os: macos
+            archive: tar.gz
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            os: linux
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            os: linux
+            cross: true
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            os: windows
+            archive: zip
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from Cargo.toml
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Version from Cargo.toml: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        id: check_tag
+        if: matrix.target == 'aarch64-apple-darwin'
+        shell: bash
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v${{ steps.version.outputs.version }} already exists, skipping"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Will create release v${{ steps.version.outputs.version }}"
+          fi
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux aarch64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Build release binary
+        shell: bash
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Strip binary (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
+        run: |
+          BINARY="target/${{ matrix.target }}/release/airis"
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            aarch64-linux-gnu-strip "$BINARY"
+          else
+            strip "$BINARY"
+          fi
+
+      - name: Create archive (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          ARCHIVE="airis-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz"
+          tar -czf "$ARCHIVE" -C "target/${{ matrix.target }}/release" airis
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Create archive (zip)
+        if: matrix.archive == 'zip'
+        shell: bash
+        run: |
+          ARCHIVE="airis-${{ steps.version.outputs.version }}-${{ matrix.target }}.zip"
+          cd "target/${{ matrix.target }}/release"
+          7z a "../../../$ARCHIVE" airis.exe
+          cd ../../..
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: airis-${{ matrix.target }}
+          path: ${{ env.ARCHIVE }}
+          if-no-files-found: error
+
   release:
-    runs-on: macos-latest
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
@@ -20,78 +135,58 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-
       - name: Read version from Cargo.toml
         id: version
         run: |
-          # Read version from Cargo.toml (source of truth)
           VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "📦 Version from Cargo.toml: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Check if already released
+      - name: Check if tag already exists
         id: check_tag
         run: |
-          if git rev-parse "v${{steps.version.outputs.version}}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "⚠️  Tag v${{steps.version.outputs.version}} already exists, skipping"
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "✅ Will create release v${{steps.version.outputs.version}}"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Detect architecture
+      - name: Download all artifacts
         if: steps.check_tag.outputs.exists == 'false'
-        id: arch
-        run: |
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then
-            echo "arch=aarch64-apple-darwin" >> $GITHUB_OUTPUT
-          else
-            echo "arch=x86_64-apple-darwin" >> $GITHUB_OUTPUT
-          fi
-          echo "📦 Architecture: $ARCH"
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
 
-      - name: Create version tag for release build
+      - name: Generate SHA256 checksums
+        if: steps.check_tag.outputs.exists == 'false'
+        working-directory: artifacts
+        run: |
+          sha256sum airis-* > ../SHA256SUMS.txt
+          cat ../SHA256SUMS.txt
+
+      - name: Create version tag
         if: steps.check_tag.outputs.exists == 'false'
         run: |
-          VERSION=${{steps.version.outputs.version}}
+          VERSION=${{ steps.version.outputs.version }}
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git tag "v${VERSION}"
           git push origin "v${VERSION}"
-          echo "✅ Created and pushed tag v${VERSION}"
-
-      - name: Build release binary
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          cargo build --release
-          strip target/release/airis
-          tar -czf airis-${{steps.version.outputs.version}}-${{steps.arch.outputs.arch}}.tar.gz -C target/release airis
-
-      - name: Calculate SHA256
-        if: steps.check_tag.outputs.exists == 'false'
-        id: sha256
-        run: |
-          SHA256=$(shasum -a 256 airis-${{steps.version.outputs.version}}-${{steps.arch.outputs.arch}}.tar.gz | awk '{print $1}')
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "🔐 SHA256: $SHA256"
 
       - name: Create GitHub Release
         if: steps.check_tag.outputs.exists == 'false'
         env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=${{steps.version.outputs.version}}
-          ARCH=${{steps.arch.outputs.arch}}
-
-          echo "🚀 Creating GitHub Release v${VERSION}..."
-
+          VERSION=${{ steps.version.outputs.version }}
           gh release create "v${VERSION}" \
             --title "Release v${VERSION}" \
             --generate-notes \
-            "airis-${VERSION}-${ARCH}.tar.gz"
+            artifacts/airis-* \
+            SHA256SUMS.txt
 
-          echo "✅ Release v${VERSION} created successfully!"
+      - name: Publish to crates.io
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify
