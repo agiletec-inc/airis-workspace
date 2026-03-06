@@ -1,0 +1,203 @@
+# airis Commands Reference
+
+Guide for using the `airis` CLI to safely work within Docker workspaces across your monorepo.
+
+- **CLI Tool**: [airis-monorepo](https://github.com/agiletec-inc/airis-monorepo)
+- **Config File**: `manifest.toml` (single source of truth)
+- **Parser**: Rust TOML parser reads `manifest.toml` directly
+
+---
+
+## Core Principles
+
+1. **Docker-First** -- `airis` always routes commands through `docker compose` / workspace containers. Never run `pnpm install` or `docker compose up` directly on the host.
+
+2. **Single Entry Point** -- `airis up` -> `airis install` -> `airis shell` is the standard workflow. If you need `pnpm` directly, use it inside `airis shell`.
+
+3. **Built-in Guards** -- Running `pnpm` / `npm` / `yarn` on the host triggers an error via `airis guards`. Always use `airis` commands.
+
+4. **Manifest = manifest.toml** -- `packages.workspaces`, `apps.*`, `libs.*`, and `dev.autostart` define all app configuration, startup order, and infrastructure layout.
+
+5. **Auto-generation** -- `pnpm-workspace.yaml`, `package.json`, GitHub workflows, etc. are all generated from `manifest.toml`. Manual editing is unnecessary (backups in `.airis/backups/`).
+
+---
+
+## Setup & Startup
+
+```bash
+airis init                    # Auto-discover existing projects + preview (dry-run)
+airis init --write            # Execute discovery and create manifest.toml
+airis init --skip-discovery   # Create from empty template (legacy mode)
+airis generate files          # Regenerate workspace files from manifest.toml
+airis up                      # Start Docker services
+airis down                    # Stop Docker services
+airis install                 # Run pnpm install inside workspace container
+airis shell                   # Enter workspace shell (/app)
+```
+
+### How `airis init` works (v1.43+)
+
+1. **Discovery Phase**: Scans `apps/`, `libs/` and detects Next.js/Vite/Hono/Rust/Python
+2. **Compose Detection**: Locates docker-compose.yml files (root, workspace/, supabase/, traefik/)
+3. **Catalog Extraction**: Extracts catalog from package.json devDependencies
+4. **Migration Plan**: Previews all changes
+5. **Execute (`--write`)**: Generates manifest.toml, moves files as needed
+
+---
+
+## Development
+
+```bash
+airis dev                     # Start dev servers (from dev.autostart)
+airis build                   # Build all apps
+airis test                    # Run tests
+airis lint                    # Run linting
+airis format                  # Run code formatting
+airis typecheck               # Run type checking
+```
+
+---
+
+## Monitoring
+
+```bash
+airis ps                      # List containers
+airis logs                    # Tail all service logs
+airis logs <app>              # Tail specific app logs
+```
+
+---
+
+## Utilities
+
+```bash
+airis clean                   # Remove build artifacts
+airis validate                # Validate configuration
+airis doctor                  # Diagnose workspace issues
+airis doctor --fix            # Auto-repair issues
+airis verify                  # Run system health checks
+airis diff                    # Preview manifest vs generated changes
+airis deps tree               # Visualize dependency graph
+```
+
+---
+
+## Custom Commands
+
+Define commands in `manifest.toml`:
+
+```toml
+[commands]
+up = "docker compose up -d"
+dev = "docker compose exec workspace pnpm dev"
+build = "docker compose exec workspace pnpm build"
+migrate = "docker compose exec workspace pnpm prisma migrate deploy"
+```
+
+Run with `airis run <command>` or use built-in aliases (`airis up`, `airis build`, etc.).
+
+---
+
+## Guards
+
+```toml
+[guards]
+deny = ["npm", "yarn", "pnpm", "bun"]
+deny_with_message = { "docker" = "Use 'airis' commands instead" }
+```
+
+Install guards globally:
+
+```bash
+airis guards install          # Install shell guards (~/.airis/bin)
+```
+
+This creates shims that intercept `npm`, `pnpm`, `yarn`, etc. and block them outside airis projects.
+
+---
+
+## Version Catalog
+
+```toml
+[packages.catalog]
+next = "latest"
+react = "latest"
+typescript = "latest"
+
+[packages.catalog.react-dom]
+follow = "react"
+```
+
+Centralize dependency versions across all apps. Versions are resolved from the npm registry and written to `pnpm-workspace.yaml`.
+
+---
+
+## Usage Example
+
+```bash
+# 1. Initial setup
+airis init --write
+
+# 2. Start Docker stack
+airis up
+
+# 3. Install dependencies
+airis install
+
+# 4. Work in the container
+airis shell
+pnpm lint
+pnpm test
+
+# 5. Shut down
+airis down
+```
+
+---
+
+## Troubleshooting
+
+### Containers won't start
+
+```bash
+airis doctor --fix            # Auto-repair
+airis network setup           # Rebuild networks
+```
+
+### Dependency issues
+
+```bash
+airis clean
+airis install
+```
+
+### Changes to manifest.toml not reflected
+
+```bash
+airis generate files          # Regenerate workspace files
+```
+
+---
+
+## Best Practices
+
+**Do:**
+- Run `airis` from the repository root
+- Use `airis shell` to access `pnpm` directly
+- Add new apps/config to `manifest.toml`, then run `airis generate files`
+- Run `airis clean` periodically to remove build artifacts
+
+**Don't:**
+- Run `pnpm install` on the host (guards will block it)
+- Run `docker compose up` directly
+- Commit `.env` or `node_modules`
+- Manually edit `package.json` or `pnpm-workspace.yaml` (they are auto-generated)
+
+---
+
+## References
+
+- [manifest.toml Reference](CONFIG.md)
+- [Init Architecture](airis-init-architecture.md)
+- [pnpm Catalog](https://pnpm.io/catalogs)
+- [Docker Compose Spec](https://docs.docker.com/compose/compose-file/)
