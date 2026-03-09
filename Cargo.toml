@@ -15,7 +15,7 @@ categories = ["command-line-utilities", "development-tools"]
 
 readme = "README.md"
 include = [
-    "/src/**/*",
+    "/src/**/*.rs",
     "/examples/**/*",
     "/hooks/**/*",
     "/templates/**/*",
@@ -27,6 +27,7 @@ include = [
     "/CHANGELOG.md",
     "/CONTRIBUTING.md",
 ]
+exclude = [".DS_Store"]
 
 [[bin]]
 name = "airis"
