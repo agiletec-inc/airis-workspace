@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/agiletec-inc/airis-monorepo/actions/workflows/ci.yml/badge.svg)](https://github.com/agiletec-inc/airis-monorepo/actions/workflows/ci.yml)
 
+![airis demo](assets/airis-demo.gif)
+
 **Stop AI coding agents from polluting your host environment.**
 
 Claude Code ran `pnpm install` on your host? Never again.
