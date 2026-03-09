@@ -167,6 +167,40 @@ Real versions are resolved from the npm registry and written to `pnpm-workspace.
 
 ---
 
+## Design Philosophy
+
+**airis is a convenience layer, not a dependency.**
+
+### manifest.toml is optional
+
+Each app is self-contained. Remove airis and everything still works — you just run
+`docker compose up` and the correct commands manually. manifest.toml adds convenience
+(single source of truth, auto-generation), not a hard requirement.
+
+### Project-agnostic by design
+
+airis wraps whatever commands YOU define in `manifest.toml [commands]`. It makes no
+assumptions about your stack:
+
+- **Env management**: Doppler, `.env`, GitHub Secrets, Docker Secrets, Infisical
+- **Deploy target**: Vercel, Railway, Fly.io, Coolify, bare metal
+- **Build tools**: Turborepo, NX, Bazel, plain scripts
+- **Runtime**: Node.js, Bun, Deno, Rust, Python
+
+Different projects need different commands. airis just runs them inside Docker.
+
+### Standard tools only, zero lock-in
+
+No custom framework. No proprietary runtime. Just pnpm, Docker Compose, and
+Handlebars templates — industry standard tools that any engineer can read.
+
+### Local dev only
+
+`airis up` is for local development with hot-reload, always. Production deploys
+through CI/CD pipelines (GitOps). There is no dev/staging/production mode switching.
+
+---
+
 ## Commands
 
 ### Workspace Management
