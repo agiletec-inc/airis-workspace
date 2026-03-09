@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
@@ -93,6 +93,8 @@ impl Manifest {
         let manifest: Manifest =
             toml::from_str(&content).with_context(|| "Failed to parse manifest.toml")?;
 
+        manifest.validate()?;
+
         Ok(manifest)
     }
 
@@ -102,6 +104,59 @@ impl Manifest {
 
         fs::write(path.as_ref(), content)
             .with_context(|| format!("Failed to write {:?}", path.as_ref()))?;
+
+        Ok(())
+    }
+
+    /// Validate manifest consistency.
+    ///
+    /// Checks:
+    /// 1. No duplicate ports across service entries
+    /// 2. Catalog follow references point to existing catalog keys
+    /// 3. No command appears in both guards.deny and guards.wrap
+    pub fn validate(&self) -> Result<()> {
+        let mut errors: Vec<String> = Vec::new();
+
+        // 1. Check for duplicate ports in service entries
+        {
+            let mut seen: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
+            for (name, svc) in &self.service {
+                if let Some(port) = svc.port {
+                    if let Some(prev) = seen.get(&port) {
+                        errors.push(format!(
+                            "Duplicate port {port}: services \"{prev}\" and \"{name}\" both bind to port {port}"
+                        ));
+                    } else {
+                        seen.insert(port, name.clone());
+                    }
+                }
+            }
+        }
+
+        // 2. Validate catalog follow references
+        for (key, entry) in &self.packages.catalog {
+            if let CatalogEntry::Follow(f) = entry {
+                if !self.packages.catalog.contains_key(&f.follow) {
+                    errors.push(format!(
+                        "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog",
+                        f.follow
+                    ));
+                }
+            }
+        }
+
+        // 3. Check for commands in both guards.deny and guards.wrap
+        for cmd in &self.guards.deny {
+            if self.guards.wrap.contains_key(cmd) {
+                errors.push(format!(
+                    "Guard conflict: \"{cmd}\" appears in both guards.deny and guards.wrap"
+                ));
+            }
+        }
+
+        if !errors.is_empty() {
+            bail!("Manifest validation failed:\n{}", errors.join("\n"));
+        }
 
         Ok(())
     }
@@ -1220,5 +1275,178 @@ impl GlobalConfig {
             .with_context(|| format!("Failed to write {:?}", config_path))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Helper: create a minimal valid manifest TOML string
+    fn minimal_manifest() -> String {
+        r#"
+version = 1
+"#
+        .to_string()
+    }
+
+    /// Helper: write a manifest string to a temp file and load it
+    fn load_from_str(content: &str) -> Result<Manifest> {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(content.as_bytes()).unwrap();
+        Manifest::load(tmp.path())
+    }
+
+    #[test]
+    fn test_validate_passes_for_minimal_manifest() {
+        let manifest = load_from_str(&minimal_manifest());
+        assert!(manifest.is_ok());
+    }
+
+    #[test]
+    fn test_validate_duplicate_ports() {
+        let toml = r#"
+version = 1
+
+[service.redis]
+image = "redis:7"
+port = 6379
+
+[service.cache]
+image = "redis:7"
+port = 6379
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Duplicate port 6379"), "got: {msg}");
+        assert!(msg.contains("redis"), "got: {msg}");
+        assert!(msg.contains("cache"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_no_duplicate_when_ports_differ() {
+        let toml = r#"
+version = 1
+
+[service.redis]
+image = "redis:7"
+port = 6379
+
+[service.postgres]
+image = "postgres:16"
+port = 5432
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_skip_none_ports() {
+        let toml = r#"
+version = 1
+
+[service.redis]
+image = "redis:7"
+
+[service.cache]
+image = "redis:7"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_catalog_follow_missing_reference() {
+        let toml = r#"
+version = 1
+
+[packages.catalog]
+react = "latest"
+
+[packages.catalog.react-dom]
+follow = "nonexistent"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("react-dom") && msg.contains("nonexistent"),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_catalog_follow_valid_reference() {
+        let toml = r#"
+version = 1
+
+[packages.catalog]
+react = "latest"
+
+[packages.catalog.react-dom]
+follow = "react"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_guard_deny_wrap_conflict() {
+        let toml = r#"
+version = 1
+
+[guards]
+deny = ["pnpm"]
+
+[guards.wrap]
+pnpm = "docker compose exec workspace pnpm"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("pnpm") && msg.contains("guards.deny") && msg.contains("guards.wrap"),
+            "got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_guard_no_conflict() {
+        let toml = r#"
+version = 1
+
+[guards]
+deny = ["npm", "yarn"]
+
+[guards.wrap]
+pnpm = "docker compose exec workspace pnpm"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_multiple_errors_collected() {
+        let toml = r#"
+version = 1
+
+[service.a]
+image = "redis:7"
+port = 6379
+
+[service.b]
+image = "redis:7"
+port = 6379
+
+[packages.catalog.react-dom]
+follow = "missing"
+
+[guards]
+deny = ["pnpm"]
+
+[guards.wrap]
+pnpm = "docker compose exec workspace pnpm"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        // All three errors should be present
+        assert!(msg.contains("Duplicate port"), "got: {msg}");
+        assert!(msg.contains("missing"), "got: {msg}");
+        assert!(msg.contains("Guard conflict"), "got: {msg}");
     }
 }
