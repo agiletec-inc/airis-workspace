@@ -2,10 +2,10 @@
 # DO NOT EDIT - change manifest.toml instead.
 
 [package]
-name = "airis"
-version = "1.78.0"
+name = "airis-monorepo"
+version = "1.81.0"
 edition = "2024"
-authors = ["Agile Technology <hello@agiletec.jp>"]
+authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
 homepage = "https://github.com/agiletec-inc/airis-monorepo"
 repository = "https://github.com/agiletec-inc/airis-monorepo"

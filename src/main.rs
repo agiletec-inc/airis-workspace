@@ -87,7 +87,37 @@ fn convert_package_to_path(package_name: &str) -> String {
 
 #[derive(Parser)]
 #[command(name = "airis")]
-#[command(about = "Docker-first monorepo workspace manager", long_about = None)]
+#[command(about = "Docker-first monorepo workspace manager")]
+#[command(long_about = "\
+Docker-first monorepo workspace manager.
+
+airis generates package.json, docker-compose.yml, pnpm-workspace.yaml, and CI \
+workflows from a single manifest.toml. It guards your host from AI agents running \
+package managers directly.
+
+DESIGN: airis is project-agnostic. It wraps whatever commands YOU define in \
+manifest.toml [commands]. Environment management (Doppler, .env, Infisical), \
+deploy targets (Vercel, Railway, Fly.io), and build tools (Turborepo, NX) are \
+all your choice — airis doesn't impose any of them.
+
+IMPORTANT: manifest.toml is optional. Without it, each app works standalone \
+with `docker compose up`. airis adds convenience, not dependency.")]
+#[command(after_help = "\
+QUICK REFERENCE:
+  airis init --write        Create manifest.toml from project discovery
+  airis generate files      Regenerate all config files from manifest.toml
+  airis up                  Start Docker services (local dev only)
+  airis guards install      Block npm/yarn/pnpm on host
+
+CONFIG: All commands are defined in manifest.toml [commands] section.
+  airis run <task>          Execute any command from [commands]
+  airis up/down/shell/...   Built-in aliases for common [commands] entries
+
+MANIFEST SECTIONS:
+  [commands]    Command definitions (what 'airis run <task>' executes)
+  [guards]      Host command blocking (deny, wrap, forbid)
+  [remap]       Auto-translate blocked commands to safe alternatives
+  [packages]    Dependency catalog and workspace config")]
 struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
@@ -99,7 +129,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize MANIFEST.toml + workspace metadata
+    /// Initialize workspace by discovering projects and creating manifest.toml.
+    ///
+    /// Scans apps/, libs/ for projects, detects frameworks (Next.js, Vite,
+    /// Hono, Rust, Python), and generates manifest.toml as single source of truth.
+    /// Default is dry-run (preview only). Use --write to execute.
+    /// NEVER overwrites existing manifest.toml.
     Init {
         /// Force snapshot capture (default: auto on first run)
         #[arg(long)]
@@ -160,7 +195,12 @@ enum Commands {
     /// Run system health checks
     Verify,
 
-    /// Diagnose and heal workspace configuration issues
+    /// Diagnose workspace configuration and show actionable fixes.
+    ///
+    /// Checks: manifest.toml validity, Docker status, generated file sync,
+    /// guard installation, environment variables.
+    /// Use --truth for LLM-consumable workspace info (root, compose files,
+    /// recommended commands).
     Doctor {
         /// Automatically fix detected issues
         #[arg(long)]
@@ -173,19 +213,36 @@ enum Commands {
         truth_json: bool,
     },
 
-    /// Run a command defined in manifest.toml [commands]
+    /// Execute a command defined in manifest.toml [commands] section.
+    ///
+    /// Commands are shell strings defined in manifest.toml. airis does not
+    /// interpret arguments — the entire command string is executed as-is.
+    /// To change what a command does, edit manifest.toml [commands].
     Run {
-        /// Task name from [commands] section
+        /// Task name from manifest.toml [commands] section (e.g., up, down, shell, build, test)
         task: String,
+        /// Extra arguments passed after `--` (forwarded to the underlying command)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
     },
 
-    /// Start Docker services (alias for 'run up')
+    /// Start Docker services (alias for 'airis run up').
+    ///
+    /// Executes the 'up' command from manifest.toml [commands].
+    /// This is local development only — production deploys via GitOps.
+    /// If [orchestration.dev] is configured, starts services in order:
+    /// Supabase -> Traefik -> Workspace -> Apps.
     Up,
 
-    /// Stop Docker services (alias for 'run down')
+    /// Stop Docker services (alias for 'airis run down').
+    ///
+    /// Executes the 'down' command from manifest.toml [commands].
     Down,
 
-    /// Enter workspace shell (alias for 'run shell')
+    /// Enter workspace container shell (alias for 'airis run shell').
+    ///
+    /// Executes the 'shell' command from manifest.toml [commands].
+    /// Inside the container, you can run package manager commands directly.
     Shell,
 
     /// Run tests (alias for 'run test')
@@ -196,9 +253,16 @@ enum Commands {
         /// Minimum coverage percentage (default: 80)
         #[arg(long, default_value = "80")]
         min_coverage: u8,
+        /// Extra arguments passed after `--` (forwarded to the underlying command)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
     },
 
-    /// Build all apps (alias for 'run build')
+    /// Build projects (alias for 'airis run build', or Docker hermetic build with --docker).
+    ///
+    /// Without --docker: executes 'build' from manifest.toml [commands].
+    /// With --docker: generates Dockerfile and builds container image.
+    /// With --affected: only builds projects changed since --base.
     Build {
         /// Target project path (e.g., apps/web)
         project: Option<String>,
@@ -267,13 +331,25 @@ enum Commands {
     },
 
     /// Run linting (alias for 'run lint')
-    Lint,
+    Lint {
+        /// Extra arguments passed after `--` (forwarded to the underlying command)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Run code formatting (alias for 'run format')
-    Format,
+    Format {
+        /// Extra arguments passed after `--` (forwarded to the underlying command)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Run type checking (alias for 'run typecheck')
-    Typecheck,
+    Typecheck {
+        /// Extra arguments passed after `--` (forwarded to the underlying command)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Show Docker container status
     Ps,
@@ -414,7 +490,12 @@ enum DepsCommands {
 
 #[derive(Subcommand)]
 enum GuardsCommands {
-    /// Install command guards (.airis/bin/* or ~/.airis/bin/ for global)
+    /// Install command guards that block package managers on host.
+    ///
+    /// Creates shell scripts in .airis/bin/ (or ~/.airis/bin/ with --global)
+    /// that intercept denied commands. When a blocked command runs, it shows
+    /// an error with the correct airis alternative.
+    /// Guard rules come from manifest.toml [guards] section.
     Install {
         /// Install global guards (~/.airis/bin/) that block commands outside airis projects
         #[arg(long)]
@@ -487,14 +568,17 @@ enum ManifestCommands {
         name: String,
     },
 
-    /// Output workspace truth as JSON (for LLM consumption)
+    /// Output workspace configuration as JSON for LLM/automation consumption.
+    ///
+    /// Includes: workspace_root, compose_files, compose_command, service,
+    /// workdir, package_manager, recommended_commands.
     #[command(name = "json")]
     Json,
 }
 
 #[derive(Subcommand)]
 enum ValidateCommands {
-    /// Validate manifest.toml syntax, app paths, port conflicts, required env vars
+    /// Validate manifest.toml: syntax, port conflicts, catalog references, guard consistency.
     Manifest,
     /// Check for ports: mapping in docker-compose files
     Ports,
@@ -514,7 +598,12 @@ enum ValidateCommands {
 
 #[derive(Subcommand)]
 enum GenerateCommands {
-    /// Regenerate workspace files from manifest.toml (package.json, docker-compose.yml, etc.)
+    /// Regenerate workspace files from manifest.toml.
+    ///
+    /// Generates: package.json, pnpm-workspace.yaml, docker-compose.yml,
+    /// Dockerfile.dev, CI workflows. All generated files include DO NOT EDIT
+    /// markers. Safe to run repeatedly — always produces the same output
+    /// from the same manifest.toml.
     Files {
         /// Preview what would be generated (dry-run)
         #[arg(long)]
@@ -689,15 +778,15 @@ fn main() -> Result<()> {
                 commands::doctor::run(fix)?;
             }
         }
-        Commands::Run { task } => commands::run::run(&task)?,
-        Commands::Up => commands::run::run("up")?,
-        Commands::Down => commands::run::run("down")?,
-        Commands::Shell => commands::run::run("shell")?,
-        Commands::Test { coverage_check, min_coverage } => {
+        Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
+        Commands::Up => commands::run::run("up", &[])?,
+        Commands::Down => commands::run::run("down", &[])?,
+        Commands::Shell => commands::run::run("shell", &[])?,
+        Commands::Test { coverage_check, min_coverage, extra_args } => {
             if coverage_check {
                 commands::run::run_test_coverage(min_coverage)?;
             } else {
-                commands::run::run("test")?;
+                commands::run::run("test", &extra_args)?;
             }
         }
         Commands::Build { project, affected, base, head, docker, channel, targets, parallel, image, push, context_out, no_cache, remote_cache, prod, quick } => {
@@ -935,16 +1024,16 @@ fn main() -> Result<()> {
                 })?;
                 commands::run::run_build_quick(app_name)?;
             } else {
-                commands::run::run("build")?;
+                commands::run::run("build", &[])?;
             }
         }
         Commands::Clean { dry_run } => commands::clean::run(dry_run)?,
         Commands::Bundle { project, output, k8s } => {
             commands::bundle::run(&project, output.as_deref(), k8s)?;
         }
-        Commands::Lint => commands::run::run("lint")?,
-        Commands::Format => commands::run::run("format")?,
-        Commands::Typecheck => commands::run::run("typecheck")?,
+        Commands::Lint { extra_args } => commands::run::run("lint", &extra_args)?,
+        Commands::Format { extra_args } => commands::run::run("format", &extra_args)?,
+        Commands::Typecheck { extra_args } => commands::run::run("typecheck", &extra_args)?,
         Commands::Ps => commands::run::run_ps()?,
         Commands::Logs { service, follow, tail } => {
             commands::run::run_logs(service.as_deref(), follow, tail)?

@@ -1219,7 +1219,7 @@ fn has_orchestration(manifest: &Manifest) -> bool {
 }
 
 /// Execute a command defined in manifest.toml [commands] section
-pub fn run(task: &str) -> Result<()> {
+pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
 
     // Allow up/down without manifest.toml if compose file exists
@@ -1303,20 +1303,27 @@ pub fn run(task: &str) -> Result<()> {
         ensure_env_file();
     }
 
-    println!("🚀 Running: {}", cmd.cyan());
+    // Append extra arguments if provided
+    let full_cmd = if extra_args.is_empty() {
+        cmd.to_string()
+    } else {
+        format!("{} {}", cmd, extra_args.join(" "))
+    };
+
+    println!("🚀 Running: {}", full_cmd.cyan());
 
     // Execute command
     let status = if cfg!(target_os = "windows") {
         Command::new("cmd")
-            .args(["/C", cmd])
+            .args(["/C", &full_cmd])
             .status()
     } else {
         Command::new("sh")
             .arg("-c")
-            .arg(cmd)
+            .arg(&full_cmd)
             .status()
     }
-    .with_context(|| format!("Failed to execute: {}", cmd))?;
+    .with_context(|| format!("Failed to execute: {}", full_cmd))?;
 
     if !status.success() {
         bail!("Command failed with exit code: {:?}", status.code());
@@ -1769,7 +1776,7 @@ mod tests {
         std::env::set_current_dir(&dir).unwrap();
 
         let result = std::panic::catch_unwind(|| {
-            let result = run("test");
+            let result = run("test", &[]);
             assert!(result.is_err());
             assert!(result
                 .unwrap_err()
