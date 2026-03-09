@@ -1220,6 +1220,24 @@ fn has_orchestration(manifest: &Manifest) -> bool {
 
 /// Execute a command defined in manifest.toml [commands] section
 pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
+    // Block shell metacharacters in extra_args to prevent host command injection
+    for arg in extra_args {
+        if arg.contains(';')
+            || arg.contains("&&")
+            || arg.contains("||")
+            || arg.contains('|')
+            || arg.contains('`')
+            || arg.contains("$(")
+        {
+            bail!(
+                "❌ Shell metacharacters are not allowed in extra arguments: {}\n\
+                 This restriction prevents host command injection.\n\
+                 If you need complex commands, define them in manifest.toml [commands].",
+                arg.bold()
+            );
+        }
+    }
+
     let manifest_path = Path::new("manifest.toml");
 
     // Allow up/down without manifest.toml if compose file exists
@@ -1303,7 +1321,7 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         ensure_env_file();
     }
 
-    // Append extra arguments if provided
+    // Append extra arguments if provided (metacharacter check already done above)
     let full_cmd = if extra_args.is_empty() {
         cmd.to_string()
     } else {
@@ -2448,5 +2466,117 @@ post_up = [
             manifest.dev.post_up[1],
             "docker compose exec workspace pnpm db:seed"
         );
+    }
+
+    #[test]
+    fn test_extra_args_blocks_shell_injection_semicolon() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        // Create a minimal manifest.toml
+        std::fs::write(
+            "manifest.toml",
+            r#"
+version = 1
+[workspace]
+name = "test"
+package_manager = "pnpm"
+service = "workspace"
+image = "node:22"
+[commands]
+test = "echo safe"
+"#,
+        )
+        .unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            let result = run("test", &["; rm -rf /".to_string()]);
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("Shell metacharacters"),
+                "Expected shell metacharacter error, got: {}",
+                err
+            );
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_extra_args_blocks_shell_injection_pipe() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        std::fs::write(
+            "manifest.toml",
+            r#"
+version = 1
+[workspace]
+name = "test"
+package_manager = "pnpm"
+service = "workspace"
+image = "node:22"
+[commands]
+test = "echo safe"
+"#,
+        )
+        .unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            let result = run("test", &["| cat /etc/passwd".to_string()]);
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("Shell metacharacters"),
+                "Expected shell metacharacter error, got: {}",
+                err
+            );
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
+    }
+
+    #[test]
+    fn test_extra_args_blocks_command_substitution() {
+        let _guard = DIR_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&dir).unwrap();
+
+        std::fs::write(
+            "manifest.toml",
+            r#"
+version = 1
+[workspace]
+name = "test"
+package_manager = "pnpm"
+service = "workspace"
+image = "node:22"
+[commands]
+test = "echo safe"
+"#,
+        )
+        .unwrap();
+
+        let result = std::panic::catch_unwind(|| {
+            let result = run("test", &["$(whoami)".to_string()]);
+            assert!(result.is_err());
+            let err = result.unwrap_err().to_string();
+            assert!(
+                err.contains("Shell metacharacters"),
+                "Expected shell metacharacter error, got: {}",
+                err
+            );
+        });
+
+        std::env::set_current_dir(original_dir).unwrap();
+        result.unwrap();
     }
 }
