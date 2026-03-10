@@ -16,6 +16,7 @@
   },
   "name": "@workspace/corporate-site",
   "private": true,
+  "packageManager": "pnpm@10.22.0",
   "scripts": {
     "build": "vite build",
     "dev": "vite dev",
