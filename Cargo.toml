@@ -3,7 +3,7 @@
 
 [package]
 name = "airis-monorepo"
-version = "1.82.0"
+version = "1.83.0"
 edition = "2024"
 authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -14,18 +14,36 @@ keywords = ["monorepo", "docker", "workspace", "cli", "prototyping"]
 categories = ["command-line-utilities", "development-tools"]
 
 readme = "README.md"
-include = [
-    "/src/**/*.rs",
-    "/examples/**/*",
-    "/hooks/**/*",
-    "/templates/**/*",
-    "/build.rs",
-    "/Cargo.toml",
-    "/Cargo.lock",
-    "/LICENSE",
-    "/README.md",
-    "/CHANGELOG.md",
-    "/CONTRIBUTING.md",
+exclude = [
+    "/.github",
+    "/.claude",
+    "/.workspace",
+    "/apps",
+    "/libs",
+    "/node_modules",
+    "/target",
+    "/tests",
+    "/assets",
+    "/dist",
+    "/docs",
+    "/scripts",
+    "**/.DS_Store",
+    "demo.tape",
+    "pnpm-lock.yaml",
+    "/manifest.toml",
+    "manifest.md",
+    "docker-compose.yml",
+    "docker-compose.yml.md",
+    "Dockerfile",
+    "package.json",
+    "package.json.md",
+    "pnpm-workspace.yaml",
+    "pnpm-workspace.yaml.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "DEPLOYMENT.md",
+    "PROJECT_INDEX.md",
+    "WORKSPACE.md",
 ]
 
 [[bin]]

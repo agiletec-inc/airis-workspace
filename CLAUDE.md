@@ -277,6 +277,8 @@ airis generate files
    - Generated files include auto-generation warnings
    - Commands follow naming convention: `<action>` (e.g., `dev`, `build`, `test`)
 
+5. **Screenshot verification must run inside Docker**: Use Playwright headless in a Docker container. `browser-use` is prohibited. Never launch browser processes on the host. Prepare a Docker image with Playwright installed, run `page.screenshot()` inside the container, and save images as artifacts. Do not pollute the host process table.
+
 ## Configuration Schema Notes
 
 **Mode types** (src/manifest.rs):

@@ -8,6 +8,7 @@ mod manifest;
 mod ownership;
 mod pnpm;
 mod remote_cache;
+mod rules;
 mod safe_fs;
 mod templates;
 mod version_resolver;
@@ -181,6 +182,12 @@ enum Commands {
     Docs {
         #[command(subcommand)]
         action: DocsCommands,
+    },
+
+    /// Manage AI workflow rules (~/.claude/rules/)
+    Rules {
+        #[command(subcommand)]
+        action: RulesCommands,
     },
 
     /// Validate workspace configuration
@@ -556,6 +563,21 @@ enum DocsCommands {
 }
 
 #[derive(Subcommand)]
+enum RulesCommands {
+    /// Initialize ~/.claude/rules/ with best-practice workflow rules
+    Init,
+    /// List installed rules
+    List,
+    /// Show rule content
+    Show {
+        /// Rule name (e.g., "on-failure", "docker-first")
+        name: String,
+    },
+    /// Update airis-managed rules to latest version
+    Update,
+}
+
+#[derive(Subcommand)]
 enum ManifestCommands {
     /// Print newline-separated list of dev apps
     #[command(name = "dev-apps")]
@@ -754,6 +776,12 @@ fn main() -> Result<()> {
         Commands::Docs { action } => match action {
             DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,
             DocsCommands::List => commands::docs::list()?,
+        },
+        Commands::Rules { action } => match action {
+            RulesCommands::Init => commands::rules::init()?,
+            RulesCommands::List => commands::rules::list()?,
+            RulesCommands::Show { name } => commands::rules::show(&name)?,
+            RulesCommands::Update => commands::rules::update()?,
         },
         Commands::Validate { action, json } => {
             use commands::validate_cmd::{self, ValidateAction};
