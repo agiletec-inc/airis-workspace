@@ -107,13 +107,17 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
         let status = if path.exists() {
             match ownership {
                 Ownership::Tool => "exists → would overwrite (tool-owned)".green(),
-                _ => "exists → would write .md for comparison".yellow(),
+                Ownership::Hybrid => "exists → would update (marker-protected)".green(),
+                Ownership::User => "exists → would skip (user-owned)".yellow(),
             }
         } else {
             "would be created".green()
         };
         println!("   {} {}", file, status);
     }
+
+    println!();
+    println!("   {} Use `airis diff` to preview changes before generating.", "💡".cyan());
 
     // Show project info
     println!();
@@ -128,10 +132,10 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// Sync justfile/docker-compose/package.json from manifest.toml contents
+/// Sync generated files from manifest.toml contents
 ///
-/// If `force` is true, overwrites existing files directly (used by `doctor --fix`).
-/// If `force` is false, writes to `.md` files for comparison (safe default for `generate files`).
+/// All tool-owned files are always overwritten (with backup to .airis/backups/).
+/// The `force` parameter is retained for API compatibility but has no effect.
 pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     sync_from_manifest_with_force(manifest, false)
 }
@@ -238,26 +242,12 @@ fn generate_package_json(
     manifest: &Manifest,
     engine: &TemplateEngine,
     resolved_catalog: &IndexMap<String, String>,
-    force: bool,
+    _force: bool,
 ) -> Result<()> {
     let path = Path::new("package.json");
     let content = engine.render_package_json(manifest, resolved_catalog)?;
-
-    if path.exists() && !force {
-        // Don't overwrite existing package.json - write to .md for comparison
-        let md_path = Path::new("package.json.md");
-        fs::write(md_path, &content)
-            .with_context(|| "Failed to write package.json.md")?;
-        println!(
-            "   {} package.json exists → wrote package.json.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        write_with_backup(path, &content)?;
-        if force {
-            println!("   {} package.json (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(path, &content)?;
+    println!("   {} package.json (synced from manifest.toml)", "✓".green());
     Ok(())
 }
 
@@ -323,50 +313,18 @@ fn resolve_catalog_versions(
     Ok(resolved)
 }
 
-fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, force: bool) -> Result<()> {
+fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
     let dockerfile_content = engine.render_dockerfile_dev(manifest)?;
     let compose_content = engine.render_docker_compose(manifest)?;
 
     let dockerfile_path = Path::new("Dockerfile");
-    // Use modern naming (compose.yml), but check for legacy naming too
     let compose_path = Path::new("compose.yml");
-    let legacy_compose_path = Path::new("docker-compose.yml");
-    let compose_exists = compose_path.exists() || legacy_compose_path.exists();
 
-    if dockerfile_path.exists() && !force {
-        // Write to .md for comparison (safe default)
-        let md_path = Path::new("Dockerfile.md");
-        fs::write(md_path, &dockerfile_content)
-            .with_context(|| "Failed to write Dockerfile.md")?;
-        println!(
-            "   {} Dockerfile exists → wrote Dockerfile.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        fs::write(dockerfile_path, &dockerfile_content)
-            .with_context(|| "Failed to write Dockerfile")?;
-        if force {
-            println!("   {} Dockerfile (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(dockerfile_path, &dockerfile_content)?;
+    println!("   {} Dockerfile (synced from manifest.toml)", "✓".green());
 
-    // If compose.override.yml exists, use safe mode (write .md for comparison)
-    // Otherwise, always overwrite compose.yml since it's fully generated from manifest.toml
-    let override_path = Path::new("compose.override.yml");
-    if compose_exists && !force && override_path.exists() {
-        // Migration period: override file still exists, be safe
-        let md_path = Path::new("compose.yml.md");
-        fs::write(md_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml.md")?;
-        println!(
-            "   {} compose.yml exists with override → wrote compose.yml.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        fs::write(compose_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml")?;
-        println!("   {} compose.yml (generated)", "✓".green());
-    }
+    write_with_backup(compose_path, &compose_content)?;
+    println!("   {} compose.yml (synced from manifest.toml)", "✓".green());
 
     Ok(())
 }

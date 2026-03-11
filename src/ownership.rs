@@ -25,12 +25,18 @@ pub fn get_ownership(path: &Path) -> Ownership {
     // Exact matches first
     match path_str.as_ref() {
         // Tool-owned: fully generated from manifest
+        "package.json" => Ownership::Tool,
         "pnpm-workspace.yaml" => Ownership::Tool,
+        "Dockerfile" => Ownership::Tool,
+        "Dockerfile.dev" => Ownership::Tool,
+        "compose.yml" => Ownership::Tool,
+        "docker-compose.yml" => Ownership::Tool,
+        ".env.example" => Ownership::Tool,
         ".github/workflows/ci.yml" => Ownership::Tool,
         ".github/workflows/release.yml" => Ownership::Tool,
 
-        // Hybrid: partially managed
-        "package.json" => Ownership::Hybrid,
+        // Hybrid: marker-protected (airis manages sections, user adds custom content)
+        "CLAUDE.md" => Ownership::Hybrid,
 
         // User-owned: never touch
         "manifest.toml" => Ownership::User,
@@ -96,14 +102,20 @@ mod tests {
 
     #[test]
     fn test_tool_owned_files() {
+        assert_eq!(get_ownership(Path::new("package.json")), Ownership::Tool);
         assert_eq!(get_ownership(Path::new("pnpm-workspace.yaml")), Ownership::Tool);
+        assert_eq!(get_ownership(Path::new("Dockerfile")), Ownership::Tool);
+        assert_eq!(get_ownership(Path::new("Dockerfile.dev")), Ownership::Tool);
+        assert_eq!(get_ownership(Path::new("compose.yml")), Ownership::Tool);
+        assert_eq!(get_ownership(Path::new("docker-compose.yml")), Ownership::Tool);
+        assert_eq!(get_ownership(Path::new(".env.example")), Ownership::Tool);
         assert_eq!(get_ownership(Path::new(".github/workflows/ci.yml")), Ownership::Tool);
         assert_eq!(get_ownership(Path::new(".github/workflows/release.yml")), Ownership::Tool);
     }
 
     #[test]
     fn test_hybrid_files() {
-        assert_eq!(get_ownership(Path::new("package.json")), Ownership::Hybrid);
+        assert_eq!(get_ownership(Path::new("CLAUDE.md")), Ownership::Hybrid);
         assert_eq!(get_ownership(Path::new("apps/dashboard/package.json")), Ownership::Hybrid);
         assert_eq!(get_ownership(Path::new("libs/ui/package.json")), Ownership::Hybrid);
     }
