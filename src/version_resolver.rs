@@ -1,10 +1,11 @@
 //! Version resolution utilities for npm packages
 //!
 //! Provides functions to resolve version policies (latest, lts) to actual version numbers
-//! by querying the npm registry.
+//! by querying the npm registry via HTTP (no npm CLI dependency).
 
 use anyhow::{Context, Result};
-use std::process::Command;
+
+const NPM_REGISTRY: &str = "https://registry.npmjs.org";
 
 /// Resolve a version policy to an actual version number
 ///
@@ -18,33 +19,36 @@ pub fn resolve_version(package: &str, policy: &str) -> Result<String> {
         "latest" => get_npm_latest(package),
         "lts" => get_npm_lts(package),
         version if version.starts_with('^') || version.starts_with('~') => {
-            // Already a specific version
             Ok(version.to_string())
         }
-        _ => {
-            // Treat as specific version
-            Ok(policy.to_string())
-        }
+        _ => Ok(policy.to_string()),
     }
+}
+
+/// Fetch dist-tags for a package from the npm registry
+fn fetch_dist_tags(package: &str) -> Result<serde_json::Value> {
+    let url = format!("{NPM_REGISTRY}/-/package/{package}/dist-tags");
+    let response = ureq::get(&url)
+        .call()
+        .context(format!("Failed to fetch dist-tags for {package}"))?;
+
+    let json: serde_json::Value = response
+        .into_json()
+        .context(format!("Failed to parse dist-tags JSON for {package}"))?;
+
+    Ok(json)
 }
 
 /// Get the latest version of a package from npm registry
 pub fn get_npm_latest(package: &str) -> Result<String> {
-    let output = Command::new("npm")
-        .args(["view", package, "version"])
-        .output()
-        .context(format!("Failed to query npm for {}", package))?;
+    let tags = fetch_dist_tags(package)?;
 
-    if !output.status.success() {
-        anyhow::bail!("npm view failed for {}", package);
-    }
+    let version = tags
+        .get("latest")
+        .and_then(|v| v.as_str())
+        .context(format!("No 'latest' dist-tag found for {package}"))?;
 
-    let version = String::from_utf8(output.stdout)
-        .context("Invalid UTF-8 from npm")?
-        .trim()
-        .to_string();
-
-    Ok(format!("^{}", version))
+    Ok(format!("^{version}"))
 }
 
 /// Get the LTS version of a package from npm dist-tags
@@ -54,25 +58,11 @@ pub fn get_npm_latest(package: &str) -> Result<String> {
 /// 2. Highest "*-lts" tag (e.g., v20-lts > v18-lts for Node.js)
 /// 3. Falls back to "latest" if no LTS tag found
 pub fn get_npm_lts(package: &str) -> Result<String> {
-    // Try to find LTS version from dist-tags
-    let output = Command::new("npm")
-        .args(["view", package, "dist-tags", "--json"])
-        .output()
-        .context(format!("Failed to query npm dist-tags for {}", package))?;
-
-    if !output.status.success() {
-        // Fallback to latest if dist-tags query fails
-        return get_npm_latest(package);
-    }
-
-    let json_str = String::from_utf8(output.stdout).context("Invalid UTF-8 from npm")?;
-
-    let tags: serde_json::Value =
-        serde_json::from_str(&json_str).unwrap_or(serde_json::Value::Null);
+    let tags = fetch_dist_tags(package)?;
 
     // Priority: "lts" tag > "*-lts" pattern (highest version) > "latest"
     if let Some(lts) = tags.get("lts").and_then(|v| v.as_str()) {
-        return Ok(format!("^{}", lts));
+        return Ok(format!("^{lts}"));
     }
 
     // Find *-lts tags (e.g., v20-lts, v18-lts for Node.js)
@@ -87,12 +77,17 @@ pub fn get_npm_lts(package: &str) -> Result<String> {
         lts_versions.sort_by(|a, b| b.0.cmp(a.0));
 
         if let Some((_, version)) = lts_versions.first() {
-            return Ok(format!("^{}", version));
+            return Ok(format!("^{version}"));
         }
     }
 
     // Fallback to latest
-    get_npm_latest(package)
+    let version = tags
+        .get("latest")
+        .and_then(|v| v.as_str())
+        .context(format!("No 'latest' dist-tag found for {package}"))?;
+
+    Ok(format!("^{version}"))
 }
 
 #[cfg(test)]

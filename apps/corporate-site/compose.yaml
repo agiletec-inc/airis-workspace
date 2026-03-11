@@ -1,0 +1,23 @@
+# Corporate Site - Dev Compose
+# Run with: docker compose -f apps/corporate-site/compose.yaml up
+
+name: corporate-site
+
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: apps/corporate-site/Dockerfile
+      target: ${COMPOSE_TARGET:-dev}
+    volumes:
+      - ../../:/app:delegated
+      - node_modules:/app/node_modules
+    working_dir: /app/apps/corporate-site
+    ports:
+      - "3002:3000"
+    environment:
+      NODE_ENV: development
+    command: sleep infinity
+
+volumes:
+  node_modules:
