@@ -1,10 +1,8 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use dialoguer::Confirm;
 use indexmap::IndexMap;
 use std::env;
 use std::fs;
-use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::version_resolver::resolve_version;
@@ -402,124 +400,62 @@ fn generate_llm_context(manifest: &Manifest, engine: &TemplateEngine) -> Result<
     Ok(())
 }
 
+/// Split content by AIRIS markers, returning (before, after) if valid markers found.
+/// Returns None if markers are missing or corrupted (END before BEGIN).
+fn split_by_markers(content: &str) -> Option<(&str, &str)> {
+    use crate::templates::{AIRIS_BEGIN_MARKER, AIRIS_END_MARKER};
+    let begin = content.find(AIRIS_BEGIN_MARKER)?;
+    let end = content.find(AIRIS_END_MARKER)?;
+    if end <= begin {
+        return None;
+    }
+    let before = &content[..begin];
+    let after = &content[end + AIRIS_END_MARKER.len()..];
+    Some((before, after))
+}
+
 fn generate_claude_md(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let path = Path::new("CLAUDE.md");
+    let generated = engine.render_claude_md(manifest)?;
 
-    if path.exists() {
-        // Analyze existing file for airis-specific sections
-        let existing_content = fs::read_to_string(path)
-            .with_context(|| "Failed to read CLAUDE.md")?;
-        let existing_lower = existing_content.to_lowercase();
-
-        let mut missing_sections = Vec::new();
-
-        // Check for Docker First section
-        // Look for: "docker first" phrase, or combination of airis commands
-        let has_docker_first = existing_lower.contains("docker first")
-            || existing_lower.contains("docker-first")
-            || (existing_lower.contains("airis up") && existing_lower.contains("airis shell"));
-        if !has_docker_first {
-            missing_sections.push("docker_first");
-        }
-
-        // Check for Available Commands section
-        // Look for: "available commands", "airis commands", or command table format
-        let has_commands = existing_lower.contains("available commands")
-            || existing_lower.contains("airis commands")
-            || (existing_lower.contains("airis") && existing_lower.contains("| command |"));
-        if !has_commands {
-            missing_sections.push("commands");
-        }
-
-        // Check for Workspace Workflow section
-        let has_workflow = existing_lower.contains("workspace workflow")
-            || existing_lower.contains("single source of truth");
-        if !has_workflow {
-            missing_sections.push("workflow");
-        }
-
-        if missing_sections.is_empty() {
-            println!(
-                "   {} CLAUDE.md exists with airis sections",
-                "✅".green()
-            );
-            return Ok(());
-        }
-
-        // Show missing sections
-        println!();
-        println!(
-            "{}",
-            "⚠️  CLAUDE.md に以下のセクションが不足しています:".yellow()
-        );
-        for section in &missing_sections {
-            let name = match *section {
-                "docker_first" => "Docker First Development",
-                "commands" => "Available Commands",
-                "workflow" => "Workspace Workflow",
-                _ => section,
-            };
-            println!("   - {}", name);
-        }
-        println!();
-
-        // Check if running interactively (tty available)
-        let is_interactive = std::io::stdin().is_terminal();
-
-        let should_append = if is_interactive {
-            // Interactive: ask user
-            Confirm::new()
-                .with_prompt("これらのセクションを CLAUDE.md に追記しますか？")
-                .default(true)
-                .interact()
-                .unwrap_or(true)
-        } else {
-            // Non-interactive (Claude Code / CI): auto-append
-            true
-        };
-
-        if should_append {
-            // Generate content for missing sections
-            let additional_content = engine.render_claude_md_sections(manifest, &missing_sections)?;
-
-            // Append to existing file
-            let mut new_content = existing_content;
-            if !new_content.ends_with('\n') {
-                new_content.push('\n');
-            }
-            new_content.push_str("\n---\n\n");
-            new_content.push_str("<!-- Added by airis generate -->\n\n");
-            new_content.push_str(&additional_content);
-
-            fs::write(path, &new_content)
-                .with_context(|| "Failed to append to CLAUDE.md")?;
-
-            let mode_suffix = if is_interactive {
-                ""
-            } else {
-                " (non-interactive mode)"
-            };
-            println!(
-                "   {} CLAUDE.md に {} セクションを追記しました{}",
-                "✅".green(),
-                missing_sections.len(),
-                mode_suffix
-            );
-        } else {
-            println!(
-                "   {} CLAUDE.md への追記をスキップしました",
-                "⏭️".cyan()
-            );
-        }
-
+    if !path.exists() {
+        // Pattern A: New file
+        let content = format!("# CLAUDE.md\n\n{}\n", generated);
+        fs::write(path, &content)
+            .with_context(|| "Failed to write CLAUDE.md")?;
+        println!("   {} Generated CLAUDE.md for Claude Code", "🤖".green());
         return Ok(());
     }
 
-    // New file generation
-    let content = engine.render_claude_md(manifest)?;
-    fs::write(path, &content)
-        .with_context(|| "Failed to write CLAUDE.md")?;
-    println!("   {} Generated CLAUDE.md for Claude Code", "🤖".green());
+    let existing = fs::read_to_string(path)
+        .with_context(|| "Failed to read CLAUDE.md")?;
+
+    if let Some((before, after)) = split_by_markers(&existing) {
+        // Pattern B: Markers found — replace only the marker block, preserve surroundings
+        let new_content = format!("{}{}{}", before, generated, after);
+        if new_content == existing {
+            println!("   {} CLAUDE.md is up to date", "✅".green());
+        } else {
+            fs::write(path, &new_content)
+                .with_context(|| "Failed to update CLAUDE.md")?;
+            println!("   {} Updated generated sections in CLAUDE.md", "✅".green());
+        }
+    } else {
+        // Pattern C: Legacy file without markers — prepend marker block, keep existing content
+        let mut new_content = String::new();
+        new_content.push_str(&generated);
+        new_content.push('\n');
+        if !existing.starts_with('\n') {
+            new_content.push('\n');
+        }
+        new_content.push_str(&existing);
+        fs::write(path, &new_content)
+            .with_context(|| "Failed to update CLAUDE.md")?;
+        println!(
+            "   {} CLAUDE.md にマーカーブロックを挿入しました (既存コンテンツは保護されています)",
+            "✅".green()
+        );
+    }
 
     Ok(())
 }
@@ -651,4 +587,49 @@ fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine, _forc
     println!("   {} .github/workflows/release.yml (synced from manifest.toml)", "✓".green());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::templates::{AIRIS_BEGIN_MARKER, AIRIS_END_MARKER};
+
+    #[test]
+    fn test_split_by_markers_valid() {
+        let content = format!(
+            "# My CLAUDE.md\n\n{}\n\ngenerated stuff\n\n{}\n\n## Custom\nmy notes",
+            AIRIS_BEGIN_MARKER, AIRIS_END_MARKER
+        );
+        let (before, after) = split_by_markers(&content).unwrap();
+        assert_eq!(before, "# My CLAUDE.md\n\n");
+        assert_eq!(after, "\n\n## Custom\nmy notes");
+    }
+
+    #[test]
+    fn test_split_by_markers_missing() {
+        let content = "# CLAUDE.md\n\nNo markers here";
+        assert!(split_by_markers(content).is_none());
+    }
+
+    #[test]
+    fn test_split_by_markers_corrupted() {
+        // END before BEGIN
+        let content = format!(
+            "{}\n\nstuff\n\n{}",
+            AIRIS_END_MARKER, AIRIS_BEGIN_MARKER
+        );
+        assert!(split_by_markers(&content).is_none());
+    }
+
+    #[test]
+    fn test_split_by_markers_only_begin() {
+        let content = format!("before\n{}\nafter", AIRIS_BEGIN_MARKER);
+        assert!(split_by_markers(&content).is_none());
+    }
+
+    #[test]
+    fn test_split_by_markers_only_end() {
+        let content = format!("before\n{}\nafter", AIRIS_END_MARKER);
+        assert!(split_by_markers(&content).is_none());
+    }
 }
