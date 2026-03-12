@@ -1,4 +1,5 @@
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::symlink;
 use std::path::Path;
 
@@ -178,6 +179,12 @@ fn run_template_mode(write: bool) -> Result<()> {
 
 /// Setup .npmrc symlinks for Docker-First enforcement
 /// This creates symlinks in apps/* and libs/* pointing to root .npmrc
+#[cfg(not(unix))]
+pub fn setup_npmrc() -> Result<()> {
+    anyhow::bail!("setup-npmrc requires Unix (symlink support)");
+}
+
+#[cfg(unix)]
 pub fn setup_npmrc() -> Result<()> {
     println!("{}", "🔗 Setting up .npmrc symlinks...".bright_blue());
     println!();
