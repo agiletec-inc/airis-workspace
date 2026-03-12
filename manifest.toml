@@ -39,12 +39,7 @@ libs = []
 
 [dev]
 apps = []
-autostart = [
-    "corporate-site",
-    "airis-dashboard",
-    "airis-auto-call",
-    "focustoday-web",
-]
+autostart = []
 
 # REMOVED: [apps.*], [libs.*] - pnpm workspace auto-detects from apps/*, libs/*
 # Use MCP /airis:init for scaffolding new apps/libs
