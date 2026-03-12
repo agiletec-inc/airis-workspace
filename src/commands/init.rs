@@ -4,6 +4,7 @@ use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use anyhow::Result;
+#[cfg(unix)]
 use chrono::Local;
 use colored::Colorize;
 
@@ -14,6 +15,7 @@ use super::migrate;
 
 /// Create a backup of a file before replacing it
 /// Returns the backup path if successful
+#[cfg(unix)]
 fn backup_file(path: &Path) -> Result<std::path::PathBuf> {
     let timestamp = Local::now().format("%Y%m%d_%H%M%S");
     let backup_name = format!(
