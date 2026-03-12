@@ -411,11 +411,15 @@ fn default_clean_dirs() -> Vec<String> {
         ".turbo".to_string(),
         ".swc".to_string(),
         ".cache".to_string(),
+        "pnpm-lock.yaml".to_string(),
     ]
 }
 
 fn default_clean_recursive() -> Vec<String> {
-    vec!["node_modules".to_string()]
+    vec![
+        "node_modules".to_string(),
+        ".pnpm-store".to_string(),
+    ]
 }
 
 impl Default for WorkspaceSection {

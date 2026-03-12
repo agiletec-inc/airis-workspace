@@ -82,6 +82,7 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
         ("api", "rust-axum") => generate_rust_service(&project_dir, name)?,
         ("web", "nextjs") => generate_web_project(&project_dir, name)?,
         ("lib", "ts") => generate_lib_project(&project_dir, name)?,
+        ("lib", "python") => generate_py_lib(&project_dir, name)?,
         ("edge", "deno") => generate_edge_function(&project_dir, name)?,
         ("supabase-trigger", "plpgsql") => generate_supabase_trigger(&project_dir, name)?,
         ("supabase-realtime", "deno") => generate_supabase_realtime(&project_dir, name)?,
@@ -90,7 +91,7 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
                 "Unknown runtime '{}' for category '{}'. Available runtimes:\n  \
                 api: hono, fastapi, rust-axum\n  \
                 web: nextjs\n  \
-                lib: ts\n  \
+                lib: ts, python\n  \
                 edge: deno\n  \
                 supabase-trigger: plpgsql\n  \
                 supabase-realtime: deno",
@@ -500,6 +501,75 @@ dist/
     println!("  {} package.json", "✓".green());
     println!("  {} tsconfig.json", "✓".green());
     println!("  {} src/index.ts", "✓".green());
+    println!("  {} .gitignore", "✓".green());
+
+    Ok(())
+}
+
+/// Generate a Python library (uv + hatchling, src layout)
+fn generate_py_lib(project_dir: &Path, name: &str) -> Result<()> {
+    let pkg_name = name.replace('-', "_");
+    fs::create_dir_all(project_dir.join(format!("src/{}", pkg_name)))
+        .context("Failed to create src directory")?;
+
+    // pyproject.toml
+    let pyproject = format!(
+        r#"[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "{}"
+version = "0.1.0"
+description = ""
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/{}"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+"#,
+        name, pkg_name
+    );
+    fs::write(project_dir.join("pyproject.toml"), pyproject)?;
+
+    // src/<pkg>/__init__.py
+    let init_py = format!(r#""""{}"""
+"#, name);
+    fs::write(
+        project_dir.join(format!("src/{}/__init__.py", pkg_name)),
+        init_py,
+    )?;
+
+    // .gitignore
+    let gitignore = r#"__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+dist/
+*.egg-info/
+"#;
+    fs::write(project_dir.join(".gitignore"), gitignore)?;
+
+    println!("  {} pyproject.toml", "✓".green());
+    println!("  {} src/{}/__init__.py", "✓".green(), pkg_name);
     println!("  {} .gitignore", "✓".green());
 
     Ok(())
@@ -996,6 +1066,18 @@ mod tests {
         assert!(project_dir.join("Cargo.toml").exists());
         assert!(project_dir.join("src/main.rs").exists());
         assert!(project_dir.join("Dockerfile").exists());
+    }
+
+    #[test]
+    fn test_generate_py_lib() {
+        let temp_dir = TempDir::new().unwrap();
+        let project_dir = temp_dir.path().join("test-lib");
+
+        generate_py_lib(&project_dir, "test-lib").unwrap();
+
+        assert!(project_dir.join("pyproject.toml").exists());
+        assert!(project_dir.join("src/test_lib/__init__.py").exists());
+        assert!(project_dir.join(".gitignore").exists());
     }
 
     #[test]

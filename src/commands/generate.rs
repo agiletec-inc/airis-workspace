@@ -1,10 +1,8 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use dialoguer::Confirm;
 use indexmap::IndexMap;
 use std::env;
 use std::fs;
-use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::version_resolver::resolve_version;
@@ -109,13 +107,17 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
         let status = if path.exists() {
             match ownership {
                 Ownership::Tool => "exists → would overwrite (tool-owned)".green(),
-                _ => "exists → would write .md for comparison".yellow(),
+                Ownership::Hybrid => "exists → would update (marker-protected)".green(),
+                Ownership::User => "exists → would skip (user-owned)".yellow(),
             }
         } else {
             "would be created".green()
         };
         println!("   {} {}", file, status);
     }
+
+    println!();
+    println!("   {} Use `airis diff` to preview changes before generating.", "💡".cyan());
 
     // Show project info
     println!();
@@ -130,10 +132,10 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// Sync justfile/docker-compose/package.json from manifest.toml contents
+/// Sync generated files from manifest.toml contents
 ///
-/// If `force` is true, overwrites existing files directly (used by `doctor --fix`).
-/// If `force` is false, writes to `.md` files for comparison (safe default for `generate files`).
+/// All tool-owned files are always overwritten (with backup to .airis/backups/).
+/// The `force` parameter is retained for API compatibility but has no effect.
 pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     sync_from_manifest_with_force(manifest, false)
 }
@@ -185,12 +187,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         false
     };
 
-    // Generate LLM context for AI assistants
-    generate_llm_context(manifest, &engine)?;
-
-    // Generate CLAUDE.md for Claude Code
-    generate_claude_md(manifest, &engine)?;
-
     // Generate .envrc for direnv
     generate_envrc(manifest, &engine)?;
 
@@ -203,7 +199,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
-    println!("   - Dockerfile.dev");
+    println!("   - Dockerfile");
     println!("   - compose.yml");
     if manifest.ci.enabled {
         println!("   - .github/workflows/ci.yml");
@@ -220,8 +216,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     if env_example_generated {
         println!("   - .env.example");
     }
-    println!("   - .workspace/llm-context.md");
-    println!("   - CLAUDE.md");
     println!("   - .envrc");
     println!("   - .husky/pre-commit");
     println!("   - .husky/pre-push");
@@ -240,26 +234,12 @@ fn generate_package_json(
     manifest: &Manifest,
     engine: &TemplateEngine,
     resolved_catalog: &IndexMap<String, String>,
-    force: bool,
+    _force: bool,
 ) -> Result<()> {
     let path = Path::new("package.json");
     let content = engine.render_package_json(manifest, resolved_catalog)?;
-
-    if path.exists() && !force {
-        // Don't overwrite existing package.json - write to .md for comparison
-        let md_path = Path::new("package.json.md");
-        fs::write(md_path, &content)
-            .with_context(|| "Failed to write package.json.md")?;
-        println!(
-            "   {} package.json exists → wrote package.json.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        write_with_backup(path, &content)?;
-        if force {
-            println!("   {} package.json (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(path, &content)?;
+    println!("   {} package.json (synced from manifest.toml)", "✓".green());
     Ok(())
 }
 
@@ -325,50 +305,18 @@ fn resolve_catalog_versions(
     Ok(resolved)
 }
 
-fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, force: bool) -> Result<()> {
-    let dockerfile_content = engine.render_dockerfile_dev(manifest)?;
+fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
+    let dockerfile_content = engine.render_dockerfile(manifest)?;
     let compose_content = engine.render_docker_compose(manifest)?;
 
     let dockerfile_path = Path::new("Dockerfile");
-    // Use modern naming (compose.yml), but check for legacy naming too
     let compose_path = Path::new("compose.yml");
-    let legacy_compose_path = Path::new("docker-compose.yml");
-    let compose_exists = compose_path.exists() || legacy_compose_path.exists();
 
-    if dockerfile_path.exists() && !force {
-        // Write to .md for comparison (safe default)
-        let md_path = Path::new("Dockerfile.md");
-        fs::write(md_path, &dockerfile_content)
-            .with_context(|| "Failed to write Dockerfile.md")?;
-        println!(
-            "   {} Dockerfile exists → wrote Dockerfile.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        fs::write(dockerfile_path, &dockerfile_content)
-            .with_context(|| "Failed to write Dockerfile")?;
-        if force {
-            println!("   {} Dockerfile (overwritten)", "✓".green());
-        }
-    }
+    write_with_backup(dockerfile_path, &dockerfile_content)?;
+    println!("   {} Dockerfile (synced from manifest.toml)", "✓".green());
 
-    // If compose.override.yml exists, use safe mode (write .md for comparison)
-    // Otherwise, always overwrite compose.yml since it's fully generated from manifest.toml
-    let override_path = Path::new("compose.override.yml");
-    if compose_exists && !force && override_path.exists() {
-        // Migration period: override file still exists, be safe
-        let md_path = Path::new("compose.yml.md");
-        fs::write(md_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml.md")?;
-        println!(
-            "   {} compose.yml exists with override → wrote compose.yml.md for comparison",
-            "📄".yellow()
-        );
-    } else {
-        fs::write(compose_path, &compose_content)
-            .with_context(|| "Failed to write compose.yml")?;
-        println!("   {} compose.yml (generated)", "✓".green());
-    }
+    write_with_backup(compose_path, &compose_content)?;
+    println!("   {} compose.yml (synced from manifest.toml)", "✓".green());
 
     Ok(())
 }
@@ -385,144 +333,6 @@ fn generate_env_example(manifest: &Manifest, engine: &TemplateEngine) -> Result<
     Ok(())
 }
 
-fn generate_llm_context(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    let content = engine.render_llm_context(manifest)?;
-
-    // Create .workspace directory if needed
-    let workspace_dir = Path::new(".workspace");
-    fs::create_dir_all(workspace_dir)
-        .context("Failed to create .workspace directory")?;
-
-    let path = workspace_dir.join("llm-context.md");
-    fs::write(&path, &content)
-        .with_context(|| "Failed to write .workspace/llm-context.md")?;
-
-    println!("   {} Generated .workspace/llm-context.md for AI assistants", "🤖".green());
-
-    Ok(())
-}
-
-fn generate_claude_md(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    let path = Path::new("CLAUDE.md");
-
-    if path.exists() {
-        // Analyze existing file for airis-specific sections
-        let existing_content = fs::read_to_string(path)
-            .with_context(|| "Failed to read CLAUDE.md")?;
-        let existing_lower = existing_content.to_lowercase();
-
-        let mut missing_sections = Vec::new();
-
-        // Check for Docker First section
-        // Look for: "docker first" phrase, or combination of airis commands
-        let has_docker_first = existing_lower.contains("docker first")
-            || existing_lower.contains("docker-first")
-            || (existing_lower.contains("airis up") && existing_lower.contains("airis shell"));
-        if !has_docker_first {
-            missing_sections.push("docker_first");
-        }
-
-        // Check for Available Commands section
-        // Look for: "available commands", "airis commands", or command table format
-        let has_commands = existing_lower.contains("available commands")
-            || existing_lower.contains("airis commands")
-            || (existing_lower.contains("airis") && existing_lower.contains("| command |"));
-        if !has_commands {
-            missing_sections.push("commands");
-        }
-
-        // Check for Workspace Workflow section
-        let has_workflow = existing_lower.contains("workspace workflow")
-            || existing_lower.contains("single source of truth");
-        if !has_workflow {
-            missing_sections.push("workflow");
-        }
-
-        if missing_sections.is_empty() {
-            println!(
-                "   {} CLAUDE.md exists with airis sections",
-                "✅".green()
-            );
-            return Ok(());
-        }
-
-        // Show missing sections
-        println!();
-        println!(
-            "{}",
-            "⚠️  CLAUDE.md に以下のセクションが不足しています:".yellow()
-        );
-        for section in &missing_sections {
-            let name = match *section {
-                "docker_first" => "Docker First Development",
-                "commands" => "Available Commands",
-                "workflow" => "Workspace Workflow",
-                _ => section,
-            };
-            println!("   - {}", name);
-        }
-        println!();
-
-        // Check if running interactively (tty available)
-        let is_interactive = std::io::stdin().is_terminal();
-
-        let should_append = if is_interactive {
-            // Interactive: ask user
-            Confirm::new()
-                .with_prompt("これらのセクションを CLAUDE.md に追記しますか？")
-                .default(true)
-                .interact()
-                .unwrap_or(true)
-        } else {
-            // Non-interactive (Claude Code / CI): auto-append
-            true
-        };
-
-        if should_append {
-            // Generate content for missing sections
-            let additional_content = engine.render_claude_md_sections(manifest, &missing_sections)?;
-
-            // Append to existing file
-            let mut new_content = existing_content;
-            if !new_content.ends_with('\n') {
-                new_content.push('\n');
-            }
-            new_content.push_str("\n---\n\n");
-            new_content.push_str("<!-- Added by airis generate -->\n\n");
-            new_content.push_str(&additional_content);
-
-            fs::write(path, &new_content)
-                .with_context(|| "Failed to append to CLAUDE.md")?;
-
-            let mode_suffix = if is_interactive {
-                ""
-            } else {
-                " (non-interactive mode)"
-            };
-            println!(
-                "   {} CLAUDE.md に {} セクションを追記しました{}",
-                "✅".green(),
-                missing_sections.len(),
-                mode_suffix
-            );
-        } else {
-            println!(
-                "   {} CLAUDE.md への追記をスキップしました",
-                "⏭️".cyan()
-            );
-        }
-
-        return Ok(());
-    }
-
-    // New file generation
-    let content = engine.render_claude_md(manifest)?;
-    fs::write(path, &content)
-        .with_context(|| "Failed to write CLAUDE.md")?;
-    println!("   {} Generated CLAUDE.md for Claude Code", "🤖".green());
-
-    Ok(())
-}
 
 fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let path = Path::new(".envrc");
@@ -652,3 +462,4 @@ fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine, _forc
 
     Ok(())
 }
+

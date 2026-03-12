@@ -124,7 +124,7 @@ fn compute_diff(manifest: &Manifest) -> Result<DiffResult> {
     // Check Dockerfile
     files.push(check_file_with_content(
         "Dockerfile",
-        engine.render_dockerfile_dev(manifest)?,
+        engine.render_dockerfile(manifest)?,
     )?);
 
     // Check pnpm-workspace.yaml if workspaces exist
