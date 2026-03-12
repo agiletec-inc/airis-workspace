@@ -1,0 +1,24 @@
+FROM node:24-bookworm
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      git \
+      curl \
+      openssh-client \
+      python3 \
+      pkg-config \
+      tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# Enable corepack and install pnpm
+RUN corepack enable && corepack prepare pnpm@10.23.0 --activate
+
+# Pre-create build directories
+RUN mkdir -p /app/{node_modules,.next,.swc,.cache}
+
+WORKDIR /app
+
+ENTRYPOINT ["tini","--"]
+CMD ["sleep","infinity"]

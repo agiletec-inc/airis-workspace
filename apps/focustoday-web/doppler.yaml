@@ -1,0 +1,3 @@
+setup:
+  project: agiletec
+  config: dev
