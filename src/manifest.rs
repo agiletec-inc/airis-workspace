@@ -891,6 +891,18 @@ pub struct ProjectDefinition {
     pub kind: Option<String>,  // "app" | "lib" | "service"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Package name scope (e.g., "@agiletec"). Overrides default @workspace scope.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Package description for package.json
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// CLI entry points (e.g., { "akm" = "dist/cli.js" })
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub bin: IndexMap<String, String>,
+    /// Main entry point (e.g., "dist/index.js")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
     /// Runtime configuration for Docker builds

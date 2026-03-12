@@ -2,301 +2,111 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## Overview
 
-**AIris Workspace** is a Docker-first monorepo workspace manager built in Rust. It enforces Docker-first development by auto-generating `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, and `Cargo.toml` from a single `manifest.toml`.
+Rust CLI tool (`airis`) that manages Docker-first monorepo workspaces. Reads `manifest.toml` (single source of truth) and generates `package.json`, `pnpm-workspace.yaml`, `compose.yml`, `Dockerfile`, CI workflows.
 
-**Core Philosophy**: Prevent host pollution by blocking direct `pnpm`/`npm`/`yarn` execution and forcing Docker-first workflow via `airis` CLI commands. Special exception for Rust projects (local builds for GPU support).
+This repo is a **Rust project** — build with `cargo` directly on host (not Docker-first).
 
-**Current Version**: v1.56.0
-
-**AIRIS Ecosystem** (responsibility separation):
-- **airis-monorepo** (this repo): Monorepo management only
-- **airis-mcp-gateway**: MCP server connections
-- **airis-agent**: LLM orchestration brain
-
-Key milestones:
-- v1.0.2: Command unification (`[commands]`, `[guards]`, `[remap]`)
-- v1.1.0: Version automation (`[versioning]`, `airis bump-version`, Git hooks)
-- v1.35+: Parallel DAG build engine with BLAKE3 cache
-- v1.38: Bundle & deploy (`airis bundle`)
-- v1.39: Policy gates (`airis policy check/enforce`)
-- v1.42: LTS version resolution from npm dist-tags
-- v1.54: LLM Truth output (`airis manifest json`, `airis doctor --truth`)
-
-## Build & Development Commands
-
-### Building the CLI
-```bash
-# Build debug binary
-cargo build
-
-# Build release binary
-cargo build --release
-
-# Install locally (for testing)
-cargo install --path .
-
-# Run tests
-cargo test
-```
-
-### Testing the CLI
-```bash
-# Test init command (creates manifest.toml + workspace metadata)
-cargo run -- init
-
-# Validate MANIFEST + workspace metadata
-cargo run -- validate
-
-# Run single test
-cargo test test_name
-
-# Run tests with output
-cargo test -- --nocapture
-```
-
-### Build Commands (v1.35+)
-```bash
-# Docker build with DAG parallelism
-airis build --docker --affected -j 8
-
-# Bundle for deployment
-airis bundle <project>
-
-# Policy check before deploy
-airis policy check
-```
-
-### LLM Truth Commands (v1.54+)
-
-These commands output workspace "truth" for LLM consumption, preventing confusion from wrong directories or implicit compose detection.
+## Commands
 
 ```bash
-# JSON output of workspace configuration (for LLM/automation)
-airis manifest json
-
-# Human-readable startup truth
-airis doctor --truth
-
-# JSON output (same as manifest json)
-airis doctor --truth-json
+cargo build                    # Debug build
+cargo build --release          # Release build
+cargo test                     # All tests
+cargo test test_name           # Single test
+cargo test -- --nocapture      # Tests with stdout
+cargo install --path .         # Install to ~/.cargo/bin
 ```
 
-**Output includes**:
-- `workspace_root`: Absolute path to workspace
-- `compose_files`: List of compose files
-- `compose_command`: Full docker compose command with -f flags
-- `service`: Primary service name
-- `workdir`: Container working directory
-- `package_manager`: pnpm/npm/yarn/bun
-- `recommended_commands`: Map of airis commands (up, dev, shell, etc.)
-
-**Example output**:
-```json
-{
-  "format": "airis.manifest.v1",
-  "schema_version": 1,
-  "workspace_root": "/path/to/workspace",
-  "compose_files": ["docker-compose.yml"],
-  "compose_command": "docker compose -f docker-compose.yml",
-  "service": "workspace",
-  "workdir": "/app",
-  "package_manager": "pnpm",
-  "cwd_policy": "repo_root_required",
-  "recommended_commands": {
-    "up": "airis up",
-    "dev": "airis dev",
-    "shell": "airis shell"
-  }
-}
-```
-
-## ⚠️ airis init Specification (Strictly Enforced)
-
-**manifest.toml is sacred and inviolable.**
-
-The `airis init` command must NEVER overwrite manifest.toml.
-
-### Behavior
-
-1. **If manifest.toml exists**
-   - Display guidance message (directing user to `airis generate files`)
-   - Never modify manifest.toml itself
-
-2. **If manifest.toml does not exist**
-   - Default is dry-run (preview display)
-   - Use `--write` option to create template
-
-3. **No mechanism exists to overwrite manifest.toml**
-   - No `--force` flag exists
-   - No `--reset` command exists
-   - CLI provides no means to delete or overwrite manifest.toml
-
-### Command Examples
-
+After release build, copy to user's airis location:
 ```bash
-# No manifest.toml: preview display
-airis init
-
-# No manifest.toml: create template
-airis init --write
-
-# manifest.toml exists: regenerate files
-airis generate files
+cp target/release/airis ~/.local/share/cargo/bin/airis
 ```
 
-**Any implementation violating this specification is treated as a bug.**
+## Architecture
 
-## Architecture & Code Structure
+### Data Flow
 
-### Configuration Flow (manifest.toml → Generated Files)
+```
+manifest.toml (user edits this)
+    → src/manifest.rs (parse to Manifest struct)
+    → src/templates/mod.rs (Handlebars rendering)
+    → generated files (package.json, compose.yml, Dockerfile, CI)
+```
 
-1. **manifest.toml** (user-editable, Single Source of Truth)
-   - Parsed via `toml`
-   - Describes dev apps, infra services, lint/test rules, package config (`src/manifest.rs`)
+### Key Modules
 
-2. **Template Engine** (`src/templates/mod.rs`)
-   - Uses Handlebars for templating with MANIFEST-driven data
-   - Generates `package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `Cargo.toml`
+| Module | Purpose |
+|--------|---------|
+| `manifest.rs` | TOML schema: `Manifest`, `ProjectDefinition`, `ServiceConfig`, etc. |
+| `templates/mod.rs` | Handlebars template engine for all generated files |
+| `commands/run.rs` | Execute `[commands]` from manifest, env interpolation, Docker exec |
+| `commands/generate.rs` | `airis generate files` — orchestrates all file generation |
+| `commands/init.rs` | `airis init` — creates manifest.toml template (never overwrites) |
+| `commands/doctor.rs` | Workspace health check, drift detection |
+| `commands/discover.rs` | Auto-scan apps/libs, detect frameworks |
+| `generators/package_json.rs` | Generate per-project package.json from `[[app]]` definitions |
+| `docker_build.rs` | Multi-target Docker builds with channel/version resolution |
+| `dag.rs` + `executor.rs` | Parallel DAG build engine (tokio semaphore) |
+| `version_resolver.rs` | Resolve `"latest"` / `"lts"` via npm registry HTTP API |
+| `ownership.rs` | File ownership model: Tool (overwrite) / Hybrid (merge) / User (never touch) |
+| `safe_fs.rs` | Filesystem ops with automatic `.airis/backups/` |
 
-3. **Generation Pipeline**
-   - `init` command → creates manifest.toml template if not exists (src/commands/init.rs)
-   - `generate files` command → regenerates workspace files from manifest.toml (src/commands/generate.rs)
+### manifest.toml Key Sections
 
-### Key Design Patterns
+- `[workspace]` — name, package_manager, image, volumes
+- `[apps.*]` / `[libs.*]` — workspace member definitions (for pnpm-workspace.yaml)
+- `[[app]]` — project definitions with deps/scripts (generates per-project package.json)
+- `[service.*]` — Docker Compose service definitions
+- `[packages.catalog]` — version policies (`"latest"`, `"lts"`, `"^X.Y.Z"`, `{ follow = "pkg" }`)
+- `[commands]` — user-defined CLI commands (`airis up`, `airis shell`, etc.)
+- `[guards]` — Docker-first enforcement (`deny`, `forbid`, `danger`, `wrap`)
+- `[remap]` — auto-translate banned commands to safe alternatives
+- `[versioning]` — version strategy (conventional-commits, manual, auto)
+- `[ci]` — GitHub Actions workflow generation
 
-**Docker-First Guards (v1.0.2+)**: `[guards]` section in manifest.toml defines:
-- `deny`: Block commands for all users (e.g., `["npm", "yarn", "pnpm"]`)
-- `forbid`: LLM-specific blocking (via MCP integration)
-- `danger`: Prevent catastrophic commands (e.g., `["rm -rf /"]`)
+### `[[app]]` ProjectDefinition Fields
 
-**Command Unification (v1.0.2+)**: All operations via `airis` CLI:
-- `[commands]` section defines user commands (install, up, down, dev, test, build, clean)
-- `airis run <task>` executes commands from manifest.toml
-- Built-in shorthands: `airis up`, `airis dev`, `airis shell`, etc.
-- `[remap]` auto-translates banned commands to safe alternatives
+```toml
+[[app]]
+name = "my-app"
+kind = "app"              # "app" | "lib" | "service"
+path = "products/my-app"
+scope = "@myorg"          # package name scope (default: @workspace)
+description = "..."
+framework = "node"        # "nextjs" | "react-vite" | "node" | "rust"
+main = "dist/index.js"
 
-**Version Automation (v1.1.0+)**: Automatic version bumping:
-- `[versioning]` section with `strategy` (conventional-commits, auto, manual)
-- `airis bump-version` command (--major, --minor, --patch, --auto)
-- Git pre-commit hook for auto-bump on commit
-- Syncs manifest.toml ↔ Cargo.toml
+[app.bin]
+mycli = "dist/cli.js"
 
-**Runtime Exceptions**: `apps[].runtime` field allows "local" builds (e.g., Rust with GPU support). Default is "docker".
+[app.scripts]
+build = "tsup"
+dev = "tsx watch src/cli.ts"
 
-**Catalog System** (integrated into `airis init`):
-- Define version policies in `[packages.catalog]`: `"latest"`, `"lts"`, `"^X.Y.Z"`, or `{ follow = "package" }`
-- `airis init` resolves policies to actual versions via npm registry
-- `lts` policy queries npm dist-tags for actual LTS versions (e.g., `v20-lts` for Node.js)
-- Writes resolved versions to `pnpm-workspace.yaml` catalog section
-- Dependencies use `"catalog:"` reference in package.json
-- **Only manifest.toml is human-edited; package.json is generated**
+[app.deps]
+zod = "catalog"           # resolved from [packages.catalog]
+commander = "^13.1.0"     # pinned version
 
-**Build Engine (v1.35+)**:
-- DAG-based parallel builds with dependency ordering
-- BLAKE3 content hashing for cache
-- Remote cache support (S3/OCI)
-- `airis build --docker --affected -j 8`
+[app.dev_deps]
+typescript = "catalog"
+```
 
-**Bundle & Deploy (v1.38+)**:
-- `airis bundle <project>` generates deployment package
-- Outputs: `bundle.json`, `image.tar`, `artifact.tar.gz`
+## Invariants
 
-**Policy Gates (v1.39+)**:
-- `.airis/policies.toml` for pre-deployment validation
-- `airis policy check/enforce`
+1. **`airis init` NEVER overwrites manifest.toml** — no `--force` flag exists. If manifest.toml exists, it shows guidance only.
+2. **Generated files are read-only** — all include `DO NOT EDIT` markers. Changes go through manifest.toml.
+3. **Rust edition 2024** — maintain compatibility.
+4. **Handlebars templates must produce valid output** — JSON, TOML, YAML syntax.
 
-**LLM Truth Output (v1.54+)**:
-- `airis manifest json` outputs workspace configuration as JSON
-- `airis doctor --truth` shows human-readable startup info
-- Strict workspace detection: errors if manifest.toml not found (escape: `AIRIS_ALLOW_PWD_FALLBACK=1`)
-- Strict compose file: errors if no compose file found (with resolution steps)
+## Testing
 
-**Auto-Generation Markers**: All generated files include `DO NOT EDIT` warnings and `_generated` metadata to prevent manual edits.
+- Unit tests: `#[cfg(test)]` modules colocated in source files
+- Integration tests: `tests/` directory using `assert_cmd` + `predicates`
+- Filesystem tests: use `tempfile` crate
 
-### Module Responsibilities
-
-**Core:**
-- **src/main.rs**: CLI entry point using `clap` derive macros
-- **src/manifest.rs**: manifest.toml schema/helpers + Mode enum
-- **src/templates/mod.rs**: Handlebars engine driven by MANIFEST data
-- **src/ownership.rs**: File ownership tracking (tool-generated vs user-owned)
-
-**Commands:**
-- **src/commands/init.rs**: Creates manifest.toml template (if not exists)
-- **src/commands/generate.rs**: Regenerates workspace files from manifest.toml
-- **src/commands/manifest_cmd.rs**: `airis manifest ...` plumbing + JSON truth output (v1.54+)
-- **src/commands/run.rs**: Executes commands from `[commands]` section (v1.0.2+)
-- **src/commands/doctor.rs**: Workspace health diagnostics + `--truth` output (v1.54+)
-- **src/commands/diff.rs**: Preview manifest → generated files diff (`airis diff`, v1.66+)
-- **src/commands/upgrade.rs**: Self-update from GitHub releases (`airis upgrade`, v1.67+)
-- **src/commands/validate_cmd.rs**: Manifest validation with `--json` output
-- **src/commands/shim.rs**: Docker-first shim generation (`airis shim install`)
-- **src/commands/bump_version.rs**: Version bumping with Conventional Commits (v1.1.0+)
-- **src/commands/hooks.rs**: Git hooks installation (v1.1.0+)
-- **src/commands/bundle.rs**: Deployment package generation
-- **src/commands/policy.rs**: Pre-deployment validation gates
-- **src/commands/discover.rs**: Auto-discovery of apps/libs (v1.43+)
-- **src/commands/migrate.rs**: Safe migration with backups (v1.43+)
-- **src/commands/guards.rs**: Docker-first guard enforcement
-- **src/commands/affected.rs**: Affected project detection for builds
-- **src/commands/deps.rs**: Dependency graph visualization (`airis deps tree/json/show/check`)
-- **src/commands/clean.rs**: Workspace cleanup
-- **src/commands/new_cmd.rs**: Scaffold new apps/libs
-- **src/commands/docs.rs**: Documentation generation
-- **src/commands/network.rs**: Docker network management
-- **src/commands/verify.rs**: Workspace verification
-- **src/commands/generate_types.rs**: TypeScript type generation
-
-**Build System:**
-- **src/dag.rs**: DAG construction and topological sort
-- **src/executor.rs**: Parallel task execution
-- **src/docker_build.rs**: Dockerfile generation and build context
-- **src/remote_cache.rs**: S3/OCI remote cache support
-
-**Utilities:**
-- **src/pnpm.rs**: pnpm-specific helpers
-- **src/safe_fs.rs**: Safe filesystem operations with backups
-- **src/channel.rs**: Communication channels for parallel execution
-- **src/generators/**: Package-specific generators (package.json, etc.)
-- **src/version_resolver.rs**: npm version resolution (latest, lts policies)
-
-## Important Constraints
-
-### DO NOT violate these rules when making changes:
-
-1. **Generated files must remain read-only**: Never encourage users to edit `package.json`, `pnpm-workspace.yaml`, or `Cargo.toml` directly. All changes go through `manifest.toml`. (justfile is optional in v1.0.2+)
-
-2. **Docker-first is non-negotiable**: Do not weaken guard recipes or suggest host-level package manager usage (except for Rust projects with `runtime: local`).
-
-3. **Rust edition is 2024**: Cargo.toml specifies `edition = "2024"`. Maintain compatibility.
-
-4. **Template consistency**: When modifying templates, ensure:
-   - Handlebars syntax is valid
-   - Generated files include auto-generation warnings
-   - Commands follow naming convention: `<action>` (e.g., `dev`, `build`, `test`)
-
-5. **Screenshot verification must run inside Docker**: Use Playwright headless in a Docker container. `browser-use` is prohibited. Never launch browser processes on the host. Prepare a Docker image with Playwright installed, run `page.screenshot()` inside the container, and save images as artifacts. Do not pollute the host process table.
-
-## Configuration Schema Notes
-
-**Mode types** (src/manifest.rs):
-- `docker-first`: Default. Allows local builds with explicit `runtime: local`
-- `hybrid`: (not yet implemented)
-- `strict`: (not yet implemented)
-
-**App runtime resolution**: Keep Docker-first semantics. Runtime overrides (e.g., Rust local builds) should be modeled in MANIFEST extensions rather than reintroducing host-level exceptions elsewhere.
-
-## Testing Strategy
-
-When adding features:
-1. Add unit tests in `#[cfg(test)]` modules (see examples in commands/generate.rs, commands/bump_version.rs)
-2. Use `tempfile` crate for filesystem tests (already in dev-dependencies)
-3. Test TOML parsing/serialization roundtrips
-4. Verify template rendering produces valid output (valid JSON, TOML, YAML)
-
-**Thread-safe directory testing pattern** (required when using `std::env::set_current_dir`):
+**Thread-safe directory test pattern** (required when using `set_current_dir`):
 ```rust
 use std::sync::Mutex;
 static DIR_LOCK: Mutex<()> = Mutex::new(());
@@ -307,68 +117,8 @@ fn test_with_directory_change() {
     let original_dir = std::env::current_dir().unwrap();
     let dir = tempfile::tempdir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
-
-    let result = std::panic::catch_unwind(|| {
-        // Test logic here
-    });
-
-    std::env::set_current_dir(original_dir).unwrap(); // Always restore
+    let result = std::panic::catch_unwind(|| { /* test logic */ });
+    std::env::set_current_dir(original_dir).unwrap();
     result.unwrap();
 }
 ```
-This pattern prevents race conditions when tests run in parallel.
-
-## Future Implementation Notes
-
-**Planned but not yet implemented** (see README.md Phases):
-- Build matrix (linux/amd64, linux/arm64 cross-build)
-
-**Recently implemented**:
-- ✅ LLM Truth output (`airis manifest json`, `airis doctor --truth`, v1.54)
-- ✅ Strict workspace/compose detection with helpful errors (v1.54)
-- ✅ LLM context generation (`.workspace/llm-context.md`, v1.52)
-- ✅ Structured error output (`airis validate --json`, v1.52)
-- ✅ Environment variable validation (`[env]` section, v1.51)
-- ✅ Kubernetes manifest generation (`--k8s` flag, v1.47)
-
-**Note**: MCP server integration is handled by [airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway). This repo focuses on monorepo management only.
-
-## Auto-Migration (v1.43 - Implemented)
-
-**Implemented modules**:
-- `src/commands/discover.rs` - Project discovery (Next.js, Vite, Hono, Node, Rust, Python)
-- `src/commands/migrate.rs` - Safe migration with backups
-
-**Usage**:
-```bash
-airis init                    # Auto-discover & show migration plan (dry-run)
-airis init --write            # Execute migration
-airis init --skip-discovery   # Use empty template (legacy mode)
-```
-
-**Auto-Migration Workflow**:
-```
-airis init
-  ↓
-1. Discovery Phase (discover.rs)
-   - Scan apps/, libs/ for projects
-   - Detect framework (Next.js, Vite, Hono, Rust, Python)
-   - Find docker-compose.yml locations
-   - Extract catalog from package.json devDependencies
-  ↓
-2. Migration Planning (migrate.rs)
-   - Create workspace/ directory if needed
-   - Plan moves for root docker-compose.yml
-   - Generate manifest.toml content
-  ↓
-3. Execution (with --write)
-   - Create directories
-   - Move files with .bak backups
-   - Write manifest.toml
-```
-
-**Safety Rules (enforced)**:
-- NEVER overwrite existing manifest.toml
-- ALWAYS create backups before moving files (.bak suffix)
-- ALWAYS show dry-run first (default behavior)
-- Require explicit --write to execute changes
