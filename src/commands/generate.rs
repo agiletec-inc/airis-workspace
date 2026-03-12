@@ -187,12 +187,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         false
     };
 
-    // Generate LLM context for AI assistants
-    generate_llm_context(manifest, &engine)?;
-
-    // Generate CLAUDE.md for Claude Code
-    generate_claude_md(manifest, &engine)?;
-
     // Generate .envrc for direnv
     generate_envrc(manifest, &engine)?;
 
@@ -205,7 +199,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
-    println!("   - Dockerfile.dev");
+    println!("   - Dockerfile");
     println!("   - compose.yml");
     if manifest.ci.enabled {
         println!("   - .github/workflows/ci.yml");
@@ -222,8 +216,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     if env_example_generated {
         println!("   - .env.example");
     }
-    println!("   - .workspace/llm-context.md");
-    println!("   - CLAUDE.md");
     println!("   - .envrc");
     println!("   - .husky/pre-commit");
     println!("   - .husky/pre-push");
@@ -314,7 +306,7 @@ fn resolve_catalog_versions(
 }
 
 fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
-    let dockerfile_content = engine.render_dockerfile_dev(manifest)?;
+    let dockerfile_content = engine.render_dockerfile(manifest)?;
     let compose_content = engine.render_docker_compose(manifest)?;
 
     let dockerfile_path = Path::new("Dockerfile");
@@ -341,82 +333,6 @@ fn generate_env_example(manifest: &Manifest, engine: &TemplateEngine) -> Result<
     Ok(())
 }
 
-fn generate_llm_context(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    let content = engine.render_llm_context(manifest)?;
-
-    // Create .workspace directory if needed
-    let workspace_dir = Path::new(".workspace");
-    fs::create_dir_all(workspace_dir)
-        .context("Failed to create .workspace directory")?;
-
-    let path = workspace_dir.join("llm-context.md");
-    fs::write(&path, &content)
-        .with_context(|| "Failed to write .workspace/llm-context.md")?;
-
-    println!("   {} Generated .workspace/llm-context.md for AI assistants", "🤖".green());
-
-    Ok(())
-}
-
-/// Split content by AIRIS markers, returning (before, after) if valid markers found.
-/// Returns None if markers are missing or corrupted (END before BEGIN).
-fn split_by_markers(content: &str) -> Option<(&str, &str)> {
-    use crate::templates::{AIRIS_BEGIN_MARKER, AIRIS_END_MARKER};
-    let begin = content.find(AIRIS_BEGIN_MARKER)?;
-    let end = content.find(AIRIS_END_MARKER)?;
-    if end <= begin {
-        return None;
-    }
-    let before = &content[..begin];
-    let after = &content[end + AIRIS_END_MARKER.len()..];
-    Some((before, after))
-}
-
-fn generate_claude_md(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
-    let path = Path::new("CLAUDE.md");
-    let generated = engine.render_claude_md(manifest)?;
-
-    if !path.exists() {
-        // Pattern A: New file
-        let content = format!("# CLAUDE.md\n\n{}\n", generated);
-        fs::write(path, &content)
-            .with_context(|| "Failed to write CLAUDE.md")?;
-        println!("   {} Generated CLAUDE.md for Claude Code", "🤖".green());
-        return Ok(());
-    }
-
-    let existing = fs::read_to_string(path)
-        .with_context(|| "Failed to read CLAUDE.md")?;
-
-    if let Some((before, after)) = split_by_markers(&existing) {
-        // Pattern B: Markers found — replace only the marker block, preserve surroundings
-        let new_content = format!("{}{}{}", before, generated, after);
-        if new_content == existing {
-            println!("   {} CLAUDE.md is up to date", "✅".green());
-        } else {
-            fs::write(path, &new_content)
-                .with_context(|| "Failed to update CLAUDE.md")?;
-            println!("   {} Updated generated sections in CLAUDE.md", "✅".green());
-        }
-    } else {
-        // Pattern C: Legacy file without markers — prepend marker block, keep existing content
-        let mut new_content = String::new();
-        new_content.push_str(&generated);
-        new_content.push('\n');
-        if !existing.starts_with('\n') {
-            new_content.push('\n');
-        }
-        new_content.push_str(&existing);
-        fs::write(path, &new_content)
-            .with_context(|| "Failed to update CLAUDE.md")?;
-        println!(
-            "   {} CLAUDE.md にマーカーブロックを挿入しました (既存コンテンツは保護されています)",
-            "✅".green()
-        );
-    }
-
-    Ok(())
-}
 
 fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let path = Path::new(".envrc");
@@ -547,47 +463,3 @@ fn generate_github_workflows(manifest: &Manifest, engine: &TemplateEngine, _forc
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::templates::{AIRIS_BEGIN_MARKER, AIRIS_END_MARKER};
-
-    #[test]
-    fn test_split_by_markers_valid() {
-        let content = format!(
-            "# My CLAUDE.md\n\n{}\n\ngenerated stuff\n\n{}\n\n## Custom\nmy notes",
-            AIRIS_BEGIN_MARKER, AIRIS_END_MARKER
-        );
-        let (before, after) = split_by_markers(&content).unwrap();
-        assert_eq!(before, "# My CLAUDE.md\n\n");
-        assert_eq!(after, "\n\n## Custom\nmy notes");
-    }
-
-    #[test]
-    fn test_split_by_markers_missing() {
-        let content = "# CLAUDE.md\n\nNo markers here";
-        assert!(split_by_markers(content).is_none());
-    }
-
-    #[test]
-    fn test_split_by_markers_corrupted() {
-        // END before BEGIN
-        let content = format!(
-            "{}\n\nstuff\n\n{}",
-            AIRIS_END_MARKER, AIRIS_BEGIN_MARKER
-        );
-        assert!(split_by_markers(&content).is_none());
-    }
-
-    #[test]
-    fn test_split_by_markers_only_begin() {
-        let content = format!("before\n{}\nafter", AIRIS_BEGIN_MARKER);
-        assert!(split_by_markers(&content).is_none());
-    }
-
-    #[test]
-    fn test_split_by_markers_only_end() {
-        let content = format!("before\n{}\nafter", AIRIS_END_MARKER);
-        assert!(split_by_markers(&content).is_none());
-    }
-}

@@ -17,7 +17,6 @@ pub mod migrate;
 pub mod network;
 pub mod new_cmd;
 pub mod policy;
-pub mod rules;
 pub mod run;
 pub mod shim;
 pub mod upgrade;
