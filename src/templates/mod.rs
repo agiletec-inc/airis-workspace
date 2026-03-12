@@ -1489,7 +1489,6 @@ workspaces = ["apps/*", "libs/*"]
     }
 
     #[test]
-    #[test]
     fn test_render_envrc() {
         let toml_str = r#"
 [workspace]

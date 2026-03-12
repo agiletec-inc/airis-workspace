@@ -6,6 +6,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 fn airis() -> Command {
+    #[allow(deprecated)]
     Command::cargo_bin("airis").unwrap()
 }
 
