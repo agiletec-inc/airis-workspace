@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::BufRead;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -158,9 +159,12 @@ exec {} "$@"
 }
 
 fn make_executable(path: &Path) -> Result<()> {
-    let mut perms = fs::metadata(path)?.permissions();
-    perms.set_mode(0o755); // rwxr-xr-x
-    fs::set_permissions(path, perms)?;
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(path)?.permissions();
+        perms.set_mode(0o755); // rwxr-xr-x
+        fs::set_permissions(path, perms)?;
+    }
     Ok(())
 }
 

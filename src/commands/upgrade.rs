@@ -7,6 +7,7 @@ use colored::Colorize;
 use serde::Deserialize;
 use std::env;
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -133,9 +134,12 @@ pub fn run(target_version: Option<String>) -> Result<()> {
     };
 
     // Make executable
-    let mut perms = fs::metadata(&binary_path)?.permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&binary_path, perms)?;
+    #[cfg(unix)]
+    {
+        let mut perms = fs::metadata(&binary_path)?.permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&binary_path, perms)?;
+    }
 
     // Verify binary works
     println!("Verifying...");
