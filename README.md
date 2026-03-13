@@ -35,18 +35,18 @@ Or worse -- Claude edits `package.json` directly, your versions diverge from you
 
 ```bash
 $ pnpm install
-# ERROR: 'pnpm' must run inside Docker workspace
-#    Use: airis install
+# BLOCKED: 'pnpm' must run inside Docker container
+#    Use: airis up (installs dependencies during Docker build)
 
-$ airis install
-# Runs pnpm install inside your Docker container
+$ airis up
+# Builds containers, runs pnpm install inside Dockerfile, starts services
 ```
 
-When an AI agent tries to run `pnpm install`, it gets blocked with a helpful error. Your host stays clean. If it breaks `package.json`, just regenerate:
+When an AI agent tries to run `pnpm install`, it gets blocked with a helpful error. Your host stays clean. Dependencies are installed during `docker build` — no workspace container needed. If it breaks `package.json`, just regenerate:
 
 ```bash
-$ airis generate files
-# Regenerated package.json from manifest.toml
+$ airis generate files   # Regenerate package.json from manifest.toml
+$ airis up               # Rebuild containers (install runs automatically)
 ```
 
 Since `manifest.toml` is the single source of truth, all derived files can be regenerated instantly.
@@ -145,12 +145,11 @@ Auto-translate AI agent commands to safe alternatives:
 
 ```toml
 [remap]
-"npm install" = "airis install"
-"pnpm install" = "airis install"
 "docker compose up" = "airis up"
+"docker compose down" = "airis down"
 ```
 
-When an AI agent runs `npm install`, it automatically becomes `airis install` (which runs inside Docker).
+When an AI agent runs `docker compose up`, it automatically becomes `airis up` (which includes `--build` for dependency installation).
 
 ### Version Catalog
 
@@ -217,14 +216,17 @@ airis guards install      # Install command guards globally
 ### Development
 
 ```bash
-airis up                  # Start Docker services
+airis up                  # Build containers + install deps + start services
 airis down                # Stop services
-airis shell               # Enter container shell
-airis dev                 # Start dev servers
-airis build               # Build projects
-airis test                # Run tests
-airis lint                # Run linting
-airis clean               # Remove build artifacts
+airis ps                  # Show running services
+```
+
+Build, test, lint run inside service containers directly:
+
+```bash
+docker compose exec <service> pnpm build
+docker compose exec <service> pnpm test
+docker compose exec <service> pnpm lint:check
 ```
 
 ### Build & Deploy
@@ -259,13 +261,20 @@ airis is a guard rail layer, not a build orchestrator. Use it alongside your exi
 Example with Turborepo:
 
 ```toml
-# manifest.toml
+# manifest.toml — dependencies install during docker build
 [commands]
-build = "docker compose exec workspace pnpm turbo run build"
-test = "docker compose exec workspace pnpm turbo run test"
+up = "docker compose up -d --build --remove-orphans"
+down = "docker compose down --remove-orphans"
+ps = "docker compose ps"
 
 [guards]
 deny = ["npm", "yarn", "pnpm"]
+```
+
+```bash
+# Run turbo inside service containers
+docker compose exec my-app pnpm turbo run build
+docker compose exec my-app pnpm turbo run test
 ```
 
 Turborepo handles caching and orchestration. airis ensures everything runs inside Docker.
@@ -287,7 +296,6 @@ mode = "docker-first"
 [workspace]
 name = "my-project"
 package_manager = "pnpm@10.22.0"
-service = "workspace"
 image = "node:22-alpine"
 
 [packages]
@@ -302,15 +310,9 @@ typescript = "latest"
 deny = ["npm", "yarn", "pnpm", "bun"]
 
 [commands]
-up = "docker compose up -d --build"
-down = "docker compose down"
-shell = "docker compose exec workspace sh"
-build = "docker compose exec workspace pnpm build"
-test = "docker compose exec workspace pnpm test"
-
-[remap]
-"pnpm install" = "airis install"
-"npm install" = "airis install"
+up = "docker compose up -d --build --remove-orphans"
+down = "docker compose down --remove-orphans"
+ps = "docker compose ps"
 ```
 
 ---
