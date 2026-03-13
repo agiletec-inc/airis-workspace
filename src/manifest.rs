@@ -161,6 +161,32 @@ impl Manifest {
         Ok(())
     }
 
+    /// Collect all workspace directory paths from apps and libs definitions.
+    ///
+    /// Returns paths like "apps/corporate", "libs/ui" etc.
+    /// Uses the `path` field if set, otherwise defaults to "apps/{key}" or "libs/{key}".
+    pub fn all_workspace_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+
+        for (key, app) in &self.apps {
+            let path = app
+                .path
+                .clone()
+                .unwrap_or_else(|| format!("apps/{}", key));
+            paths.push(path);
+        }
+
+        for (key, lib) in &self.libs {
+            let path = lib
+                .path
+                .clone()
+                .unwrap_or_else(|| format!("libs/{}", key));
+            paths.push(path);
+        }
+
+        paths
+    }
+
     /// Create a default manifest with project name
     /// NOTE: This is kept as reference for MCP agent's manifest generation
     #[allow(dead_code)]
@@ -270,7 +296,7 @@ impl Manifest {
             workspace: WorkspaceSection {
                 name: format!("airis-{}", name),  // Prefix to avoid Docker name collisions
                 package_manager: "pnpm@10.22.0".to_string(),
-                service: "workspace".to_string(),
+                service: String::new(),
                 image: "node:22-alpine".to_string(),
                 workdir: "/app".to_string(),
                 volumes: vec![format!("{}-node-modules:/app/node_modules", name)],
@@ -289,7 +315,7 @@ impl Manifest {
                     volumes: vec!["node_modules".to_string()],
                 }),
                 compose: default_compose_file(),
-                service: default_workspace_service(),
+                service: String::new(),
                 routes: vec![],
                 shim_commands: default_shim_commands(),
             },
@@ -302,14 +328,8 @@ impl Manifest {
             orchestration: OrchestrationSection::default(),
             commands: {
                 let mut cmds = IndexMap::new();
-                cmds.insert("up".to_string(), "docker compose up -d --build".to_string());
+                cmds.insert("up".to_string(), "docker compose up -d --build --remove-orphans".to_string());
                 cmds.insert("down".to_string(), "docker compose down --remove-orphans".to_string());
-                cmds.insert("shell".to_string(), "docker compose exec -it workspace sh".to_string());
-                cmds.insert("build".to_string(), "docker compose exec workspace pnpm build".to_string());
-                cmds.insert("test".to_string(), "docker compose exec workspace pnpm test".to_string());
-                cmds.insert("lint".to_string(), "docker compose exec workspace pnpm lint".to_string());
-                cmds.insert("clean".to_string(), "rm -rf ./node_modules ./dist ./.next ./build ./target".to_string());
-                cmds.insert("logs".to_string(), "docker compose logs -f".to_string());
                 cmds.insert("ps".to_string(), "docker compose ps".to_string());
                 cmds
             },
@@ -371,7 +391,8 @@ pub struct WorkspaceSection {
     pub name: String,
     #[serde(default = "default_package_manager")]
     pub package_manager: String,
-    #[serde(default = "default_workspace_service")]
+    /// Deprecated: workspace container has been removed. Kept for backwards compatibility with existing manifest.toml files.
+    #[serde(default, skip_serializing)]
     pub service: String,
     #[serde(default = "default_workspace_image")]
     pub image: String,
@@ -418,6 +439,7 @@ fn default_clean_dirs() -> Vec<String> {
 fn default_clean_recursive() -> Vec<String> {
     vec![
         "node_modules".to_string(),
+        ".pnpm".to_string(),
         ".pnpm-store".to_string(),
     ]
 }
@@ -427,7 +449,7 @@ impl Default for WorkspaceSection {
         WorkspaceSection {
             name: default_workspace_name(),
             package_manager: default_package_manager(),
-            service: default_workspace_service(),
+            service: String::new(),
             image: default_workspace_image(),
             workdir: default_workspace_workdir(),
             volumes: vec!["workspace-node-modules:/app/node_modules".to_string()],
@@ -462,10 +484,6 @@ fn default_workspace_name() -> String {
 
 fn default_package_manager() -> String {
     "pnpm@10.22.0".to_string()
-}
-
-fn default_workspace_service() -> String {
-    "workspace".to_string()
 }
 
 fn default_workspace_image() -> String {
@@ -757,8 +775,8 @@ pub struct DockerSection {
     /// Compose file path (default: docker-compose.yml)
     #[serde(default = "default_compose_file")]
     pub compose: String,
-    /// Default service for command execution
-    #[serde(default = "default_workspace_service")]
+    /// Deprecated: workspace container removed
+    #[serde(default, skip_serializing)]
     pub service: String,
     /// Command routing rules (glob pattern → service/workdir)
     #[serde(default)]
@@ -891,6 +909,18 @@ pub struct ProjectDefinition {
     pub kind: Option<String>,  // "app" | "lib" | "service"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Package name scope (e.g., "@agiletec"). Overrides default @workspace scope.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Package description for package.json
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// CLI entry points (e.g., { "akm" = "dist/cli.js" })
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub bin: IndexMap<String, String>,
+    /// Main entry point (e.g., "dist/index.js")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
     /// Runtime configuration for Docker builds
