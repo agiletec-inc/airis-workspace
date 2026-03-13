@@ -201,8 +201,12 @@ impl Manifest {
             let full_pattern = root_path.join(pattern).to_string_lossy().to_string();
             if let Ok(entries) = glob::glob(&full_pattern) {
                 for entry in entries.flatten() {
-                    // Skip paths inside node_modules (transitive deps, not workspaces)
-                    if entry.components().any(|c| c.as_os_str() == "node_modules") {
+                    // Skip paths inside node_modules or build artifact directories
+                    // (transitive deps and generated files are not workspaces)
+                    let skip_dirs = ["node_modules", ".next", "dist", ".turbo", ".swc", "build", "out"];
+                    if entry.components().any(|c| {
+                        skip_dirs.iter().any(|d| c.as_os_str() == *d)
+                    }) {
                         continue;
                     }
                     if entry.is_dir() && entry.join("package.json").exists() {
