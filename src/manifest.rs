@@ -201,6 +201,10 @@ impl Manifest {
             let full_pattern = root_path.join(pattern).to_string_lossy().to_string();
             if let Ok(entries) = glob::glob(&full_pattern) {
                 for entry in entries.flatten() {
+                    // Skip paths inside node_modules (transitive deps, not workspaces)
+                    if entry.components().any(|c| c.as_os_str() == "node_modules") {
+                        continue;
+                    }
                     if entry.is_dir() && entry.join("package.json").exists() {
                         // Strip root prefix to get relative path
                         let p = entry
