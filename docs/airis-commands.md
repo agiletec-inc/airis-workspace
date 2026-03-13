@@ -35,7 +35,7 @@
 airis init                    # 既存プロジェクトを自動検出 + manifest.toml 生成 (dry-run)
 airis init --write            # 検出結果を実行し manifest.toml を作成
 airis init --skip-discovery   # 空テンプレートから作成 (従来モード)
-airis generate files          # manifest.toml から workspace ファイル再生成
+airis gen          # manifest.toml から workspace ファイル再生成
 airis up                      # Traefik → Supabase → workspace を順に起動
 airis down                    # dev サーバ → Supabase → Traefik の順に停止
 airis install                 # workspace コンテナ内で pnpm install

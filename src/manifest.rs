@@ -161,11 +161,19 @@ impl Manifest {
         Ok(())
     }
 
-    /// Collect all workspace directory paths from apps and libs definitions.
+    /// Collect all workspace directory paths from apps, libs, and packages.workspaces globs.
     ///
-    /// Returns paths like "apps/corporate", "libs/ui" etc.
+    /// Returns paths like "apps/corporate", "libs/ui", "products/my-app" etc.
     /// Uses the `path` field if set, otherwise defaults to "apps/{key}" or "libs/{key}".
+    /// Also expands glob patterns from `packages.workspaces` (e.g. "products/*")
+    /// relative to the given root directory.
+    #[allow(dead_code)]
     pub fn all_workspace_paths(&self) -> Vec<String> {
+        self.all_workspace_paths_in(".")
+    }
+
+    /// Like `all_workspace_paths` but resolves glob patterns relative to a specific root.
+    pub fn all_workspace_paths_in(&self, root: &str) -> Vec<String> {
         let mut paths = Vec::new();
 
         for (key, app) in &self.apps {
@@ -182,6 +190,30 @@ impl Manifest {
                 .clone()
                 .unwrap_or_else(|| format!("libs/{}", key));
             paths.push(path);
+        }
+
+        // Expand glob patterns from packages.workspaces (e.g. "products/*", "packages/*")
+        let root_path = Path::new(root);
+        for pattern in &self.packages.workspaces {
+            if pattern.starts_with('!') {
+                continue; // skip exclude patterns
+            }
+            let full_pattern = root_path.join(pattern).to_string_lossy().to_string();
+            if let Ok(entries) = glob::glob(&full_pattern) {
+                for entry in entries.flatten() {
+                    if entry.is_dir() && entry.join("package.json").exists() {
+                        // Strip root prefix to get relative path
+                        let p = entry
+                            .strip_prefix(root_path)
+                            .unwrap_or(&entry)
+                            .to_string_lossy()
+                            .to_string();
+                        if !paths.contains(&p) {
+                            paths.push(p);
+                        }
+                    }
+                }
+            }
         }
 
         paths
@@ -921,6 +953,33 @@ pub struct ProjectDefinition {
     /// Main entry point (e.g., "dist/index.js")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main: Option<String>,
+    /// TypeScript declaration entry point (e.g., "dist/index.d.ts")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub types: Option<String>,
+    /// Package version (default: "0.1.0")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Whether the package is private (default: true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub private: Option<bool>,
+    /// Module type for package.json "type" field (default: "module")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub module_type: Option<String>,
+    /// Package exports — free-form structure, converted to JSON as-is
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exports: Option<toml::Value>,
+    /// peerDependencies
+    #[serde(default)]
+    pub peer_deps: IndexMap<String, String>,
+    /// peerDependenciesMeta (e.g., optional markers)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_deps_meta: Option<toml::Value>,
+    /// Tags for package.json and turbo.tags
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Files to include in published package
+    #[serde(default)]
+    pub files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
     /// Runtime configuration for Docker builds

@@ -1,6 +1,6 @@
 //! Diff command: preview changes between manifest.toml and generated files
 //!
-//! Shows what `airis generate files` would change without actually writing files.
+//! Shows what `airis gen` would change without actually writing files.
 //! Useful for reviewing manifest changes before applying them.
 
 use anyhow::{Context, Result};

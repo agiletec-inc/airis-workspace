@@ -292,7 +292,7 @@ impl TemplateEngine {
     }
 
     pub fn render_docker_compose(&self, manifest: &Manifest) -> Result<String> {
-        let data = self.prepare_docker_compose_data(manifest)?;
+        let data = self.prepare_docker_compose_data(manifest, ".")?;
         self.hbs
             .render("docker_compose", &data)
             .context("Failed to render docker-compose.yml")
@@ -399,35 +399,7 @@ impl TemplateEngine {
         }))
     }
 
-    fn prepare_docker_compose_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
-        // External services (databases, etc.) - optional, usually empty
-        // Most services are defined in their own docker-compose.yml (apps/*, supabase/, traefik/)
-        let services: Vec<serde_json::Value> = manifest
-            .service
-            .iter()
-            .map(|(name, svc)| {
-                json!({
-                    "name": name,
-                    "image": svc.image,
-                    "port": svc.port,
-                    "ports": svc.ports,
-                    "command": svc.command,
-                    "volumes": svc.volumes,
-                    "env": svc.env,
-                    "profiles": svc.profiles,
-                    "depends_on": svc.depends_on,
-                    "restart": svc.restart,
-                    "shm_size": svc.shm_size,
-                    "container_name": svc.container_name,
-                    "working_dir": svc.working_dir,
-                    "extra_hosts": svc.extra_hosts,
-                    "deploy": svc.deploy,
-                    "watch": svc.watch,
-                    "extends": svc.extends,
-                })
-            })
-            .collect();
-
+    fn prepare_docker_compose_data(&self, manifest: &Manifest, root: &str) -> Result<serde_json::Value> {
         // Get proxy network from orchestration.networks config (None if not set)
         let proxy_network = manifest
             .orchestration
@@ -463,16 +435,66 @@ impl TemplateEngine {
             manifest.workspace.volumes.clone()
         };
 
-        // Auto-generate node_modules volumes for each workspace (apps/libs)
-        // This prevents container-installed node_modules from leaking to the host via bind mount
+        // Auto-generate artifact volumes for each workspace (apps/libs/products/...)
+        // This prevents container-generated artifacts from leaking to the host via bind mount
+        let artifact_dirs = ["node_modules", ".turbo", "dist", ".next"];
         let mut workspace_volumes = workspace_volumes;
-        for ws_path in manifest.all_workspace_paths() {
-            let vol_name = format!("ws_nm_{}", ws_path.replace('/', "_"));
-            let mount = format!("{}:{}/{}/node_modules", vol_name, workdir, ws_path);
-            if !workspace_volumes.iter().any(|v| v.contains(&format!("{}/node_modules", ws_path))) {
-                workspace_volumes.push(mount);
+        for ws_path in manifest.all_workspace_paths_in(root) {
+            for artifact in &artifact_dirs {
+                let safe_name = artifact.replace('.', "");
+                let vol_name = format!("ws_{}_{}", safe_name, ws_path.replace('/', "_"));
+                let mount = format!("{}:{}/{}/{}", vol_name, workdir, ws_path, artifact);
+                if !workspace_volumes.iter().any(|v| v.contains(&format!("{}/{}", ws_path, artifact))) {
+                    workspace_volumes.push(mount);
+                }
             }
         }
+
+        // Build base volumes list (bind mount + workspace volumes) for x-app-base
+        let mut base_volumes = vec![format!("./:{}:delegated", workdir)];
+        base_volumes.extend(workspace_volumes.clone());
+
+        // Build services, merging base volumes when a service uses extends + own volumes
+        // YAML merge key (<<: *app-base) is overridden when a service defines its own volumes:
+        // so we prepend base volumes to prevent the override from losing them.
+        let services: Vec<serde_json::Value> = manifest
+            .service
+            .iter()
+            .map(|(name, svc)| {
+                let merged_volumes = if svc.extends.is_some() && !svc.volumes.is_empty() {
+                    // Merge: base volumes first, then service-specific volumes
+                    let mut merged = base_volumes.clone();
+                    for v in &svc.volumes {
+                        if !merged.contains(v) {
+                            merged.push(v.clone());
+                        }
+                    }
+                    merged
+                } else {
+                    svc.volumes.clone()
+                };
+
+                json!({
+                    "name": name,
+                    "image": svc.image,
+                    "port": svc.port,
+                    "ports": svc.ports,
+                    "command": svc.command,
+                    "volumes": merged_volumes,
+                    "env": svc.env,
+                    "profiles": svc.profiles,
+                    "depends_on": svc.depends_on,
+                    "restart": svc.restart,
+                    "shm_size": svc.shm_size,
+                    "container_name": svc.container_name,
+                    "working_dir": svc.working_dir,
+                    "extra_hosts": svc.extra_hosts,
+                    "deploy": svc.deploy,
+                    "watch": svc.watch,
+                    "extends": svc.extends,
+                })
+            })
+            .collect();
 
         // Extract volume names for the volumes declaration section
         // Format: "volume-name:/path" -> "volume-name"
@@ -511,7 +533,7 @@ impl TemplateEngine {
 
 const NPMRC_TEMPLATE: &str = "\
 # Auto-generated by airis init
-# DO NOT EDIT — regenerate with: airis generate files
+# DO NOT EDIT — regenerate with: airis gen
 # Ensures pnpm store stays inside the container volume
 store-dir=/pnpm/store
 virtual-store-dir=.pnpm
@@ -675,7 +697,7 @@ ENTRYPOINT ["tini","--"]
 const DOCKER_COMPOSE_TEMPLATE: &str = r#"# ============================================================
 # {{project}} - Local Development
 # ============================================================
-# Generated by `airis generate files` - DO NOT EDIT MANUALLY
+# Generated by `airis gen` - DO NOT EDIT MANUALLY
 # Source of truth: manifest.toml
 #
 # airis up = local development only (always hot-reload).
@@ -1178,7 +1200,7 @@ workspaces = ["apps/*", "libs/*"]
     fn test_compose_context_default_volumes() {
         let manifest = minimal_manifest();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
         let volume_names = context["volume_names"].as_array().unwrap();
@@ -1202,7 +1224,7 @@ workspaces = ["apps/*", "libs/*"]
     fn test_compose_context_no_workspace_service() {
         let manifest = minimal_manifest();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         // workspace_service and workspace_env should not exist
         assert!(context.get("workspace_service").is_none());
@@ -1292,7 +1314,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
         let volume_names = context["volume_names"].as_array().unwrap();
@@ -1382,7 +1404,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
 
@@ -1415,7 +1437,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let volume_names = context["volume_names"].as_array().unwrap();
 
@@ -1447,7 +1469,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
         let volume_names = context["volume_names"].as_array().unwrap();
@@ -1483,7 +1505,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
 
@@ -1663,13 +1685,13 @@ path = "apps/dashboard"
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
         let volume_names = context["volume_names"].as_array().unwrap();
 
-        // 1 explicit + 4 auto-generated workspace node_modules
-        assert_eq!(workspace_volumes.len(), 5);
+        // 1 explicit + 4 workspaces × 4 artifact dirs (node_modules, .turbo, dist, .next)
+        assert_eq!(workspace_volumes.len(), 17);
 
         // Check auto-generated volume names and mount paths
         let vol_strs: Vec<String> = workspace_volumes
@@ -1677,10 +1699,13 @@ path = "apps/dashboard"
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
 
-        assert!(vol_strs.contains(&"ws_nm_apps_corporate:/app/apps/corporate/node_modules".to_string()));
-        assert!(vol_strs.contains(&"ws_nm_apps_dashboard:/app/apps/dashboard/node_modules".to_string()));
-        assert!(vol_strs.contains(&"ws_nm_libs_ui:/app/libs/ui/node_modules".to_string()));
-        assert!(vol_strs.contains(&"ws_nm_libs_logger:/app/libs/logger/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_apps_corporate:/app/apps/corporate/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_turbo_apps_corporate:/app/apps/corporate/.turbo".to_string()));
+        assert!(vol_strs.contains(&"ws_dist_apps_corporate:/app/apps/corporate/dist".to_string()));
+        assert!(vol_strs.contains(&"ws_next_apps_corporate:/app/apps/corporate/.next".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_apps_dashboard:/app/apps/dashboard/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_libs_ui:/app/libs/ui/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_libs_logger:/app/libs/logger/node_modules".to_string()));
 
         // Volume names should include all
         let name_strs: Vec<String> = volume_names
@@ -1688,8 +1713,8 @@ path = "apps/dashboard"
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
 
-        assert!(name_strs.contains(&"ws_nm_apps_corporate".to_string()));
-        assert!(name_strs.contains(&"ws_nm_libs_ui".to_string()));
+        assert!(name_strs.contains(&"ws_node_modules_apps_corporate".to_string()));
+        assert!(name_strs.contains(&"ws_turbo_libs_ui".to_string()));
     }
 
     #[test]
@@ -1716,7 +1741,7 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
 
@@ -1754,20 +1779,168 @@ workspaces = ["apps/*", "libs/*"]
 "#;
         let manifest: Manifest = toml::from_str(toml_str).unwrap();
         let engine = TemplateEngine::new().unwrap();
-        let context = engine.prepare_docker_compose_data(&manifest).unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
 
-        // 10 defaults + 2 workspace node_modules
-        assert_eq!(workspace_volumes.len(), 12);
+        // 10 defaults + 2 workspaces × 4 artifact dirs (node_modules, .turbo, dist, .next)
+        assert_eq!(workspace_volumes.len(), 18);
 
         let vol_strs: Vec<String> = workspace_volumes
             .iter()
             .map(|v| v.as_str().unwrap().to_string())
             .collect();
 
-        assert!(vol_strs.contains(&"ws_nm_apps_web:/app/apps/web/node_modules".to_string()));
-        assert!(vol_strs.contains(&"ws_nm_libs_shared:/app/libs/shared/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_apps_web:/app/apps/web/node_modules".to_string()));
+        assert!(vol_strs.contains(&"ws_turbo_apps_web:/app/apps/web/.turbo".to_string()));
+        assert!(vol_strs.contains(&"ws_dist_apps_web:/app/apps/web/dist".to_string()));
+        assert!(vol_strs.contains(&"ws_next_apps_web:/app/apps/web/.next".to_string()));
+        assert!(vol_strs.contains(&"ws_node_modules_libs_shared:/app/libs/shared/node_modules".to_string()));
+    }
+
+    #[test]
+    fn test_glob_expansion_adds_products_workspaces() {
+        // Test that packages.workspaces glob patterns are expanded via filesystem
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Create directories matching "products/*" glob with package.json
+        std::fs::create_dir_all(root.join("products/sales-agent")).unwrap();
+        std::fs::write(root.join("products/sales-agent/package.json"), "{}").unwrap();
+        std::fs::create_dir_all(root.join("products/bidalert")).unwrap();
+        std::fs::write(root.join("products/bidalert/package.json"), "{}").unwrap();
+
+        let toml_str = r#"
+[workspace]
+name = "test-project"
+image = "node:22-alpine"
+workdir = "/app"
+volumes = ["node_modules:/app/node_modules"]
+
+[commands]
+dev = "pnpm dev"
+
+[versioning]
+strategy = "manual"
+
+[packages]
+workspaces = ["products/*"]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let paths = manifest.all_workspace_paths_in(root.to_str().unwrap());
+
+        // Should contain the two products directories
+        assert!(paths.contains(&"products/sales-agent".to_string()));
+        assert!(paths.contains(&"products/bidalert".to_string()));
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_glob_expansion_skips_exclude_patterns() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("apps/web")).unwrap();
+        std::fs::write(root.join("apps/web/package.json"), "{}").unwrap();
+
+        let toml_str = r#"
+[workspace]
+name = "test-project"
+image = "node:22-alpine"
+workdir = "/app"
+
+[commands]
+dev = "pnpm dev"
+
+[versioning]
+strategy = "manual"
+
+[packages]
+workspaces = ["apps/*", "!apps/internal"]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let paths = manifest.all_workspace_paths_in(root.to_str().unwrap());
+
+        // Should contain apps/web from glob, exclude pattern should be skipped
+        assert!(paths.contains(&"apps/web".to_string()));
+        assert!(!paths.contains(&"!apps/internal".to_string()));
+    }
+
+    #[test]
+    fn test_extends_with_volumes_merges_base_volumes() {
+        // When a service uses extends + own volumes, base volumes should be included
+        let toml_str = r#"
+[workspace]
+name = "test-project"
+image = "node:22-alpine"
+workdir = "/app"
+volumes = ["node_modules:/app/node_modules"]
+
+[commands]
+dev = "pnpm dev"
+
+[versioning]
+strategy = "manual"
+
+[packages]
+workspaces = []
+
+[service.sales-agent]
+image = "node:22-alpine"
+extends = "app-base"
+command = "pnpm dev"
+volumes = ["sales_data:/app/data"]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
+
+        let services = context["services"].as_array().unwrap();
+        let svc = &services[0];
+        let volumes = svc["volumes"].as_array().unwrap();
+        let vol_strs: Vec<String> = volumes.iter().map(|v| v.as_str().unwrap().to_string()).collect();
+
+        // Should contain base bind mount
+        assert!(vol_strs.contains(&"./:/app:delegated".to_string()));
+        // Should contain base workspace volumes
+        assert!(vol_strs.contains(&"node_modules:/app/node_modules".to_string()));
+        // Should contain service-specific volume
+        assert!(vol_strs.contains(&"sales_data:/app/data".to_string()));
+    }
+
+    #[test]
+    fn test_extends_without_volumes_keeps_original() {
+        // When a service uses extends but no own volumes, volumes should be empty (inherits from YAML merge)
+        let toml_str = r#"
+[workspace]
+name = "test-project"
+image = "node:22-alpine"
+workdir = "/app"
+volumes = ["node_modules:/app/node_modules"]
+
+[commands]
+dev = "pnpm dev"
+
+[versioning]
+strategy = "manual"
+
+[packages]
+workspaces = []
+
+[service.frontend]
+image = "node:22-alpine"
+extends = "app-base"
+command = "pnpm dev"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let context = engine.prepare_docker_compose_data(&manifest, "/nonexistent").unwrap();
+
+        let services = context["services"].as_array().unwrap();
+        let svc = &services[0];
+        let volumes = svc["volumes"].as_array().unwrap();
+
+        // No own volumes → should be empty (YAML merge handles it)
+        assert_eq!(volumes.len(), 0);
     }
 
 }

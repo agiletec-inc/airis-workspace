@@ -27,7 +27,7 @@ airis sync-deps
 
 # After
 airis init        # resolves catalog versions during initialization
-airis generate files  # regenerates workspace files with resolved versions
+airis gen  # regenerates workspace files with resolved versions
 ```
 
 ## [1.43.0] - 2025-01-09

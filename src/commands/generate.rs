@@ -11,7 +11,7 @@ use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
 
-/// CLI entry point for `airis generate files`
+/// CLI entry point for `airis gen`
 /// Regenerates workspace files from existing manifest.toml
 pub fn run(dry_run: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
@@ -36,7 +36,7 @@ pub fn run(dry_run: bool) -> Result<()> {
         println!();
         println!("{}", "ℹ️  No files were written (dry-run mode)".yellow());
         println!("{}", "To actually generate files, run:".bright_yellow());
-        println!("  airis generate files");
+        println!("  airis gen");
     } else {
         println!("{}", "🧩 Regenerating workspace files...".bright_blue());
         sync_from_manifest(&manifest)?;

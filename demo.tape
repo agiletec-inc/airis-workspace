@@ -16,7 +16,7 @@ Enter
 Sleep 3s
 
 # 2. Generate all workspace files from manifest.toml
-Type "airis generate files"
+Type "airis gen"
 Enter
 Sleep 3s
 

@@ -1074,7 +1074,7 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
         "No compose file found.\n\n\
          Expected: compose.yml (or docker-compose.yml) or [orchestration.dev] config in manifest.toml\n\
          Verify:   airis manifest json\n\
-         Generate: airis generate files"
+         Generate: airis gen"
     );
 }
 
@@ -2188,7 +2188,7 @@ name = "test"
             let err_msg = result.unwrap_err().to_string();
             assert!(err_msg.contains("No compose file found"));
             assert!(err_msg.contains("airis manifest json"));
-            assert!(err_msg.contains("airis generate files"));
+            assert!(err_msg.contains("airis gen"));
         });
 
         std::env::set_current_dir(original_dir).unwrap();

@@ -28,7 +28,7 @@ Guide for using the `airis` CLI to safely work within Docker workspaces across y
 airis init                    # Auto-discover existing projects + preview (dry-run)
 airis init --write            # Execute discovery and create manifest.toml
 airis init --skip-discovery   # Create from empty template (legacy mode)
-airis generate files          # Regenerate workspace files from manifest.toml
+airis gen          # Regenerate workspace files from manifest.toml
 airis up                      # Start Docker services
 airis down                    # Stop Docker services
 airis install                 # Run pnpm install inside workspace container
@@ -174,7 +174,7 @@ airis install
 ### Changes to manifest.toml not reflected
 
 ```bash
-airis generate files          # Regenerate workspace files
+airis gen          # Regenerate workspace files
 ```
 
 ---
@@ -184,7 +184,7 @@ airis generate files          # Regenerate workspace files
 **Do:**
 - Run `airis` from the repository root
 - Use `airis shell` to access `pnpm` directly
-- Add new apps/config to `manifest.toml`, then run `airis generate files`
+- Add new apps/config to `manifest.toml`, then run `airis gen`
 - Run `airis clean` periodically to remove build artifacts
 
 **Don't:**

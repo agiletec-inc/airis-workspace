@@ -42,7 +42,7 @@ manifest.toml (user edits this)
 | `manifest.rs` | TOML schema: `Manifest`, `ProjectDefinition`, `ServiceConfig`, etc. |
 | `templates/mod.rs` | Handlebars template engine for all generated files |
 | `commands/run.rs` | Execute `[commands]` from manifest, env interpolation, Docker exec |
-| `commands/generate.rs` | `airis generate files` — orchestrates all file generation |
+| `commands/generate.rs` | `airis gen` — orchestrates all file generation |
 | `commands/init.rs` | `airis init` — creates manifest.toml template (never overwrites) |
 | `commands/doctor.rs` | Workspace health check, drift detection |
 | `commands/discover.rs` | Auto-scan apps/libs, detect frameworks |

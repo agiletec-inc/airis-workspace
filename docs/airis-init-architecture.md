@@ -13,10 +13,10 @@ airis init --write            # 実行して manifest.toml 作成
 airis init --skip-discovery   # 空テンプレートから作成
 
 # manifest.toml 更新後
-airis generate files          # ワークスペースファイル再生成
+airis gen          # ワークスペースファイル再生成
 ```
 
-**ユーザーは `airis init` で自動検出 → manifest.toml 生成 → `airis generate files` で反映。**
+**ユーザーは `airis init` で自動検出 → manifest.toml 生成 → `airis gen` で反映。**
 
 ## 実装アーキテクチャ（READ-ONLY モード）
 
