@@ -106,6 +106,9 @@ pub fn run(fix: bool) -> Result<()> {
     // Check for orphaned packages (not in manifest)
     check_orphaned_packages(&manifest, &mut issues)?;
 
+    // Check for leaked host artifacts (node_modules, .pnpm, build outputs, etc.)
+    check_host_artifacts(&mut issues)?;
+
     // Report results
     if issues.is_empty() {
         println!("{}", "✅ Workspace is healthy!".green());
@@ -327,6 +330,79 @@ fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Resu
     Ok(())
 }
 
+/// Determine severity for a host artifact based on its name.
+///
+/// Dependency directories (`node_modules`, `.pnpm`) are errors because they
+/// indicate the bind mount is leaking container-installed packages.
+/// Build outputs (`.turbo`, `.next`, `dist`, `build`, `coverage`) are warnings.
+fn artifact_severity(name: &str) -> Severity {
+    match name {
+        "node_modules" | ".pnpm" | ".pnpm-store" => Severity::Error,
+        _ => Severity::Warning,
+    }
+}
+
+/// Check for host artifacts that should only exist inside containers.
+///
+/// In Docker-first mode, dependencies and build outputs should stay in
+/// container volumes. If they appear on the host, the bind mount is leaking.
+fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
+    let artifact_names = [
+        "node_modules",
+        ".pnpm",
+        ".pnpm-store",
+        ".turbo",
+        ".next",
+        "dist",
+        "build",
+        "coverage",
+    ];
+
+    for name in &artifact_names {
+        let output = std::process::Command::new("find")
+            .args([
+                ".",
+                "-name", name,
+                "-type", "d",
+                "-not", "-path", "./.git/*",
+                "-not", "-path", "*/node_modules/*",
+                "-maxdepth", "4",
+            ])
+            .output()
+            .with_context(|| format!("Failed to run find for {}", name))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Skip root-level matches for artifacts that might legitimately exist at root
+            // (e.g., ./node_modules is the root volume mount)
+            if trimmed == format!("./{}", name) && *name == "node_modules" {
+                continue;
+            }
+
+            let severity = artifact_severity(name);
+            let hint = match severity {
+                Severity::Error => "run `airis clean && airis install`",
+                Severity::Warning => "run `airis clean`",
+            };
+
+            issues.push(Issue {
+                file: trimmed.to_string(),
+                description: format!(
+                    "Host artifact `{}` leaked from container ({})",
+                    name, hint
+                ),
+                severity,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Resolve catalog version policies (copied from generate.rs to avoid circular deps)
 fn resolve_catalog_versions(
     catalog: &IndexMap<String, CatalogEntry>,
@@ -376,5 +452,21 @@ mod tests {
             severity: Severity::Error,
         };
         assert_eq!(issue.severity, Severity::Error);
+    }
+
+    #[test]
+    fn test_artifact_severity_dependencies_are_errors() {
+        assert_eq!(artifact_severity("node_modules"), Severity::Error);
+        assert_eq!(artifact_severity(".pnpm"), Severity::Error);
+        assert_eq!(artifact_severity(".pnpm-store"), Severity::Error);
+    }
+
+    #[test]
+    fn test_artifact_severity_build_outputs_are_warnings() {
+        assert_eq!(artifact_severity(".turbo"), Severity::Warning);
+        assert_eq!(artifact_severity(".next"), Severity::Warning);
+        assert_eq!(artifact_severity("dist"), Severity::Warning);
+        assert_eq!(artifact_severity("build"), Severity::Warning);
+        assert_eq!(artifact_severity("coverage"), Severity::Warning);
     }
 }

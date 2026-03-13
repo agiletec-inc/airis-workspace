@@ -60,7 +60,7 @@ manifest.toml (user edits this)
 - `[[app]]` — project definitions with deps/scripts (generates per-project package.json)
 - `[service.*]` — Docker Compose service definitions
 - `[packages.catalog]` — version policies (`"latest"`, `"lts"`, `"^X.Y.Z"`, `{ follow = "pkg" }`)
-- `[commands]` — user-defined CLI commands (`airis up`, `airis shell`, etc.)
+- `[commands]` — user-defined CLI commands (`airis up`, `airis down`, `airis ps`)
 - `[guards]` — Docker-first enforcement (`deny`, `forbid`, `danger`, `wrap`)
 - `[remap]` — auto-translate banned commands to safe alternatives
 - `[versioning]` — version strategy (conventional-commits, manual, auto)
@@ -92,6 +92,21 @@ commander = "^13.1.0"     # pinned version
 [app.dev_deps]
 typescript = "catalog"
 ```
+
+## Generated Docker Design
+
+**No workspace container.** Each service container runs `pnpm install` during Docker build.
+
+- **Dockerfile**: `COPY . .` → `RUN pnpm install --frozen-lockfile` → `ENTRYPOINT ["tini","--"]`
+- **Compose (dev)**: bind mount `.:/app` overrides COPY, named volumes isolate dependencies
+- **Compose (prod)**: no bind mount, COPY layer is used as-is
+- **Default CLI commands**: `up`, `down`, `ps` only — no `shell`/`build`/`test`/`lint`
+
+**Filesystem boundary rules:**
+- Dependencies (node_modules, pnpm store) → named volumes, never on host
+- Source code → bind mount `.:/app` (dev only)
+- Build cache (.next, dist, .turbo) → named volumes (keeps host clean)
+- Workspace node_modules → auto-generated `ws_nm_*` volumes per workspace path
 
 ## Invariants
 

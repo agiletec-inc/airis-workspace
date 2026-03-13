@@ -10,6 +10,7 @@ use std::process::{Command, Stdio};
 use crate::manifest::Manifest;
 
 /// Extract package manager command from manifest (e.g., "pnpm@10.22.0" -> "pnpm")
+#[cfg(test)]
 fn get_package_manager(manifest: &Manifest) -> &str {
     let pm = &manifest.workspace.package_manager;
     if pm.starts_with("pnpm") {
@@ -240,6 +241,31 @@ struct DiscoveredService {
     name: String,
     url: String,
     is_reachable: bool,
+}
+
+/// Extract the host port from a manifest ServiceConfig.
+/// Handles formats: "${VAR:-DEFAULT}:CONTAINER", "HOST:CONTAINER", single port
+fn extract_host_port_from_service(svc: &crate::manifest::ServiceConfig) -> Option<u16> {
+    // Try ports array first, then fallback to deprecated port field
+    let port_str = svc.ports.first().map(|s| s.as_str());
+    if let Some(port_str) = port_str {
+        // Handle ${VAR:-DEFAULT}:CONTAINER format
+        // The ":-" inside ${} conflicts with ":" as port separator,
+        // so split on "}:" to find the boundary
+        if port_str.starts_with("${") {
+            if let Some(close_brace) = port_str.find('}') {
+                let var_part = &port_str[2..close_brace]; // "VAR:-DEFAULT"
+                if let Some(default_val) = var_part.split(":-").nth(1) {
+                    return default_val.parse().ok();
+                }
+            }
+            return None;
+        }
+        // Plain "HOST:CONTAINER" format
+        let host_part = port_str.split(':').next()?;
+        return host_part.parse().ok();
+    }
+    svc.port
 }
 
 /// Parse service ports from docker compose config JSON
@@ -712,7 +738,26 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // Tier 2: compose port mapping auto-detection
+    // Tier 2: manifest.service port definitions (works regardless of profiles)
+    for (svc_name, svc_config) in &manifest.service {
+        if let Some(host_port) = extract_host_port_from_service(svc_config) {
+            let url = format!("http://localhost:{}", host_port);
+            if seen_urls.insert(url.clone()) {
+                let display_name = svc_config
+                    .container_name
+                    .as_deref()
+                    .unwrap_or(svc_name)
+                    .to_string();
+                all_services.push(DiscoveredService {
+                    name: display_name,
+                    url,
+                    is_reachable: false,
+                });
+            }
+        }
+    }
+
+    // Tier 3: compose port mapping auto-detection
     let compose_files = collect_all_compose_files(manifest);
     for svc in discover_compose_port_urls(&compose_files) {
         if seen_urls.insert(svc.url.clone()) {
@@ -724,7 +769,7 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // Tier 3: Traefik Docker labels + static config
+    // Tier 4: Traefik Docker labels + static config
     if manifest.dev.traefik.is_some() {
         // Extract Traefik port
         let traefik_port = if let Some(traefik_file) = &manifest.dev.traefik {
@@ -810,6 +855,13 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
                     is_reachable,
                 });
             }
+        }
+    }
+
+    // Check reachability for services that haven't been checked yet
+    for svc in &mut all_services {
+        if !svc.is_reachable {
+            svc.is_reachable = is_service_reachable(&svc.url);
         }
     }
 
@@ -1029,6 +1081,7 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
 /// Validate a clean path/pattern is safe (no path traversal, no absolute paths)
 ///
 /// Returns Some(sanitized_value) if safe, None if dangerous
+#[cfg(test)]
 fn validate_clean_path(path: &str) -> Option<String> {
     let trimmed = path.trim();
 
@@ -1069,6 +1122,7 @@ fn validate_clean_path(path: &str) -> Option<String> {
 /// Validate a recursive pattern (for find -name)
 ///
 /// Returns Some(sanitized_pattern) if safe, None if dangerous
+#[cfg(test)]
 fn validate_clean_pattern(pattern: &str) -> Option<String> {
     let trimmed = pattern.trim();
 
@@ -1109,6 +1163,7 @@ fn validate_clean_pattern(pattern: &str) -> Option<String> {
 /// - Validates all paths to prevent path traversal attacks
 /// - Rejects absolute paths and ".." sequences
 /// - Sanitizes shell metacharacters
+#[cfg(test)]
 fn build_clean_command(manifest: &Manifest) -> String {
     let clean = &manifest.workspace.clean;
     let mut parts = Vec::new();
@@ -1165,9 +1220,6 @@ fn build_clean_command(manifest: &Manifest) -> String {
 
 /// Default commands - CLI is the source of truth, manifest can override
 fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
-    let pm = get_package_manager(manifest);
-    let service = &manifest.workspace.service;
-
     let mut cmds = IndexMap::new();
 
     // Detect project type: Rust or Node
@@ -1181,24 +1233,12 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
         cmds.insert("lint".to_string(), "cargo clippy".to_string());
         cmds.insert("format".to_string(), "cargo fmt".to_string());
     } else {
-        // Docker/Node project: docker compose commands required
+        // Docker/Node project: up/down/ps only — no workspace container
+        // Install runs inside Dockerfile RUN, not via CLI
         cmds.insert("up".to_string(), build_compose_command(manifest, "up -d --build --remove-orphans")?);
         cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
-        cmds.insert("logs".to_string(), build_compose_command(manifest, "logs -f")?);
         cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
-        cmds.insert("shell".to_string(), build_compose_command(manifest, &format!("exec -it {} sh", service))?);
-
-        // Node project: use package manager commands (auto-inferred from manifest.workspace.package_manager)
-        // NOTE: "install" and "dev" are deprecated — use "airis up" instead (docker compose up -d --build)
-        cmds.insert("build".to_string(), build_compose_command(manifest, &format!("exec {} {} build", service, pm))?);
-        cmds.insert("test".to_string(), build_compose_command(manifest, &format!("exec {} {} test", service, pm))?);
-        cmds.insert("lint".to_string(), build_compose_command(manifest, &format!("exec {} {} lint", service, pm))?);
-        cmds.insert("typecheck".to_string(), build_compose_command(manifest, &format!("exec {} {} typecheck", service, pm))?);
-        cmds.insert("format".to_string(), build_compose_command(manifest, &format!("exec {} {} format", service, pm))?);
     }
-
-    // Clean command
-    cmds.insert("clean".to_string(), build_clean_command(manifest));
 
     Ok(cmds)
 }
@@ -1917,19 +1957,23 @@ version = 1
 [workspace]
 name = "test"
 package_manager = "bun@1.0.0"
-service = "app"
 "#;
         let result = std::panic::catch_unwind(|| {
             let manifest: Manifest = toml::from_str(manifest_content).unwrap();
             let cmds = default_commands(&manifest).unwrap();
 
-            // "install" and "dev" are deprecated — no longer in defaults
+            // Only up/down/ps for Node projects — no workspace container
+            assert!(cmds.contains_key("up"));
+            assert!(cmds.contains_key("down"));
+            assert!(cmds.contains_key("ps"));
             assert!(!cmds.contains_key("install"));
             assert!(!cmds.contains_key("dev"));
-            // Should use bun for remaining commands
-            assert!(cmds.get("test").unwrap().contains("bun test"));
-            // Should use custom service name
-            assert!(cmds.get("shell").unwrap().contains("exec -it app sh"));
+            assert!(!cmds.contains_key("shell"));
+            assert!(!cmds.contains_key("build"));
+            assert!(!cmds.contains_key("test"));
+            assert!(!cmds.contains_key("lint"));
+            assert!(!cmds.contains_key("clean"));
+            assert!(!cmds.contains_key("logs"));
             // "up" should include --build
             assert!(cmds.get("up").unwrap().contains("up -d --build"));
         });
@@ -2578,5 +2622,97 @@ test = "echo safe"
 
         std::env::set_current_dir(original_dir).unwrap();
         result.unwrap();
+    }
+
+    #[test]
+    fn test_extract_host_port_env_var_default() {
+        let svc = crate::manifest::ServiceConfig {
+            image: String::new(),
+            port: None,
+            ports: vec!["${CORPORATE_PORT:-3000}:3000".to_string()],
+            command: None,
+            volumes: vec![],
+            env: IndexMap::new(),
+            profiles: vec![],
+            depends_on: vec![],
+            restart: None,
+            shm_size: None,
+            container_name: None,
+            working_dir: None,
+            extra_hosts: vec![],
+            deploy: None,
+            watch: vec![],
+            extends: None,
+        };
+        assert_eq!(extract_host_port_from_service(&svc), Some(3000));
+    }
+
+    #[test]
+    fn test_extract_host_port_plain_number() {
+        let svc = crate::manifest::ServiceConfig {
+            image: String::new(),
+            port: None,
+            ports: vec!["8080:80".to_string()],
+            command: None,
+            volumes: vec![],
+            env: IndexMap::new(),
+            profiles: vec![],
+            depends_on: vec![],
+            restart: None,
+            shm_size: None,
+            container_name: None,
+            working_dir: None,
+            extra_hosts: vec![],
+            deploy: None,
+            watch: vec![],
+            extends: None,
+        };
+        assert_eq!(extract_host_port_from_service(&svc), Some(8080));
+    }
+
+    #[test]
+    fn test_extract_host_port_fallback_to_port_field() {
+        let svc = crate::manifest::ServiceConfig {
+            image: String::new(),
+            port: Some(9090),
+            ports: vec![],
+            command: None,
+            volumes: vec![],
+            env: IndexMap::new(),
+            profiles: vec![],
+            depends_on: vec![],
+            restart: None,
+            shm_size: None,
+            container_name: None,
+            working_dir: None,
+            extra_hosts: vec![],
+            deploy: None,
+            watch: vec![],
+            extends: None,
+        };
+        assert_eq!(extract_host_port_from_service(&svc), Some(9090));
+    }
+
+    #[test]
+    fn test_extract_host_port_no_ports() {
+        let svc = crate::manifest::ServiceConfig {
+            image: String::new(),
+            port: None,
+            ports: vec![],
+            command: None,
+            volumes: vec![],
+            env: IndexMap::new(),
+            profiles: vec![],
+            depends_on: vec![],
+            restart: None,
+            shm_size: None,
+            container_name: None,
+            working_dir: None,
+            extra_hosts: vec![],
+            deploy: None,
+            watch: vec![],
+            extends: None,
+        };
+        assert_eq!(extract_host_port_from_service(&svc), None);
     }
 }

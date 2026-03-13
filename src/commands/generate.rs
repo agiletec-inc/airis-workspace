@@ -179,6 +179,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         }
     }
 
+    // Generate .npmrc for pnpm store isolation
+    generate_npmrc(&engine)?;
+
     // Generate .env.example if [env] section has required or optional vars
     let env_example_generated = if !manifest.env.required.is_empty() || !manifest.env.optional.is_empty() {
         generate_env_example(manifest, &engine)?;
@@ -201,6 +204,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     println!("   - package.json (with workspaces)");
     println!("   - Dockerfile");
     println!("   - compose.yml");
+    println!("   - .npmrc (pnpm store isolation)");
     if manifest.ci.enabled {
         println!("   - .github/workflows/ci.yml");
         println!("   - .github/workflows/release.yml");
@@ -333,6 +337,16 @@ fn generate_env_example(manifest: &Manifest, engine: &TemplateEngine) -> Result<
     Ok(())
 }
 
+
+fn generate_npmrc(engine: &TemplateEngine) -> Result<()> {
+    let content = engine.render_npmrc()?;
+    let path = Path::new(".npmrc");
+
+    write_with_backup(path, &content)?;
+    println!("   {} .npmrc (pnpm store isolation)", "✓".green());
+
+    Ok(())
+}
 
 fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let path = Path::new(".envrc");
