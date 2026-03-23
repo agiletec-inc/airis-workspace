@@ -889,17 +889,16 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         let health_check = format!("docker compose -f {} exec -T db pg_isready -U postgres -h localhost", compose_file);
         let mut retries = 30;
         while retries > 0 {
-            if exec_command(&health_check).unwrap_or(false) {
+            if exec_command(&health_check)? {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_secs(2));
             retries -= 1;
         }
         if retries == 0 {
-            println!("   {} Supabase DB health check timed out, continuing anyway...", "⚠️".yellow());
-        } else {
-            println!("   {} Supabase DB is healthy", "✅".green());
+            bail!("Supabase DB health check timed out after 60s. Check `docker compose logs db`");
         }
+        println!("   {} Supabase DB is healthy", "✅".green());
     }
 
     // 2. Start Traefik (if configured)
@@ -907,7 +906,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         println!("{}", "🔀 Starting Traefik...".cyan().bold());
 
         if !smart_compose_up(None, &[traefik.as_str()])? {
-            println!("   {} Traefik failed to start, continuing anyway...", "⚠️".yellow());
+            bail!("Traefik failed to start. Check `docker compose -f {} logs`", traefik);
         }
     }
 
@@ -916,8 +915,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
         if !smart_compose_up(None, &[compose_file])? {
-            println!("   {} Workspace failed to start, continuing anyway...", "⚠️".yellow());
-            println!("   {} Apps will run without shared workspace container", "ℹ️".dimmed());
+            bail!("Workspace failed to start. Check `docker compose logs`");
         }
     }
 
@@ -2643,6 +2641,9 @@ test = "echo safe"
             deploy: None,
             watch: vec![],
             extends: None,
+            devices: vec![],
+            runtime: None,
+            gpu: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(3000));
     }
@@ -2666,6 +2667,9 @@ test = "echo safe"
             deploy: None,
             watch: vec![],
             extends: None,
+            devices: vec![],
+            runtime: None,
+            gpu: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(8080));
     }
@@ -2689,6 +2693,9 @@ test = "echo safe"
             deploy: None,
             watch: vec![],
             extends: None,
+            devices: vec![],
+            runtime: None,
+            gpu: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(9090));
     }
@@ -2712,6 +2719,9 @@ test = "echo safe"
             deploy: None,
             watch: vec![],
             extends: None,
+            devices: vec![],
+            runtime: None,
+            gpu: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), None);
     }

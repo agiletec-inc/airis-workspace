@@ -25,35 +25,26 @@ fn resolve_dependencies(
             resolved_catalog
                 .get(package)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!(
-                        "⚠️  Warning: {} not found in catalog, using original spec: {}",
-                        package, version_spec
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "'{}' uses catalog: but is not defined in [packages.catalog]",
+                    package
+                ))?
         } else if let Some(catalog_key) = version_spec.strip_prefix("catalog:") {
             // "catalog:key" → look up specific key
             resolved_catalog
                 .get(catalog_key)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!(
-                        "⚠️  Warning: catalog key '{}' not found for {}, using original spec: {}",
-                        catalog_key, package, version_spec
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "'{}' references catalog key '{}' which is not defined in [packages.catalog]",
+                    package, catalog_key
+                ))?
         } else if version_spec == "latest" || version_spec == "lts" {
             // Resolve from npm registry
             resolve_version(package, version_spec)
-                .unwrap_or_else(|e| {
-                    eprintln!(
-                        "⚠️  Warning: Failed to resolve {} for {}: {}. Using original spec.",
-                        version_spec, package, e
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "Failed to resolve {} for '{}' from npm registry",
+                    version_spec, package
+                ))?
         } else {
             // Use as-is (specific version)
             version_spec.clone()
@@ -125,6 +116,7 @@ impl TemplateEngine {
             "variant": variant,
             "is_nextjs": variant == "nextjs",
             "is_node": variant == "node" || variant == "worker",
+            "is_worker": variant == "worker",
             "pnpm_version": pnpm_version,
             "port": port,
             "entrypoint": entrypoint,
@@ -430,6 +422,10 @@ impl TemplateEngine {
                     "deploy": svc.deploy,
                     "watch": svc.watch,
                     "extends": svc.extends,
+                    "devices": svc.devices,
+                    "runtime": svc.runtime,
+                    "gpu": svc.gpu,
+                    "health_path": svc.health_path,
                 })
             })
             .collect();
@@ -679,7 +675,15 @@ services:
     working_dir: {{working_dir}}
 {{/unless}}
 {{/if}}
-{{#if deploy}}
+{{#if gpu}}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: {{gpu.driver}}
+              count: {{gpu.count}}
+              capabilities: [{{#each gpu.capabilities}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]
+{{else if deploy}}
 {{#unless extends}}
     deploy:
       replicas: {{deploy.replicas}}
@@ -735,6 +739,15 @@ services:
 {{#if restart}}
     restart: {{restart}}
 {{/if}}
+{{#if runtime}}
+    runtime: {{runtime}}
+{{/if}}
+{{#if devices}}
+    devices:
+{{#each devices}}
+      - {{this}}
+{{/each}}
+{{/if}}
 {{#if watch}}
     develop:
       watch:
@@ -752,6 +765,14 @@ services:
 {{/each}}
 {{/if}}
 {{/each}}
+{{/if}}
+{{#if health_path}}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').request({hostname:'localhost',port:{{port}},path:'{{health_path}}',timeout:5000},(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1)).end()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 {{/if}}
 
 {{/each}}
@@ -847,12 +868,14 @@ RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 USER nodejs
 
 ENV NODE_ENV=production
+{{#unless is_worker}}
 ENV PORT={{port}}
 
 EXPOSE {{port}}
 
 HEALTHCHECK --interval={{health_interval}} --timeout=10s --start-period=30s --retries=3 \
   CMD wget -q --spider http://localhost:{{port}}{{health_path}} || exit 1
+{{/unless}}
 
 CMD ["node", "{{entrypoint}}"]
 "#;
@@ -1627,6 +1650,75 @@ command = "pnpm dev"
 
         // No own volumes → should be empty (YAML merge handles it)
         assert_eq!(volumes.len(), 0);
+    }
+
+    #[test]
+    fn test_compose_gpu_service() {
+        let toml_str = r#"
+version = 1
+mode = "docker-first"
+[workspace]
+name = "gpu-test"
+workdir = "/app"
+
+[service.ml]
+image = "nvidia/cuda:12.6"
+runtime = "nvidia"
+devices = ["/dev/dri:/dev/dri"]
+
+[service.ml.gpu]
+driver = "nvidia"
+count = "all"
+capabilities = ["gpu"]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_docker_compose(&manifest).unwrap();
+
+        assert!(result.contains("runtime: nvidia"), "missing runtime");
+        assert!(
+            result.contains("- /dev/dri:/dev/dri"),
+            "missing devices"
+        );
+        assert!(result.contains("driver: nvidia"), "missing gpu driver");
+        assert!(result.contains("count: all"), "missing gpu count");
+        assert!(
+            result.contains("capabilities: [gpu]"),
+            "missing gpu capabilities"
+        );
+        // ml service should have deploy.resources, not deploy.replicas
+        // (x-app-base may have replicas, but the service itself should not)
+        let ml_section = result.split("  ml:").nth(1).unwrap();
+        assert!(
+            ml_section.contains("resources:"),
+            "ml service should have deploy.resources"
+        );
+        assert!(
+            !ml_section.contains("replicas:"),
+            "ml service should not have replicas when gpu is set"
+        );
+    }
+
+    #[test]
+    fn test_compose_gpu_defaults() {
+        let toml_str = r#"
+version = 1
+mode = "docker-first"
+[workspace]
+name = "gpu-test"
+workdir = "/app"
+
+[service.ml]
+image = "nvidia/cuda:12.6"
+gpu = {}
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let svc = &manifest.service["ml"];
+        let gpu = svc.gpu.as_ref().unwrap();
+
+        assert_eq!(gpu.driver, "nvidia");
+        assert_eq!(gpu.count, "all");
+        assert_eq!(gpu.capabilities, vec!["gpu".to_string()]);
     }
 
 }
