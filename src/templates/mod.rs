@@ -364,7 +364,18 @@ impl TemplateEngine {
 
         // Auto-generate artifact volumes for each workspace (apps/libs/products/...)
         // This prevents container-generated artifacts from leaking to the host via bind mount
-        let artifact_dirs = ["node_modules", ".turbo", "dist", ".next"];
+        // Source of truth: [workspace.clean] — recursive dirs + clean dirs
+        let mut artifact_dirs: Vec<&str> = Vec::new();
+        for d in &manifest.workspace.clean.recursive {
+            artifact_dirs.push(d.as_str());
+        }
+        for d in &manifest.workspace.clean.dirs {
+            // Skip file entries (e.g., "pnpm-lock.yaml") — has extension but doesn't start with dot
+            if d.contains('.') && !d.starts_with('.') { continue; }
+            // Skip duplicates already in recursive list
+            if artifact_dirs.contains(&d.as_str()) { continue; }
+            artifact_dirs.push(d.as_str());
+        }
         let mut workspace_volumes = workspace_volumes;
         for ws_path in manifest.all_workspace_paths_in(root) {
             for artifact in &artifact_dirs {
