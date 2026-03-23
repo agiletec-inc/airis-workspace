@@ -201,6 +201,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     // Inject values into files with airis:inject markers
     let inject_count = inject_values(&manifest.inject, &resolved_catalog)?;
 
+    // Sync pnpm-lock.yaml with updated package.json files
+    // Uses --lockfile-only to avoid touching node_modules (fast)
+    sync_lockfile(manifest)?;
+
     println!();
     println!("{}", "✅ Generated files:".green());
     println!("   - package.json (with workspaces)");
@@ -517,6 +521,72 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
     Ok(())
 }
 
+// ── Lockfile synchronization ──────────────────────────────────
+
+/// Sync pnpm-lock.yaml after package.json updates.
+/// Uses `--lockfile-only` to avoid installing into node_modules (fast).
+/// Runs via Docker if mode is docker-first, otherwise directly.
+fn sync_lockfile(manifest: &Manifest) -> Result<()> {
+    use std::process::Command;
+
+    // Only sync if pnpm-lock.yaml exists (skip for fresh projects)
+    if !Path::new("pnpm-lock.yaml").exists() {
+        return Ok(());
+    }
+
+    println!();
+    println!("{}", "🔒 Syncing pnpm-lock.yaml...".bright_blue());
+
+    let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
+
+    // Find a running service to exec into
+    let docker_service = manifest.docker.workspace
+        .as_ref()
+        .map(|w| w.service.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
+
+    let status = if is_docker_first && docker_service.is_some() {
+        let svc = docker_service.unwrap();
+        // Docker-first: run inside container
+        Command::new("docker")
+            .args(["compose", "exec", "-T", svc, "pnpm", "install", "--lockfile-only"])
+            .status()
+            .or_else(|_| {
+                // Fallback: try running directly if container isn't up
+                Command::new("pnpm")
+                    .args(["install", "--lockfile-only"])
+                    .status()
+            })
+    } else {
+        // Non-docker or no service found: run directly
+        Command::new("pnpm")
+            .args(["install", "--lockfile-only"])
+            .status()
+    };
+
+    match status {
+        Ok(s) if s.success() => {
+            println!("   {} pnpm-lock.yaml synced", "✓".green());
+        }
+        Ok(_) => {
+            println!(
+                "   {} pnpm-lock.yaml sync failed (run `pnpm install --lockfile-only` manually)",
+                "⚠".yellow()
+            );
+        }
+        Err(e) => {
+            println!(
+                "   {} pnpm-lock.yaml sync skipped: {}",
+                "⚠".yellow(),
+                e
+            );
+        }
+    }
+
+    Ok(())
+}
+
 // ── Value injection into user-owned files ─────────────────────
 
 /// Scan workspace files for `# airis:inject <key>` markers and replace
@@ -546,7 +616,14 @@ fn inject_values(
     let mut modified_count = 0;
 
     // Walk workspace respecting .gitignore
-    let walker = ignore::WalkBuilder::new(".").hidden(false).git_ignore(true).build();
+    let walker = walkdir::WalkDir::new(".")
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_str().unwrap_or("");
+            // Skip .git directory, node_modules, dist, .next, .turbo
+            !matches!(name, ".git" | "node_modules" | "dist" | ".next" | ".turbo" | ".pnpm" | ".cache" | "coverage")
+        });
 
     for entry in walker {
         let entry = match entry {
@@ -554,7 +631,7 @@ fn inject_values(
             Err(_) => continue,
         };
 
-        if !entry.file_type().map_or(false, |ft| ft.is_file()) {
+        if !entry.file_type().is_file() {
             continue;
         }
 
@@ -581,6 +658,13 @@ fn inject_values(
         }
 
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
+        eprintln!("DEBUG: found marker in {}, lines={}", path.display(), lines.len());
+        for (idx, line) in lines.iter().enumerate() {
+            if line.contains("airis:inject") {
+                let matched = marker_re.is_match(line);
+                eprintln!("DEBUG: line {}='{}' matched={}", idx, line.trim(), matched);
+            }
+        }
         let mut file_modified = false;
 
         let mut i = 0;

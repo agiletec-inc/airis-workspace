@@ -173,6 +173,7 @@ mod tests {
             port: None,
             replicas: None,
             resources: None,
+            deploy: None,
         }
     }
 

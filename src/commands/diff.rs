@@ -135,17 +135,7 @@ fn compute_diff(manifest: &Manifest) -> Result<DiffResult> {
         )?);
     }
 
-    // Check GitHub workflows if CI is enabled
-    if manifest.ci.enabled {
-        files.push(check_file_with_content(
-            ".github/workflows/ci.yml",
-            engine.render_ci_yml(manifest)?,
-        )?);
-        files.push(check_file_with_content(
-            ".github/workflows/release.yml",
-            engine.render_release_yml(manifest)?,
-        )?);
-    }
+    // CI/CD workflows are project-owned — not checked by airis diff
 
     // Calculate summary
     let summary = DiffSummary {

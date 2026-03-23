@@ -178,20 +178,7 @@ fn check_generated_files(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result
         issues,
     )?;
 
-    // Check GitHub workflows if CI is enabled
-    if manifest.ci.enabled {
-        check_file(
-            ".github/workflows/ci.yml",
-            || engine.render_ci_yml(manifest),
-            issues,
-        )?;
-
-        check_file(
-            ".github/workflows/release.yml",
-            || engine.render_release_yml(manifest),
-            issues,
-        )?;
-    }
+    // CI/CD workflows are project-owned — not checked by airis doctor
 
     Ok(())
 }
