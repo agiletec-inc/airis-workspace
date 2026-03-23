@@ -1,21 +1,25 @@
 {
-  "name": "airis-monorepo",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "packageManager": "pnpm@10.22.0",
-  "devDependencies": {
-    "turbo": "^2.8.12"
+  "_generated": {
+    "by": "airis init",
+    "from": "manifest.toml",
+    "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
   },
+  "dependencies": {},
+  "devDependencies": {},
+  "name": "airis-monorepo",
+  "packageManager": "pnpm@10.22.0",
+  "private": true,
   "scripts": {
     "build": "echo 'Run: just build-<app-name>'",
     "dev": "echo 'Run: just dev-<app-name>'",
     "lint": "echo 'Run: just lint'",
     "test": "echo 'Run: just test'"
   },
-  "_generated": {
-    "by": "airis init",
-    "from": "manifest.toml",
-    "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
-  }
+  "type": "module",
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/*",
+    "libs/*",
+    "packages/*"
+  ]
 }

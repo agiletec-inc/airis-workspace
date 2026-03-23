@@ -83,6 +83,9 @@ pub struct Manifest {
     /// Environment variable validation
     #[serde(default)]
     pub env: EnvSection,
+    /// Value injection into user-owned files via `# airis:inject <key>` markers
+    #[serde(default)]
+    pub inject: IndexMap<String, InjectValue>,
 }
 
 impl Manifest {
@@ -383,6 +386,7 @@ impl Manifest {
             templates: TemplatesSection::default(),
             runtimes: RuntimesSection::default(),
             env: EnvSection::default(),
+            inject: IndexMap::new(),
         }
     }
 }
@@ -635,11 +639,46 @@ pub struct ServiceConfig {
     pub watch: Vec<WatchConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extends: Option<String>,
+    /// Device mappings (e.g., "/dev/dri:/dev/dri")
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// Container runtime (e.g., "nvidia")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    /// GPU resource reservation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<GpuConfig>,
+    /// Health check path (e.g., "/api/health", "/healthz")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeployConfig {
     pub replicas: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GpuConfig {
+    /// GPU driver (default: "nvidia")
+    #[serde(default = "default_gpu_driver")]
+    pub driver: String,
+    /// Number of GPUs ("all" or "1", "2", etc.)
+    #[serde(default = "default_gpu_count")]
+    pub count: String,
+    /// Capabilities (default: ["gpu"])
+    #[serde(default = "default_gpu_capabilities")]
+    pub capabilities: Vec<String>,
+}
+
+fn default_gpu_driver() -> String {
+    "nvidia".to_string()
+}
+fn default_gpu_count() -> String {
+    "all".to_string()
+}
+fn default_gpu_capabilities() -> Vec<String> {
+    vec!["gpu".to_string()]
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -1008,6 +1047,47 @@ pub struct ProjectDefinition {
     /// Kubernetes: resource requests and limits
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resources: Option<K8sResources>,
+    /// Production Dockerfile generation config
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<AppDeployConfig>,
+}
+
+/// Configuration for auto-generating production Dockerfiles per service.
+/// When `enabled = true`, `airis gen` generates `{path}/Dockerfile` using turbo prune.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AppDeployConfig {
+    /// Enable Dockerfile generation for this app (default: false)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Dockerfile variant: "node" | "nextjs" | "worker" (default: inferred from framework)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+    /// Container port (EXPOSE + ENV PORT)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Entrypoint for CMD (e.g., "products/airis/agent/dist/index.js")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entrypoint: Option<String>,
+    /// Health check path (e.g., "/healthz")
+    #[serde(default = "default_health_path")]
+    pub health_path: String,
+    /// Health check interval (e.g., "30s")
+    #[serde(default = "default_health_interval")]
+    pub health_interval: String,
+    /// Build-time ARGs for Next.js NEXT_PUBLIC_* variables
+    #[serde(default)]
+    pub build_args: Vec<String>,
+    /// Extra apk packages for native modules (e.g., ["python3", "make", "g++"])
+    #[serde(default)]
+    pub extra_apk: Vec<String>,
+}
+
+fn default_health_path() -> String {
+    "/health".to_string()
+}
+
+fn default_health_interval() -> String {
+    "30s".to_string()
 }
 
 /// Orchestration configuration for multi-compose setup
@@ -1377,6 +1457,22 @@ impl GlobalConfig {
 
         Ok(())
     }
+}
+
+// ── Value injection types ────────────────────────────────────
+
+/// Value to inject into files via `# airis:inject <key>` markers.
+///
+/// Simple form:  `playwright_image = "mcr.microsoft.com/playwright:v1.58.0-noble"`
+/// Template form: `playwright_image = { template = "mcr.microsoft.com/playwright:v{version}-noble", from_catalog = "@playwright/test" }`
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum InjectValue {
+    Simple(String),
+    Template {
+        template: String,
+        from_catalog: String,
+    },
 }
 
 #[cfg(test)]

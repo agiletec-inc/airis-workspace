@@ -1,0 +1,101 @@
+#!/bin/bash
+# airis-monorepo pre-commit hook
+# Auto-increments version based on commit message
+# Works for both airis projects (manifest.toml) and Rust projects (Cargo.toml)
+
+set -e
+
+# Detect project type
+HAS_MANIFEST=false
+HAS_CARGO=false
+
+if [ -f "manifest.toml" ]; then
+    HAS_MANIFEST=true
+fi
+
+if [ -f "Cargo.toml" ]; then
+    HAS_CARGO=true
+fi
+
+# Exit if neither exists
+if [ "$HAS_MANIFEST" = false ] && [ "$HAS_CARGO" = false ]; then
+    exit 0
+fi
+
+# Check if source files are staged
+SOURCE_CHANGED=false
+
+if git diff --cached --name-only | grep -qE '^src/'; then
+    SOURCE_CHANGED=true
+fi
+
+# Also check for manifest.toml projects
+if [ "$HAS_MANIFEST" = true ]; then
+    if git diff --cached --name-only | grep -qE '^(apps|libs|packages)/'; then
+        SOURCE_CHANGED=true
+    fi
+fi
+
+# If no source changes, skip version bump
+if [ "$SOURCE_CHANGED" = false ]; then
+    exit 0
+fi
+
+# Check versioning strategy (for manifest.toml projects)
+if [ "$HAS_MANIFEST" = true ]; then
+    STRATEGY=$(grep 'strategy = ' manifest.toml 2>/dev/null | sed 's/.*strategy = "\([^"]*\)".*/\1/' || echo "auto")
+
+    if [ "$STRATEGY" = "manual" ]; then
+        echo "ℹ️  Versioning strategy is 'manual'. Skipping auto-bump."
+        exit 0
+    fi
+fi
+
+# Run airis bump-version --auto
+echo "🔄 Auto-bumping version based on commit message..."
+if command -v airis &> /dev/null; then
+    airis bump-version --auto
+else
+    echo "⚠️  airis not found. Please install airis or bump version manually."
+    echo "   Run: cargo install --path . (if in airis-monorepo)"
+    exit 1
+fi
+
+# Stage updated version files
+if [ "$HAS_MANIFEST" = true ]; then
+    git add manifest.toml
+fi
+
+if [ "$HAS_CARGO" = true ]; then
+    git add Cargo.toml Cargo.lock 2>/dev/null || true
+fi
+
+echo "✅ Version auto-bumped and staged"
+
+# -------------------------------------------------------
+# Safety checks: .env, node_modules, secrets
+# -------------------------------------------------------
+
+# Block stray .env files (allow .env.example / .env.template)
+ENV_FILES=$(git diff --cached --name-only | grep -E '\.env($|\..*)' | grep -vE '\.env\.(example|template)$' || true)
+if [ -n "$ENV_FILES" ]; then
+    echo "❌ Detected .env files staged for commit:"
+    echo "$ENV_FILES"
+    echo "   Remove them or convert to .env.example/.env.template."
+    exit 1
+fi
+
+# Block host-side node_modules pollution
+if git diff --cached --name-only | grep -q '^node_modules/'; then
+    echo "❌ Host node_modules/ staged for commit."
+    echo "   Run: airis clean && airis install"
+    exit 1
+fi
+
+# --- Uncomment to enable gitleaks secret scanning ---
+# if command -v gitleaks >/dev/null 2>&1; then
+#     gitleaks protect --staged --redact || {
+#         echo "❌ Secrets detected by gitleaks."
+#         exit 1
+#     }
+# fi

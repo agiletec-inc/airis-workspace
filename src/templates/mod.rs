@@ -2,8 +2,6 @@ use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use indexmap::IndexMap;
 use serde_json::json;
-use std::process::Command;
-
 use crate::version_resolver::resolve_version;
 use crate::manifest::{MANIFEST_FILE, Manifest};
 
@@ -27,35 +25,26 @@ fn resolve_dependencies(
             resolved_catalog
                 .get(package)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!(
-                        "⚠️  Warning: {} not found in catalog, using original spec: {}",
-                        package, version_spec
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "'{}' uses catalog: but is not defined in [packages.catalog]",
+                    package
+                ))?
         } else if let Some(catalog_key) = version_spec.strip_prefix("catalog:") {
             // "catalog:key" → look up specific key
             resolved_catalog
                 .get(catalog_key)
                 .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!(
-                        "⚠️  Warning: catalog key '{}' not found for {}, using original spec: {}",
-                        catalog_key, package, version_spec
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "'{}' references catalog key '{}' which is not defined in [packages.catalog]",
+                    package, catalog_key
+                ))?
         } else if version_spec == "latest" || version_spec == "lts" {
             // Resolve from npm registry
             resolve_version(package, version_spec)
-                .unwrap_or_else(|e| {
-                    eprintln!(
-                        "⚠️  Warning: Failed to resolve {} for {}: {}. Using original spec.",
-                        version_spec, package, e
-                    );
-                    version_spec.clone()
-                })
+                .with_context(|| format!(
+                    "Failed to resolve {} for '{}' from npm registry",
+                    version_spec, package
+                ))?
         } else {
             // Use as-is (specific version)
             version_spec.clone()
@@ -65,48 +54,6 @@ fn resolve_dependencies(
     }
 
     Ok(resolved)
-}
-
-/// Parse GitHub repository info from git remote URL
-/// Returns (owner, repo) tuple
-fn detect_github_repo() -> Option<(String, String)> {
-    let output = Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let url = String::from_utf8(output.stdout).ok()?.trim().to_string();
-
-    // Parse various GitHub URL formats:
-    // https://github.com/owner/repo.git
-    // git@github.com:owner/repo.git
-    // https://github.com/owner/repo
-    let repo_path = if url.contains("github.com") {
-        if url.starts_with("git@") {
-            // git@github.com:owner/repo.git
-            url.split(':').nth(1)?
-        } else {
-            // https://github.com/owner/repo.git
-            url.split("github.com/").nth(1)?
-        }
-    } else {
-        return None;
-    };
-
-    // Remove .git suffix if present
-    let repo_path = repo_path.trim_end_matches(".git");
-
-    // Split into owner/repo
-    let parts: Vec<&str> = repo_path.split('/').collect();
-    if parts.len() >= 2 {
-        Some((parts[0].to_string(), parts[1].to_string()))
-    } else {
-        None
-    }
 }
 
 pub struct TemplateEngine {
@@ -124,92 +71,64 @@ impl TemplateEngine {
         hbs.register_template_string("pnpm_workspace", PNPM_WORKSPACE_TEMPLATE)?;
         hbs.register_template_string("docker_compose", DOCKER_COMPOSE_TEMPLATE)?;
         hbs.register_template_string("dockerfile", DOCKERFILE_TEMPLATE)?;
-        hbs.register_template_string("ci_yml", CI_YML_TEMPLATE)?;
-        hbs.register_template_string("release_yml", RELEASE_YML_TEMPLATE)?;
-        // Note: Cargo.toml template removed - Cargo.toml is source of truth for Rust projects
+        hbs.register_template_string("service_dockerfile", SERVICE_DOCKERFILE_TEMPLATE)?;
 
         Ok(TemplateEngine { hbs })
     }
 
-    pub fn render_ci_yml(&self, manifest: &Manifest) -> Result<String> {
-        let data = self.prepare_ci_data(manifest)?;
+    /// Render a production Dockerfile for a service using turbo prune pattern.
+    pub fn render_service_dockerfile(
+        &self,
+        app: &crate::manifest::ProjectDefinition,
+        pnpm_version: &str,
+    ) -> Result<String> {
+        let deploy = app.deploy.as_ref()
+            .context("deploy config is required for service Dockerfile generation")?;
+
+        let framework = app.framework.as_deref().unwrap_or("node");
+        let variant = deploy.variant.as_deref().unwrap_or(match framework {
+            "nextjs" => "nextjs",
+            _ => "node",
+        });
+        let path = app.path.as_deref().unwrap_or(&app.name);
+        let scope = app.scope.as_deref().unwrap_or("@agiletec");
+        let port = deploy.port.unwrap_or(3000);
+
+        let entrypoint = deploy.entrypoint.clone().unwrap_or_else(|| {
+            match variant {
+                "nextjs" => format!("{}/server.js", path),
+                _ => format!("{}/dist/index.js", path),
+            }
+        });
+
+        // Pre-compute build arg lines to avoid Handlebars brace escaping issues
+        let build_args_lines: Vec<String> = deploy.build_args.iter()
+            .flat_map(|arg| vec![
+                format!("ARG {}", arg),
+                format!("ENV {}=${{{}}}", arg, arg),
+            ])
+            .collect();
+
+        let data = json!({
+            "scope": scope,
+            "name": app.name,
+            "path": path,
+            "variant": variant,
+            "is_nextjs": variant == "nextjs",
+            "is_node": variant == "node" || variant == "worker",
+            "is_worker": variant == "worker",
+            "pnpm_version": pnpm_version,
+            "port": port,
+            "entrypoint": entrypoint,
+            "health_path": deploy.health_path,
+            "health_interval": deploy.health_interval,
+            "build_args_lines": build_args_lines,
+            "extra_apk": deploy.extra_apk,
+        });
+
         self.hbs
-            .render("ci_yml", &data)
-            .context("Failed to render ci.yml")
-    }
-
-    pub fn render_release_yml(&self, manifest: &Manifest) -> Result<String> {
-        let data = self.prepare_ci_data(manifest)?;
-        self.hbs
-            .render("release_yml", &data)
-            .context("Failed to render release.yml")
-    }
-
-    fn prepare_ci_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
-        // Detect Rust project by checking rust_edition or binary_name
-        let is_rust_project = !manifest.project.rust_edition.is_empty()
-            || !manifest.project.binary_name.is_empty();
-
-        let binary_name = if manifest.project.binary_name.is_empty() {
-            manifest.project.id.clone()
-        } else {
-            manifest.project.binary_name.clone()
-        };
-
-        // Convert project_id to PascalCase for Ruby class name (Formula name = project_id)
-        let formula_class = manifest.project.id
-            .split(['-', '_'])
-            .map(|s| {
-                let mut chars = s.chars();
-                match chars.next() {
-                    None => String::new(),
-                    Some(first) => first.to_uppercase().chain(chars).collect(),
-                }
-            })
-            .collect::<String>();
-
-        // Auto-detect repository info from git remote if not specified
-        let (detected_owner, detected_repo) = detect_github_repo().unwrap_or_default();
-
-        // Use manifest values if set, otherwise use auto-detected values
-        let repository = manifest
-            .ci
-            .repository
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("{}/{}", detected_owner, detected_repo));
-
-        let homebrew_tap = manifest
-            .ci
-            .homebrew_tap
-            .clone()
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| format!("{}/homebrew-tap", detected_owner));
-
-        let has_homebrew = !homebrew_tap.is_empty() && !detected_owner.is_empty();
-
-        Ok(json!({
-            "project": manifest.workspace.name,
-            "auto_merge_enabled": manifest.ci.auto_merge.enabled,
-            "source_branch": manifest.ci.auto_merge.from,
-            "target_branch": manifest.ci.auto_merge.to,
-            "auto_version": manifest.ci.auto_version,
-            "homebrew_tap": homebrew_tap,
-            "has_homebrew": has_homebrew,
-            "is_rust_project": is_rust_project,
-            "binary_name": binary_name,
-            "formula_class": formula_class,
-            "project_id": manifest.project.id,
-            "description": manifest.project.description,
-            "repository": repository,
-            "runner": manifest.ci.runner.as_deref().unwrap_or("ubuntu-latest"),
-            "node_version": manifest.ci.node_version.as_deref().unwrap_or("22"),
-            "affected": manifest.ci.affected,
-            "concurrency_cancel": manifest.ci.concurrency_cancel,
-            "cache": manifest.ci.cache,
-            "pnpm_store_path": manifest.ci.pnpm_store_path.as_deref().unwrap_or(""),
-            "has_pnpm_store_path": manifest.ci.pnpm_store_path.is_some(),
-        }))
+            .render("service_dockerfile", &data)
+            .context("Failed to render service Dockerfile")
     }
 
     pub fn render_package_json(
@@ -437,7 +356,18 @@ impl TemplateEngine {
 
         // Auto-generate artifact volumes for each workspace (apps/libs/products/...)
         // This prevents container-generated artifacts from leaking to the host via bind mount
-        let artifact_dirs = ["node_modules", ".turbo", "dist", ".next"];
+        // Source of truth: [workspace.clean] — recursive dirs + clean dirs
+        let mut artifact_dirs: Vec<&str> = Vec::new();
+        for d in &manifest.workspace.clean.recursive {
+            artifact_dirs.push(d.as_str());
+        }
+        for d in &manifest.workspace.clean.dirs {
+            // Skip file entries (e.g., "pnpm-lock.yaml") — has extension but doesn't start with dot
+            if d.contains('.') && !d.starts_with('.') { continue; }
+            // Skip duplicates already in recursive list
+            if artifact_dirs.contains(&d.as_str()) { continue; }
+            artifact_dirs.push(d.as_str());
+        }
         let mut workspace_volumes = workspace_volumes;
         for ws_path in manifest.all_workspace_paths_in(root) {
             for artifact in &artifact_dirs {
@@ -492,6 +422,10 @@ impl TemplateEngine {
                     "deploy": svc.deploy,
                     "watch": svc.watch,
                     "extends": svc.extends,
+                    "devices": svc.devices,
+                    "runtime": svc.runtime,
+                    "gpu": svc.gpu,
+                    "health_path": svc.health_path,
                 })
             })
             .collect();
@@ -741,7 +675,15 @@ services:
     working_dir: {{working_dir}}
 {{/unless}}
 {{/if}}
-{{#if deploy}}
+{{#if gpu}}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: {{gpu.driver}}
+              count: {{gpu.count}}
+              capabilities: [{{#each gpu.capabilities}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]
+{{else if deploy}}
 {{#unless extends}}
     deploy:
       replicas: {{deploy.replicas}}
@@ -797,6 +739,15 @@ services:
 {{#if restart}}
     restart: {{restart}}
 {{/if}}
+{{#if runtime}}
+    runtime: {{runtime}}
+{{/if}}
+{{#if devices}}
+    devices:
+{{#each devices}}
+      - {{this}}
+{{/each}}
+{{/if}}
 {{#if watch}}
     develop:
       watch:
@@ -814,6 +765,14 @@ services:
 {{/each}}
 {{/if}}
 {{/each}}
+{{/if}}
+{{#if health_path}}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').request({hostname:'localhost',port:{{port}},path:'{{health_path}}',timeout:5000},(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1)).end()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 {{/if}}
 
 {{/each}}
@@ -836,340 +795,90 @@ volumes:
 {{/each}}
 "#;
 
-const CI_YML_TEMPLATE: &str = r#"# Auto-generated by airis init
-# DO NOT EDIT - change manifest.toml instead.
+// CI/CD workflows (ci.yml, release.yml) are project-owned — not generated.
+// See git history for rationale.
 
-name: CI
+const SERVICE_DOCKERFILE_TEMPLATE: &str = r#"# Auto-generated by airis gen
+# DO NOT EDIT - change manifest.toml [app.deploy] instead.
+#
+# Variant: {{variant}} | Package: {{scope}}/{{name}}
 
-on:
-  push:
-    branches:
-      - {{source_branch}}
-  pull_request:
-    branches:
-      - {{target_branch}}
+# ============================================
+# Base stage - pnpm environment setup
+# ============================================
+FROM node:24-alpine AS base
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+RUN apk add --no-cache libc6-compat{{#each extra_apk}} {{this}}{{/each}}
+RUN corepack enable && corepack prepare pnpm@{{pnpm_version}} --activate
 
-concurrency:
-  group: $\{{github.workflow}}-$\{{github.ref}}
-  cancel-in-progress: {{concurrency_cancel}}
+# ============================================
+# Pruner stage - extract only needed packages
+# ============================================
+FROM base AS pruner
+WORKDIR /app
+RUN pnpm add -g turbo
+COPY . .
+RUN turbo prune {{scope}}/{{name}} --docker
 
-jobs:
-  test:
-{{#if is_rust_project}}
-    runs-on: macos-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+# ============================================
+# Builder stage - install deps and build
+# ============================================
+FROM base AS builder
+WORKDIR /app
 
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+# Install dependencies from pruned lockfile
+COPY --from=pruner /app/out/json/ .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
-      - name: Run tests
-        run: cargo test
+# Copy source code and build
+COPY --from=pruner /app/out/full/ .
+COPY --from=pruner /app/tsconfig.base.json ./
+{{#each build_args_lines}}
+{{{this}}}
+{{/each}}
+RUN pnpm turbo run build --filter={{scope}}/{{name}}
+{{#if is_node}}
+# Generate flat node_modules with pnpm deploy (resolves workspace symlink issues)
+RUN pnpm deploy --legacy --filter={{scope}}/{{name}} --prod /app/deploy
+{{/if}}
 
-      - name: Build release
-        run: cargo build --release
+# ============================================
+# Production stage - minimal runtime image
+# ============================================
+FROM node:24-alpine AS production
+WORKDIR /app
+
+RUN apk add --no-cache libc6-compat wget
+
+{{#if is_nextjs}}
+# Copy Next.js standalone output
+COPY --from=builder /app/{{path}}/.next/standalone ./
+COPY --from=builder /app/{{path}}/.next/static ./{{path}}/.next/static
+COPY --from=builder /app/{{path}}/public ./{{path}}/public
 {{else}}
-    runs-on: {{runner}}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '{{node_version}}'
-{{#if cache}}
-          cache: 'pnpm'
+# Copy built output and flat node_modules from pnpm deploy
+COPY --from=builder /app/{{path}}/dist ./{{path}}/dist
+COPY --from=builder /app/deploy/package.json ./{{path}}/
+COPY --from=builder /app/deploy/node_modules ./{{path}}/node_modules
 {{/if}}
 
-{{#if has_pnpm_store_path}}
-      - name: Configure pnpm store
-        run: pnpm config set store-dir {{pnpm_store_path}}
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+USER nodejs
 
-{{/if}}
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+ENV NODE_ENV=production
+{{#unless is_worker}}
+ENV PORT={{port}}
 
-{{#if affected}}
-      - name: Lint (affected)
-        run: pnpm turbo run lint --affected
+EXPOSE {{port}}
 
-      - name: Typecheck (affected)
-        run: pnpm turbo run typecheck --affected
+HEALTHCHECK --interval={{health_interval}} --timeout=10s --start-period=30s --retries=3 \
+  CMD wget -q --spider http://localhost:{{port}}{{health_path}} || exit 1
+{{/unless}}
 
-      - name: Build (affected)
-        run: pnpm turbo run build --affected
-{{else}}
-      - name: Lint
-        run: pnpm lint:check
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Build
-        run: pnpm build
-{{/if}}
-{{/if}}
-
-{{#if auto_merge_enabled}}
-  merge-to-{{target_branch}}:
-    needs: test
-    if: github.ref == 'refs/heads/{{source_branch}}' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: $\{{secrets.GITHUB_TOKEN}}
-
-      - name: Configure git
-        run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-
-      - name: Merge {{source_branch}} to {{target_branch}}
-        run: |
-          git fetch origin {{target_branch}}
-          git checkout {{target_branch}}
-          git merge origin/{{source_branch}} --no-edit
-          git push origin {{target_branch}}
-
-          echo "✅ Merged {{source_branch}} → {{target_branch}}"
-{{/if}}
+CMD ["node", "{{entrypoint}}"]
 "#;
-
-const RELEASE_YML_TEMPLATE: &str = r##"# Auto-generated by airis init
-# DO NOT EDIT - change manifest.toml instead.
-
-name: Release to Homebrew
-
-on:
-  push:
-    branches:
-      - {{target_branch}}
-  workflow_dispatch:
-
-jobs:
-  release:
-{{#if is_rust_project}}
-    runs-on: macos-latest
-{{else}}
-    runs-on: ubuntu-latest
-{{/if}}
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-{{#if is_rust_project}}
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-{{else}}
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'pnpm'
-{{/if}}
-
-{{#if is_rust_project}}
-      - name: Read version from Cargo.toml
-        id: version
-        run: |
-          # Read version from Cargo.toml (source of truth)
-          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "📦 Version from Cargo.toml: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-{{else}}
-      - name: Read version from package.json
-        id: version
-        run: |
-          # Read version from package.json (source of truth)
-          VERSION=$(node -p "require('./package.json').version")
-          echo "📦 Version from package.json: $VERSION"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-{{/if}}
-
-      - name: Check if already released
-        id: check_tag
-        run: |
-          if git rev-parse "v$\{{steps.version.outputs.version}}" >/dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-            echo "⚠️  Tag v$\{{steps.version.outputs.version}} already exists, skipping"
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-            echo "✅ Will create release v$\{{steps.version.outputs.version}}"
-          fi
-
-{{#if is_rust_project}}
-      - name: Detect architecture
-        if: steps.check_tag.outputs.exists == 'false'
-        id: arch
-        run: |
-          ARCH=$(uname -m)
-          if [ "$ARCH" = "arm64" ]; then
-            echo "arch=aarch64-apple-darwin" >> $GITHUB_OUTPUT
-          else
-            echo "arch=x86_64-apple-darwin" >> $GITHUB_OUTPUT
-          fi
-          echo "📦 Architecture: $ARCH"
-
-      - name: Create version tag for release build
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          VERSION=$\{{steps.version.outputs.version}}
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git tag "v${VERSION}"
-          git push origin "v${VERSION}"
-          echo "✅ Created and pushed tag v${VERSION}"
-
-      - name: Build release binary
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          cargo build --release
-          strip target/release/{{binary_name}}
-          tar -czf {{binary_name}}-$\{{steps.version.outputs.version}}-$\{{steps.arch.outputs.arch}}.tar.gz -C target/release {{binary_name}}
-
-      - name: Calculate SHA256
-        if: steps.check_tag.outputs.exists == 'false'
-        id: sha256
-        run: |
-          SHA256=$(shasum -a 256 {{binary_name}}-$\{{steps.version.outputs.version}}-$\{{steps.arch.outputs.arch}}.tar.gz | awk '{print $1}')
-          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
-          echo "🔐 SHA256: $SHA256"
-
-      - name: Create GitHub Release
-        if: steps.check_tag.outputs.exists == 'false'
-        env:
-          GITHUB_TOKEN: $\{{secrets.GITHUB_TOKEN}}
-        run: |
-          VERSION=$\{{steps.version.outputs.version}}
-          ARCH=$\{{steps.arch.outputs.arch}}
-
-          echo "🚀 Creating GitHub Release v${VERSION}..."
-
-          gh release create "v${VERSION}" \
-            --title "Release v${VERSION}" \
-            --generate-notes \
-            "{{binary_name}}-${VERSION}-${ARCH}.tar.gz"
-
-          echo "✅ Release v${VERSION} created successfully!"
-
-{{#if has_homebrew}}
-      - name: Update Homebrew formula
-        if: steps.check_tag.outputs.exists == 'false'
-        env:
-          HOMEBREW_TAP_TOKEN: $\{{secrets.HOMEBREW_TAP_TOKEN}}
-        run: |
-          set -e
-
-          VERSION=$\{{steps.version.outputs.version}}
-          SHA256=$\{{steps.sha256.outputs.sha256}}
-          ARCH=$\{{steps.arch.outputs.arch}}
-
-          echo "📦 Updating Homebrew formula..."
-          echo "   Version: $VERSION"
-          echo "   SHA256: $SHA256"
-          echo "   Arch: $ARCH"
-
-          # Clone homebrew-tap repository
-          git clone https://$HOMEBREW_TAP_TOKEN@github.com/{{homebrew_tap}}.git
-          cd $(basename {{homebrew_tap}})
-
-          # Ensure we're on main branch
-          git checkout main || git checkout -b main
-
-          # Create Formula directory if it doesn't exist
-          mkdir -p Formula
-
-          # Update formula - build with echo to avoid YAML parsing issues
-          {
-            echo 'class {{formula_class}} < Formula'
-            echo '  desc "{{description}}"'
-            echo '  homepage "https://github.com/{{repository}}"'
-            echo '  license "MIT"'
-            echo "  url \"https://github.com/{{repository}}/releases/download/v${VERSION}/{{binary_name}}-${VERSION}-${ARCH}.tar.gz\""
-            echo "  sha256 \"${SHA256}\""
-            echo "  version \"${VERSION}\""
-            echo ''
-            echo '  # Docker backend is required - this is a Docker-first tool'
-            echo '  on_arm do'
-            echo '    depends_on cask: "orbstack"'
-            echo '  end'
-            echo ''
-            echo '  on_intel do'
-            echo '    depends_on cask: "docker"'
-            echo '  end'
-            echo ''
-            echo '  def install'
-            echo '    bin.install "{{binary_name}}"'
-            echo '  end'
-            echo ''
-            echo '  def caveats'
-            echo '    <<~EOS'
-            echo '      Make sure your Docker backend is running before using {{binary_name}}:'
-            echo '        - Apple Silicon: OrbStack (installed as dependency)'
-            echo '        - Intel Mac: Docker Desktop (installed as dependency)'
-            echo '    EOS'
-            echo '  end'
-            echo ''
-            echo '  test do'
-            echo '    system "#{bin}/{{binary_name}}", "--version"'
-            echo '  end'
-            echo 'end'
-          } > Formula/{{project_id}}.rb
-
-          # Commit and push
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add Formula/{{project_id}}.rb
-          git commit -m "Update {{project_id}} to v${VERSION}" || echo "No changes to commit"
-          git push origin main || echo "Push failed, check if token has permissions"
-
-          echo "✅ Homebrew formula updated to v${VERSION}"
-{{/if}}
-{{else}}
-      - name: Install dependencies
-        if: steps.check_tag.outputs.exists == 'false'
-        run: pnpm install
-
-      - name: Build
-        if: steps.check_tag.outputs.exists == 'false'
-        run: pnpm build
-
-      - name: Create GitHub Release
-        if: steps.check_tag.outputs.exists == 'false'
-        env:
-          GITHUB_TOKEN: $\{{secrets.GITHUB_TOKEN}}
-        run: |
-          VERSION=$\{{steps.version.outputs.version}}
-
-          echo "🚀 Creating GitHub Release v${VERSION}..."
-
-          gh release create "v${VERSION}" \
-            --title "Release v${VERSION}" \
-            --generate-notes
-
-          echo "✅ Release v${VERSION} created successfully!"
-{{/if}}
-"##;
-
-// Note: CARGO_TOML_TEMPLATE removed - Cargo.toml is source of truth for Rust projects
-// Use `airis bump-version` to sync versions between manifest.toml and Cargo.toml
 
 #[cfg(test)]
 mod tests {
@@ -1941,6 +1650,75 @@ command = "pnpm dev"
 
         // No own volumes → should be empty (YAML merge handles it)
         assert_eq!(volumes.len(), 0);
+    }
+
+    #[test]
+    fn test_compose_gpu_service() {
+        let toml_str = r#"
+version = 1
+mode = "docker-first"
+[workspace]
+name = "gpu-test"
+workdir = "/app"
+
+[service.ml]
+image = "nvidia/cuda:12.6"
+runtime = "nvidia"
+devices = ["/dev/dri:/dev/dri"]
+
+[service.ml.gpu]
+driver = "nvidia"
+count = "all"
+capabilities = ["gpu"]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_docker_compose(&manifest).unwrap();
+
+        assert!(result.contains("runtime: nvidia"), "missing runtime");
+        assert!(
+            result.contains("- /dev/dri:/dev/dri"),
+            "missing devices"
+        );
+        assert!(result.contains("driver: nvidia"), "missing gpu driver");
+        assert!(result.contains("count: all"), "missing gpu count");
+        assert!(
+            result.contains("capabilities: [gpu]"),
+            "missing gpu capabilities"
+        );
+        // ml service should have deploy.resources, not deploy.replicas
+        // (x-app-base may have replicas, but the service itself should not)
+        let ml_section = result.split("  ml:").nth(1).unwrap();
+        assert!(
+            ml_section.contains("resources:"),
+            "ml service should have deploy.resources"
+        );
+        assert!(
+            !ml_section.contains("replicas:"),
+            "ml service should not have replicas when gpu is set"
+        );
+    }
+
+    #[test]
+    fn test_compose_gpu_defaults() {
+        let toml_str = r#"
+version = 1
+mode = "docker-first"
+[workspace]
+name = "gpu-test"
+workdir = "/app"
+
+[service.ml]
+image = "nvidia/cuda:12.6"
+gpu = {}
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let svc = &manifest.service["ml"];
+        let gpu = svc.gpu.as_ref().unwrap();
+
+        assert_eq!(gpu.driver, "nvidia");
+        assert_eq!(gpu.count, "all");
+        assert_eq!(gpu.capabilities, vec!["gpu".to_string()]);
     }
 
 }
