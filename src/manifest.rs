@@ -639,11 +639,46 @@ pub struct ServiceConfig {
     pub watch: Vec<WatchConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extends: Option<String>,
+    /// Device mappings (e.g., "/dev/dri:/dev/dri")
+    #[serde(default)]
+    pub devices: Vec<String>,
+    /// Container runtime (e.g., "nvidia")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    /// GPU resource reservation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<GpuConfig>,
+    /// Health check path (e.g., "/api/health", "/healthz")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DeployConfig {
     pub replicas: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GpuConfig {
+    /// GPU driver (default: "nvidia")
+    #[serde(default = "default_gpu_driver")]
+    pub driver: String,
+    /// Number of GPUs ("all" or "1", "2", etc.)
+    #[serde(default = "default_gpu_count")]
+    pub count: String,
+    /// Capabilities (default: ["gpu"])
+    #[serde(default = "default_gpu_capabilities")]
+    pub capabilities: Vec<String>,
+}
+
+fn default_gpu_driver() -> String {
+    "nvidia".to_string()
+}
+fn default_gpu_count() -> String {
+    "all".to_string()
+}
+fn default_gpu_capabilities() -> Vec<String> {
+    vec!["gpu".to_string()]
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
