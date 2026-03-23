@@ -546,20 +546,23 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         .filter(|s| !s.is_empty())
         .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
 
-    let status = if is_docker_first && docker_service.is_some() {
-        let svc = docker_service.unwrap();
-        // Docker-first: run inside container
+    let status = if is_docker_first {
+        let svc = match docker_service {
+            Some(s) => s,
+            None => {
+                println!(
+                    "   {} no service found for lockfile sync (run `docker compose exec <service> pnpm install --lockfile-only`)",
+                    "⚠".yellow()
+                );
+                return Ok(());
+            }
+        };
+        // Docker-first: always run inside container. Host has no pnpm.
         Command::new("docker")
             .args(["compose", "exec", "-T", svc, "pnpm", "install", "--lockfile-only"])
             .status()
-            .or_else(|_| {
-                // Fallback: try running directly if container isn't up
-                Command::new("pnpm")
-                    .args(["install", "--lockfile-only"])
-                    .status()
-            })
     } else {
-        // Non-docker or no service found: run directly
+        // Non-docker mode: run directly on host
         Command::new("pnpm")
             .args(["install", "--lockfile-only"])
             .status()
@@ -571,7 +574,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         }
         Ok(_) => {
             println!(
-                "   {} pnpm-lock.yaml sync failed (run `pnpm install --lockfile-only` manually)",
+                "   {} pnpm-lock.yaml sync failed (run `docker compose exec <service> pnpm install --lockfile-only`)",
                 "⚠".yellow()
             );
         }
