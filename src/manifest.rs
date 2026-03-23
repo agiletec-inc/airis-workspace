@@ -1181,7 +1181,7 @@ pub struct AutoMergeConfig {
     /// Enable auto-merge
     #[serde(default = "default_true")]
     pub enabled: bool,
-    /// Source branch (default: "next")
+    /// Source branch (default: "stg")
     #[serde(default = "default_source_branch")]
     pub from: String,
     /// Target branch (default: "main")
@@ -1200,7 +1200,7 @@ impl Default for AutoMergeConfig {
 }
 
 fn default_source_branch() -> String {
-    "next".to_string()
+    "stg".to_string()
 }
 
 fn default_target_branch() -> String {

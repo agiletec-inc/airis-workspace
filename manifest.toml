@@ -209,5 +209,5 @@ auto_version = true
 
 [ci.auto_merge]
 enabled = true
-from = "next"
+from = "stg"
 to = "main"

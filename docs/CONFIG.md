@@ -566,7 +566,7 @@ pnpm_store_path = "/mnt/cache/pnpm-store"
 
 [ci.auto_merge]
 enabled = true
-from = "next"
+from = "stg"
 to = "main"
 ```
 
