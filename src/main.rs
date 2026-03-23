@@ -108,6 +108,7 @@ QUICK REFERENCE:
   airis gen                 Regenerate all config files from manifest.toml
   airis up                  Start Docker services (local dev only)
   airis guards install      Block npm/yarn/pnpm on host
+  airis guards install --hooks  Install Claude Code Docker-First hooks
 
 CONFIG: All commands are defined in manifest.toml [commands] section.
   airis run <task>          Execute any command from [commands]
@@ -513,6 +514,9 @@ enum GuardsCommands {
         /// Install global guards (~/.airis/bin/) that block commands outside airis projects
         #[arg(long)]
         global: bool,
+        /// Install Claude Code hooks (~/.claude/) for Docker-First enforcement
+        #[arg(long)]
+        hooks: bool,
     },
     /// Check if running inside Docker container
     #[command(name = "check-docker")]
@@ -522,12 +526,18 @@ enum GuardsCommands {
         /// Show global guards status
         #[arg(long)]
         global: bool,
+        /// Show Claude Code hooks status
+        #[arg(long)]
+        hooks: bool,
     },
     /// Uninstall command guards
     Uninstall {
         /// Uninstall global guards
         #[arg(long)]
         global: bool,
+        /// Remove Claude Code hooks
+        #[arg(long)]
+        hooks: bool,
     },
     /// Verify global guards are properly installed and active
     Verify,
@@ -720,23 +730,29 @@ fn main() -> Result<()> {
             manifest_cmd::run(manifest_action)?;
         }
         Commands::Guards { action } => match action {
-            GuardsCommands::Install { global } => {
-                if global {
+            GuardsCommands::Install { global, hooks } => {
+                if hooks {
+                    commands::claude_setup::setup_global()?;
+                } else if global {
                     commands::guards::install_global()?;
                 } else {
                     commands::guards::install()?;
                 }
             }
             GuardsCommands::CheckDocker => commands::guards::check_docker()?,
-            GuardsCommands::Status { global } => {
-                if global {
+            GuardsCommands::Status { global, hooks } => {
+                if hooks {
+                    commands::claude_setup::status()?;
+                } else if global {
                     commands::guards::status_global()?;
                 } else {
                     commands::guards::status()?;
                 }
             }
-            GuardsCommands::Uninstall { global } => {
-                if global {
+            GuardsCommands::Uninstall { global, hooks } => {
+                if hooks {
+                    commands::claude_setup::uninstall()?;
+                } else if global {
                     commands::guards::uninstall_global()?;
                 } else {
                     commands::guards::uninstall()?;
