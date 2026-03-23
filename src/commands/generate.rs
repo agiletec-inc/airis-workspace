@@ -658,13 +658,6 @@ fn inject_values(
         }
 
         let mut lines: Vec<String> = content.lines().map(String::from).collect();
-        eprintln!("DEBUG: found marker in {}, lines={}", path.display(), lines.len());
-        for (idx, line) in lines.iter().enumerate() {
-            if line.contains("airis:inject") {
-                let matched = marker_re.is_match(line);
-                eprintln!("DEBUG: line {}='{}' matched={}", idx, line.trim(), matched);
-            }
-        }
         let mut file_modified = false;
 
         let mut i = 0;
@@ -705,8 +698,8 @@ fn inject_values(
 
     if modified_count == 0 {
         println!(
-            "   {} No files with airis:inject markers found",
-            "ℹ".cyan()
+            "   {} All injected values are already up to date",
+            "✓".green()
         );
     }
 
