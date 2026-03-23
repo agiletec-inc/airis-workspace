@@ -85,7 +85,7 @@ fn install_claude_hooks() -> Result<()> {
         "hooks": [{
             "type": "command",
             "command": format!(
-                "cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then airis test --quick 2>&1 | tail -20; fi {AIRIS_MARKER}"
+                "cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then airis test 2>&1 | tail -20; fi {AIRIS_MARKER}"
             )
         }]
     }));
@@ -104,7 +104,7 @@ fn install_claude_hooks() -> Result<()> {
         "hooks": [{
             "type": "command",
             "command": format!(
-                r#"bash -c 'input=$(cat); cmd=$(echo "$input" | jq -r ".tool_input.command // empty"); if echo "$cmd" | grep -qE "git\s+push"; then cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then airis test --quick || {{ echo "{{\"decision\": \"block\", \"reason\": \"テスト失敗。push 前に修正してください\"}}" >&2; exit 2; }}; fi; fi' {AIRIS_MARKER}"#
+                r#"bash -c 'input=$(cat); cmd=$(echo "$input" | jq -r ".tool_input.command // empty"); if echo "$cmd" | grep -qE "git\s+push"; then cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then airis test || {{ echo "{{\"decision\": \"block\", \"reason\": \"テスト失敗。push 前に修正してください\"}}" >&2; exit 2; }}; fi; fi' {AIRIS_MARKER}"#
             )
         }]
     }));
