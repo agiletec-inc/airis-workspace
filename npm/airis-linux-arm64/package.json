@@ -1,6 +1,6 @@
 {
   "name": "@agiletec-inc/airis-linux-arm64",
-  "version": "1.101.0",
+  "version": "1.102.0",
   "description": "airis binary for Linux ARM64",
   "license": "MIT",
   "repository": {

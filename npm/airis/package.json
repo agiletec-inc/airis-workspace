@@ -1,6 +1,6 @@
 {
   "name": "@agiletec-inc/airis",
-  "version": "1.101.0",
+  "version": "1.102.0",
   "description": "Docker-first monorepo workspace manager",
   "license": "MIT",
   "repository": {
@@ -11,10 +11,10 @@
     "airis": "bin/airis.js"
   },
   "optionalDependencies": {
-    "@agiletec-inc/airis-darwin-arm64": "1.101.0",
-    "@agiletec-inc/airis-darwin-x64": "1.101.0",
-    "@agiletec-inc/airis-linux-arm64": "1.101.0",
-    "@agiletec-inc/airis-linux-x64": "1.101.0",
-    "@agiletec-inc/airis-win32-x64": "1.101.0"
+    "@agiletec-inc/airis-darwin-arm64": "1.102.0",
+    "@agiletec-inc/airis-darwin-x64": "1.102.0",
+    "@agiletec-inc/airis-linux-arm64": "1.102.0",
+    "@agiletec-inc/airis-linux-x64": "1.102.0",
+    "@agiletec-inc/airis-win32-x64": "1.102.0"
   }
 }
