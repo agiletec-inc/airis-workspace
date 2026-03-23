@@ -105,7 +105,7 @@ with `docker compose up`. airis adds convenience, not dependency.")]
 #[command(after_help = "\
 QUICK REFERENCE:
   airis init --write        Create manifest.toml from project discovery
-  airis generate files      Regenerate all config files from manifest.toml
+  airis gen                 Regenerate all config files from manifest.toml
   airis up                  Start Docker services (local dev only)
   airis guards install      Block npm/yarn/pnpm on host
 
@@ -418,6 +418,19 @@ enum Commands {
         head: String,
     },
 
+    /// Regenerate workspace files from manifest.toml.
+    ///
+    /// Generates: package.json, pnpm-workspace.yaml, compose.yml,
+    /// Dockerfile, CI workflows. All generated files include DO NOT EDIT
+    /// markers. Safe to run repeatedly — always produces the same output
+    /// from the same manifest.toml.
+    #[command(name = "gen")]
+    Gen {
+        /// Preview what would be generated (dry-run)
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     /// Generate code and types from various sources
     Generate {
         #[command(subcommand)]
@@ -598,17 +611,6 @@ enum ValidateCommands {
 
 #[derive(Subcommand)]
 enum GenerateCommands {
-    /// Regenerate workspace files from manifest.toml.
-    ///
-    /// Generates: package.json, pnpm-workspace.yaml, docker-compose.yml,
-    /// Dockerfile, CI workflows. All generated files include DO NOT EDIT
-    /// markers. Safe to run repeatedly — always produces the same output
-    /// from the same manifest.toml.
-    Files {
-        /// Preview what would be generated (dry-run)
-        #[arg(long)]
-        dry_run: bool,
-    },
     /// Generate TypeScript types from Supabase PostgreSQL schema
     Types {
         /// Supabase PostgreSQL host (default: localhost)
@@ -1075,10 +1077,10 @@ fn main() -> Result<()> {
         Commands::Affected { base, head } => {
             commands::affected::run(&base, &head)?;
         }
+        Commands::Gen { dry_run } => {
+            commands::generate::run(dry_run)?;
+        }
         Commands::Generate { action } => match action {
-            GenerateCommands::Files { dry_run } => {
-                commands::generate::run(dry_run)?;
-            }
             GenerateCommands::Types {
                 host,
                 port,

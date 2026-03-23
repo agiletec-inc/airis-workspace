@@ -2,7 +2,7 @@
 
 Complete reference for the `manifest.toml` file used by the airis CLI -- a Docker-first monorepo workspace manager.
 
-`manifest.toml` is the single source of truth for the entire workspace. All generated files (`package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `Cargo.toml`) are derived from it. Never edit generated files directly; change `manifest.toml` and run `airis generate files`.
+`manifest.toml` is the single source of truth for the entire workspace. All generated files (`package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `Cargo.toml`) are derived from it. Never edit generated files directly; change `manifest.toml` and run `airis gen`.
 
 ---
 
@@ -566,7 +566,7 @@ pnpm_store_path = "/mnt/cache/pnpm-store"
 
 [ci.auto_merge]
 enabled = true
-from = "next"
+from = "stg"
 to = "main"
 ```
 

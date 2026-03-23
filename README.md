@@ -45,7 +45,7 @@ $ airis up
 When an AI agent tries to run `pnpm install`, it gets blocked with a helpful error. Your host stays clean. Dependencies are installed during `docker build` — no workspace container needed. If it breaks `package.json`, just regenerate:
 
 ```bash
-$ airis generate files   # Regenerate package.json from manifest.toml
+$ airis gen   # Regenerate package.json from manifest.toml
 $ airis up               # Rebuild containers (install runs automatically)
 ```
 
@@ -85,7 +85,7 @@ cargo install --git https://github.com/agiletec-inc/airis-monorepo
 ```bash
 mkdir my-monorepo && cd my-monorepo
 airis init --write        # Creates manifest.toml
-airis generate files      # Generates all config files
+airis gen      # Generates all config files
 airis up                  # Start Docker services
 ```
 
@@ -95,7 +95,7 @@ airis up                  # Start Docker services
 cd your-monorepo
 airis init                # Auto-discovers apps, libs, compose files (dry-run)
 airis init --write        # Executes migration
-airis generate files      # Generates workspace files
+airis gen      # Generates workspace files
 airis up                  # Start everything
 ```
 
@@ -115,7 +115,7 @@ What happens:
 ```
 manifest.toml (you edit this)
     |
-    v  airis generate files
+    v  airis gen
 package.json           <-- auto-generated
 pnpm-workspace.yaml    <-- auto-generated
 docker-compose.yml     <-- auto-generated
@@ -207,7 +207,7 @@ through CI/CD pipelines (GitOps). There is no dev/staging/production mode switch
 ```bash
 airis init                # Discover & create manifest (dry-run)
 airis init --write        # Execute migration
-airis generate files      # Regenerate from manifest
+airis gen      # Regenerate from manifest
 airis doctor              # Check workspace health
 airis doctor --fix        # Auto-repair issues
 airis guards install      # Install command guards globally

@@ -6,7 +6,7 @@ name: CI
 on:
   push:
     branches:
-      - next
+      - stg
   pull_request:
     branches:
       - main
@@ -29,7 +29,7 @@ jobs:
 
   merge-to-main:
     needs: test
-    if: github.ref == 'refs/heads/next' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/stg' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -45,11 +45,11 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
 
-      - name: Merge next to main
+      - name: Merge stg to main
         run: |
           git fetch origin main
           git checkout main
-          git merge origin/next --no-edit
+          git merge origin/stg --no-edit
           git push origin main
 
-          echo "✅ Merged next → main"
+          echo "✅ Merged stg → main"

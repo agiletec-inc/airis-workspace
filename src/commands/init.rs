@@ -54,7 +54,7 @@ pub fn run(_force_snapshot: bool, _no_snapshot: bool, write: bool, skip_discover
         println!();
         println!("{}", "Next steps:".bright_yellow());
         println!("  1. Edit {} to configure your workspace", MANIFEST_FILE);
-        println!("  2. Run {} to generate workspace files", "airis generate files".bright_cyan());
+        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
         println!();
         println!("{}", "Or use Claude Code for intelligent configuration:".bright_yellow());
         println!("  Ask Claude to analyze your repo and update manifest.toml");
@@ -109,7 +109,7 @@ fn run_discovery_mode(write: bool) -> Result<()> {
         println!();
         println!("{}", "Next steps:".bright_yellow());
         println!("  1. Review {} and adjust as needed", MANIFEST_FILE.bright_cyan());
-        println!("  2. Run {} to generate workspace files", "airis generate files".bright_cyan());
+        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
     } else {
         // Dry-run: show what would happen
         let _report = migrate::execute(&plan, true)?;
@@ -149,7 +149,7 @@ fn run_template_mode(write: bool) -> Result<()> {
         println!("     - Add your libs under [libs.*]");
         println!("     - Configure [packages.catalog] for shared dependencies");
         println!();
-        println!("  2. Run {} to generate workspace files", "airis generate files".bright_cyan());
+        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
         println!();
         println!("{}", "Pro tip:".bright_yellow());
         println!("  Use Claude Code to intelligently configure manifest.toml");
