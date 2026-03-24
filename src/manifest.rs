@@ -86,6 +86,24 @@ pub struct Manifest {
     /// Value injection into user-owned files via `# airis:inject <key>` markers
     #[serde(default)]
     pub inject: IndexMap<String, InjectValue>,
+
+    // ── v2 fields (ignored when version = 1) ──
+
+    /// Environment profiles: local, stg, prd, etc.
+    #[serde(default)]
+    pub profile: IndexMap<String, ProfileSection>,
+    /// Reusable app presets (deps/scripts/deploy defaults)
+    #[serde(default)]
+    pub preset: IndexMap<String, PresetSection>,
+    /// External third-party services (not built from source)
+    #[serde(default)]
+    pub external: IndexMap<String, ExternalServiceConfig>,
+    /// Root package.json config (v2: replaces packages.root)
+    #[serde(default)]
+    pub root: Option<RootSection>,
+    /// pnpm overrides (v2: replaces packages.root.pnpm.overrides)
+    #[serde(default)]
+    pub overrides: IndexMap<String, String>,
 }
 
 impl Manifest {
@@ -162,6 +180,48 @@ impl Manifest {
         }
 
         Ok(())
+    }
+
+    /// Get the effective Node.js version.
+    /// Priority: [workspace].node > [ci].node_version > extracted from [workspace].image > "22"
+    pub fn node_version(&self) -> String {
+        // v2: explicit node field
+        if let Some(ref v) = self.workspace.node {
+            return v.clone();
+        }
+        // ci.node_version override
+        if let Some(ref v) = self.ci.node_version {
+            return v.clone();
+        }
+        // Extract from image string like "node:24-bookworm"
+        let image = &self.workspace.image;
+        if image.starts_with("node:") {
+            if let Some(version_part) = image.strip_prefix("node:") {
+                let version = version_part.split('-').next().unwrap_or("22");
+                return version.to_string();
+            }
+        }
+        "22".to_string()
+    }
+
+    /// Get the effective workspaces list.
+    /// v2: [workspace].workspaces, v1: [packages].workspaces
+    pub fn effective_workspaces(&self) -> &[String] {
+        if !self.workspace.workspaces.is_empty() {
+            &self.workspace.workspaces
+        } else {
+            &self.packages.workspaces
+        }
+    }
+
+    /// Get deploy profiles from [profile] section.
+    /// Returns profiles that have a branch (i.e., are deploy targets).
+    pub fn deploy_profiles(&self) -> Vec<(&str, &ProfileSection)> {
+        self.profile
+            .iter()
+            .filter(|(_, p)| p.branch.is_some())
+            .map(|(name, p)| (name.as_str(), p))
+            .collect()
     }
 
     /// Collect all workspace directory paths from apps, libs, and packages.workspaces globs.
@@ -338,10 +398,13 @@ impl Manifest {
             },
             workspace: WorkspaceSection {
                 name: format!("airis-{}", name),  // Prefix to avoid Docker name collisions
+                scope: None,
                 package_manager: "pnpm@10.22.0".to_string(),
+                node: None,
                 service: String::new(),
                 image: "node:22-alpine".to_string(),
                 workdir: "/app".to_string(),
+                workspaces: vec![],
                 volumes: vec![format!("{}-node-modules:/app/node_modules", name)],
                 clean: CleanSection::default(),
             },
@@ -387,6 +450,11 @@ impl Manifest {
             runtimes: RuntimesSection::default(),
             env: EnvSection::default(),
             inject: IndexMap::new(),
+            profile: IndexMap::new(),
+            preset: IndexMap::new(),
+            external: IndexMap::new(),
+            root: None,
+            overrides: IndexMap::new(),
         }
     }
 }
@@ -433,8 +501,14 @@ pub struct MetaSection {
 pub struct WorkspaceSection {
     #[serde(default = "default_workspace_name")]
     pub name: String,
+    /// Default npm scope for packages (e.g., "@agiletec")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     #[serde(default = "default_package_manager")]
     pub package_manager: String,
+    /// Node.js version (v2: preferred over extracting from image string)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<String>,
     /// Deprecated: workspace container has been removed. Kept for backwards compatibility with existing manifest.toml files.
     #[serde(default, skip_serializing)]
     pub service: String,
@@ -442,6 +516,9 @@ pub struct WorkspaceSection {
     pub image: String,
     #[serde(default = "default_workspace_workdir")]
     pub workdir: String,
+    /// Workspace patterns (v2: replaces [packages].workspaces)
+    #[serde(default)]
+    pub workspaces: Vec<String>,
     #[serde(default)]
     pub volumes: Vec<String>,
     #[serde(default)]
@@ -492,10 +569,13 @@ impl Default for WorkspaceSection {
     fn default() -> Self {
         WorkspaceSection {
             name: default_workspace_name(),
+            scope: None,
             package_manager: default_package_manager(),
+            node: None,
             service: String::new(),
             image: default_workspace_image(),
             workdir: default_workspace_workdir(),
+            workspaces: vec![],
             volumes: vec!["workspace-node-modules:/app/node_modules".to_string()],
             clean: CleanSection::default(),
         }
@@ -1059,11 +1139,69 @@ pub struct ProjectDefinition {
     /// Production Dockerfile generation config
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deploy: Option<AppDeployConfig>,
+
+    // ── v2 fields ──
+
+    /// Preset name(s) to inherit deps/scripts/deploy defaults from
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<PresetRef>,
+    /// Docker compose profiles this service belongs to (e.g., ["web", "api"])
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profiles: Option<Vec<String>>,
+    /// Services this app depends on (e.g., ["steel-browser", "paddleocr"])
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<String>>,
+    /// Memory limit for Docker container (e.g., "4g")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mem_limit: Option<String>,
+    /// CPU limit for Docker container
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<u16>,
+    /// Inline service config (env, profile-specific overrides)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service: Option<ServiceInlineConfig>,
+}
+
+/// Preset reference: single string or array of strings
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum PresetRef {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl PresetRef {
+    pub fn as_list(&self) -> Vec<&str> {
+        match self {
+            PresetRef::Single(s) => vec![s.as_str()],
+            PresetRef::Multiple(v) => v.iter().map(|s| s.as_str()).collect(),
+        }
+    }
+}
+
+/// Inline service configuration within [[app]]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ServiceInlineConfig {
+    /// Extra environment variables for the service
+    #[serde(default)]
+    pub env: IndexMap<String, String>,
+    /// Profile-specific overrides (e.g., local vs stg vs prd)
+    #[serde(default)]
+    pub profile: IndexMap<String, ServiceProfileOverride>,
+}
+
+/// Per-profile service overrides
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ServiceProfileOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
 }
 
 /// Configuration for auto-generating production Dockerfiles per service.
 /// When `enabled = true`, `airis gen` generates `{path}/Dockerfile` using turbo prune.
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct AppDeployConfig {
     /// Enable Dockerfile generation for this app (default: false)
     #[serde(default)]
@@ -1248,6 +1386,9 @@ pub struct CiSection {
     /// Path to persistent pnpm store (for self-hosted runners with volumes)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pnpm_store_path: Option<String>,
+    /// Runner label for Cloudflare Workers deploy jobs. Default: "ubuntu-latest"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_runner: Option<String>,
 }
 
 impl Default for CiSection {
@@ -1264,6 +1405,7 @@ impl Default for CiSection {
             concurrency_cancel: true,
             cache: true,
             pnpm_store_path: None,
+            worker_runner: None,
         }
     }
 }
@@ -1305,6 +1447,165 @@ fn default_source_branch() -> String {
 
 fn default_target_branch() -> String {
     "main".to_string()
+}
+
+// =============================================================================
+// v2: Profile Section
+// =============================================================================
+
+/// Environment profile (local, stg, prd, etc.)
+/// Each profile defines a deployment environment.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ProfileSection {
+    /// Branch that activates this profile (e.g., "stg", "main")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// Environment variable source
+    #[serde(default)]
+    pub env_source: EnvSource,
+    /// Base domain for services (e.g., "stg.agiletec.net")
+    #[serde(default)]
+    pub domain: String,
+    /// NODE_ENV value
+    #[serde(default = "default_node_env_dev")]
+    pub node_env: String,
+    /// Docker compose profiles to activate
+    #[serde(default)]
+    pub compose_profiles: Vec<String>,
+    /// Inherit from another profile (override only what differs)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inherits: Option<String>,
+}
+
+fn default_node_env_dev() -> String {
+    "development".to_string()
+}
+
+impl Default for ProfileSection {
+    fn default() -> Self {
+        ProfileSection {
+            branch: None,
+            env_source: EnvSource::default(),
+            domain: "localhost".to_string(),
+            node_env: default_node_env_dev(),
+            compose_profiles: vec![],
+            inherits: None,
+        }
+    }
+}
+
+/// How environment variables are sourced
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum EnvSource {
+    /// Simple string: "dotenv"
+    Simple(String),
+    /// Doppler config: { doppler = { config = "stg", secret = "DOPPLER_TOKEN_STG" } }
+    Doppler { doppler: DopplerConfig },
+}
+
+impl Default for EnvSource {
+    fn default() -> Self {
+        EnvSource::Simple("dotenv".to_string())
+    }
+}
+
+impl EnvSource {
+    /// Check if this is a Doppler source
+    pub fn is_doppler(&self) -> bool {
+        matches!(self, EnvSource::Doppler { .. })
+    }
+
+    /// Get Doppler config if available
+    pub fn doppler_config(&self) -> Option<&DopplerConfig> {
+        match self {
+            EnvSource::Doppler { doppler } => Some(doppler),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DopplerConfig {
+    pub config: String,
+    pub secret: String,
+}
+
+// =============================================================================
+// v2: Preset Section
+// =============================================================================
+
+/// Reusable preset for app definitions.
+/// When an app specifies `preset = "nextjs-app"`, the preset's deps, dev_deps,
+/// scripts, and deploy defaults are merged (app values override preset values).
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PresetSection {
+    /// Framework hint (e.g., "nextjs", "node")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    /// Mark package as private
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private: Option<bool>,
+    /// Default scripts
+    #[serde(default)]
+    pub scripts: IndexMap<String, String>,
+    /// Default dependencies
+    #[serde(default)]
+    pub deps: IndexMap<String, String>,
+    /// Default devDependencies
+    #[serde(default)]
+    pub dev_deps: IndexMap<String, String>,
+    /// Default deploy settings
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<PresetDeployDefaults>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PresetDeployDefaults {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
+}
+
+// =============================================================================
+// v2: External Service Config
+// =============================================================================
+
+/// Third-party service not built from source (e.g., steel-browser, paddleocr)
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ExternalServiceConfig {
+    pub image: String,
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shm_size: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
+    #[serde(default)]
+    pub volumes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<bool>,
+    #[serde(default)]
+    pub env: IndexMap<String, String>,
+}
+
+// =============================================================================
+// v2: Root Section (replaces packages.root in v1)
+// =============================================================================
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct RootSection {
+    #[serde(default)]
+    pub engines: IndexMap<String, String>,
+    #[serde(default)]
+    pub scripts: IndexMap<String, String>,
+    #[serde(rename = "devDependencies", default)]
+    pub dev_dependencies: IndexMap<String, String>,
 }
 
 // VersioningSection methods removed - using bump_version.rs instead
