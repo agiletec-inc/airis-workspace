@@ -1227,6 +1227,28 @@ pub struct AppDeployConfig {
     /// Extra apk packages for native modules (e.g., ["python3", "make", "g++"])
     #[serde(default)]
     pub extra_apk: Vec<String>,
+    /// Deploy target: "docker" (self-hosted compose) or "worker" (Cloudflare Workers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy_target: Option<String>,
+    /// Traefik Host rule template (e.g., "{profile.domain}", "dashboard.{profile.domain}")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// Runtime environment variables for deploy compose
+    #[serde(default)]
+    pub env: Vec<String>,
+}
+
+impl ProjectDefinition {
+    /// Check if this app deploys via Cloudflare Workers (not Docker).
+    pub fn is_worker_deploy(&self) -> bool {
+        self.deploy
+            .as_ref()
+            .map(|d| {
+                d.deploy_target.as_deref() == Some("worker")
+                    || d.variant.as_deref() == Some("worker")
+            })
+            .unwrap_or(false)
+    }
 }
 
 fn default_health_path() -> String {
