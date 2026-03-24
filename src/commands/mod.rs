@@ -9,6 +9,7 @@ pub mod doctor;
 pub mod docs;
 pub mod generate;
 pub mod generate_types;
+pub mod claude_setup;
 pub mod guards;
 pub mod hooks;
 pub mod init;

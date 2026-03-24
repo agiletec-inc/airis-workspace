@@ -404,10 +404,18 @@ impl TemplateEngine {
                     svc.volumes.clone()
                 };
 
+                // Extract internal port: explicit port > ports mapping > default 3000
+                let internal_port = svc.port.unwrap_or_else(|| {
+                    svc.ports.first()
+                        .and_then(|p| p.split(':').last())
+                        .and_then(|p| p.parse::<u16>().ok())
+                        .unwrap_or(3000)
+                });
+
                 json!({
                     "name": name,
                     "image": svc.image,
-                    "port": svc.port,
+                    "port": internal_port,
                     "ports": svc.ports,
                     "command": svc.command,
                     "volumes": merged_volumes,
@@ -426,6 +434,9 @@ impl TemplateEngine {
                     "runtime": svc.runtime,
                     "gpu": svc.gpu,
                     "health_path": svc.health_path,
+                    "network_mode": svc.network_mode,
+                    "labels": svc.labels,
+                    "networks": svc.networks,
                 })
             })
             .collect();
@@ -450,6 +461,13 @@ impl TemplateEngine {
             }
         }
 
+        let network_defs = manifest
+            .orchestration
+            .networks
+            .as_ref()
+            .map(|n| &n.define)
+            .filter(|d| !d.is_empty());
+
         Ok(json!({
             "project": manifest.workspace.name,
             "workspace_image": manifest.workspace.image,
@@ -459,6 +477,7 @@ impl TemplateEngine {
             "default_external": default_external,
             "workspace_volumes": workspace_volumes,
             "volume_names": volume_names,
+            "network_defs": network_defs,
         }))
     }
 
@@ -748,6 +767,21 @@ services:
       - {{this}}
 {{/each}}
 {{/if}}
+{{#if network_mode}}
+    network_mode: {{network_mode}}
+{{/if}}
+{{#if labels}}
+    labels:
+{{#each labels}}
+      - "{{this}}"
+{{/each}}
+{{/if}}
+{{#if networks}}
+    networks:
+{{#each networks}}
+      - {{this}}
+{{/each}}
+{{/if}}
 {{#if watch}}
     develop:
       watch:
@@ -777,6 +811,19 @@ services:
 
 {{/each}}
 
+{{#if network_defs}}
+networks:
+  default:
+    name: {{project}}_default
+    external: {{default_external}}
+{{#each network_defs}}
+  {{@key}}:
+    external: {{this.external}}
+{{#if this.name}}
+    name: {{this.name}}
+{{/if}}
+{{/each}}
+{{else}}
 networks:
   default:
     name: {{project}}_default
@@ -787,6 +834,7 @@ networks:
 {{#if proxy_network}}
   {{proxy_network}}:
     external: true
+{{/if}}
 {{/if}}
 
 volumes:
@@ -1399,8 +1447,8 @@ path = "apps/dashboard"
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
         let volume_names = context["volume_names"].as_array().unwrap();
 
-        // 1 explicit + 4 workspaces × 4 artifact dirs (node_modules, .turbo, dist, .next)
-        assert_eq!(workspace_volumes.len(), 17);
+        // 1 explicit + 4 workspaces × 10 artifact dirs
+        assert_eq!(workspace_volumes.len(), 41);
 
         // Check auto-generated volume names and mount paths
         let vol_strs: Vec<String> = workspace_volumes
@@ -1492,8 +1540,8 @@ workspaces = ["apps/*", "libs/*"]
 
         let workspace_volumes = context["workspace_volumes"].as_array().unwrap();
 
-        // 10 defaults + 2 workspaces × 4 artifact dirs (node_modules, .turbo, dist, .next)
-        assert_eq!(workspace_volumes.len(), 18);
+        // 10 defaults + 2 workspaces × 10 artifact dirs
+        assert_eq!(workspace_volumes.len(), 30);
 
         let vol_strs: Vec<String> = workspace_volumes
             .iter()
@@ -1650,6 +1698,50 @@ command = "pnpm dev"
 
         // No own volumes → should be empty (YAML merge handles it)
         assert_eq!(volumes.len(), 0);
+    }
+
+    #[test]
+    fn test_compose_infra_service() {
+        let toml_str = r#"
+version = 1
+mode = "docker-first"
+[workspace]
+name = "infra-test"
+workdir = "/app"
+
+[service.tunnel]
+image = "cloudflare/cloudflared:latest"
+network_mode = "host"
+
+[service.app]
+image = "myapp:latest"
+networks = ["default", "proxy"]
+labels = [
+  "traefik.enable=true",
+  "traefik.http.routers.app.rule=Host(`app.example.com`)",
+]
+
+[orchestration.networks.define.proxy]
+external = true
+name = "proxy"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_docker_compose(&manifest).unwrap();
+
+        // network_mode
+        assert!(result.contains("network_mode: host"), "missing network_mode");
+        // labels
+        assert!(result.contains("traefik.enable=true"), "missing labels");
+        assert!(result.contains("traefik.http.routers.app.rule=Host(`app.example.com`)"), "missing router label");
+        // service networks
+        assert!(result.contains("- default"), "missing service network default");
+        assert!(result.contains("- proxy"), "missing service network proxy");
+        // top-level networks section (data-driven)
+        assert!(result.contains("external: true"), "missing external in network_defs");
+        assert!(result.contains("name: proxy"), "missing name in network_defs");
+        // should NOT contain hardcoded traefik network
+        assert!(!result.contains("traefik_default"), "should not have hardcoded traefik network");
     }
 
     #[test]

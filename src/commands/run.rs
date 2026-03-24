@@ -2644,6 +2644,10 @@ test = "echo safe"
             devices: vec![],
             runtime: None,
             gpu: None,
+            health_path: None,
+            network_mode: None,
+            labels: vec![],
+            networks: vec![],
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(3000));
     }
@@ -2670,6 +2674,10 @@ test = "echo safe"
             devices: vec![],
             runtime: None,
             gpu: None,
+            health_path: None,
+            network_mode: None,
+            labels: vec![],
+            networks: vec![],
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(8080));
     }
@@ -2696,6 +2704,10 @@ test = "echo safe"
             devices: vec![],
             runtime: None,
             gpu: None,
+            health_path: None,
+            network_mode: None,
+            labels: vec![],
+            networks: vec![],
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(9090));
     }
@@ -2722,6 +2734,10 @@ test = "echo safe"
             devices: vec![],
             runtime: None,
             gpu: None,
+            health_path: None,
+            network_mode: None,
+            labels: vec![],
+            networks: vec![],
         };
         assert_eq!(extract_host_port_from_service(&svc), None);
     }

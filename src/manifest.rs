@@ -651,6 +651,15 @@ pub struct ServiceConfig {
     /// Health check path (e.g., "/api/health", "/healthz")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health_path: Option<String>,
+    /// Network mode (e.g., "host", "bridge")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_mode: Option<String>,
+    /// Labels (e.g., traefik routing labels)
+    #[serde(default)]
+    pub labels: Vec<String>,
+    /// Networks this service joins (e.g., ["default", "proxy"])
+    #[serde(default)]
+    pub networks: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -1107,6 +1116,17 @@ pub struct NetworksConfig {
     /// Whether default network should be external
     #[serde(default)]
     pub default_external: bool,
+    /// Additional named networks (e.g., proxy with external: true)
+    #[serde(default)]
+    pub define: IndexMap<String, NetworkDef>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct NetworkDef {
+    #[serde(default)]
+    pub external: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
