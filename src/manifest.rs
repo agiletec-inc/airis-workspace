@@ -1230,9 +1230,12 @@ pub struct AppDeployConfig {
     /// Deploy target: "docker" (self-hosted compose) or "worker" (Cloudflare Workers).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_target: Option<String>,
-    /// Traefik Host rule template (e.g., "{profile.domain}", "dashboard.{profile.domain}")
+    /// Traefik Host rule template v2 (e.g., "{profile.domain}", "dashboard.{profile.domain}")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// Traefik Host rule v1 compat (e.g., "${CORPORATE_DOMAIN}", "dashboard.${CORPORATE_DOMAIN}")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_rule: Option<String>,
     /// Runtime environment variables for deploy compose
     #[serde(default)]
     pub env: Vec<String>,

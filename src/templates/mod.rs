@@ -456,23 +456,41 @@ impl TemplateEngine {
 
         // --- Docker deploy jobs ---
         let mut docker_jobs = Vec::new();
+        let mut generated_app_names: Vec<String> = Vec::new(); // Track actually generated jobs
         for app in &docker_apps {
             let deploy = app.deploy.as_ref().unwrap();
             let snake = app.name.replace('-', "_");
             let kebab = &app.name;
 
-            // Host rule for health check
-            let host = deploy
+            // Host rule for health check (v2: host, v1 compat: host_rule)
+            let host_raw = deploy
                 .host
                 .as_deref()
+                .or(deploy.host_rule.as_deref())
                 .unwrap_or("");
-            if host.is_empty() {
+            if host_raw.is_empty() {
                 continue;
             }
 
-            // Convert {profile.domain} to doppler expansion
-            let health_domain = if host.contains("{profile.domain}") {
-                let prefix = host.replace("{profile.domain}", "");
+            // Convert host template to doppler expansion for deploy
+            // v2: {profile.domain} → $(doppler secrets get CORPORATE_DOMAIN)
+            // v1: ${CORPORATE_DOMAIN} → $(doppler secrets get CORPORATE_DOMAIN)
+            let health_domain = if host_raw.contains("{profile.domain}") {
+                let prefix = host_raw.replace("{profile.domain}", "");
+                if prefix.is_empty() {
+                    format!(
+                        "$(doppler secrets get CORPORATE_DOMAIN --plain -c {})",
+                        doppler_config_expr
+                    )
+                } else {
+                    format!(
+                        "{}$(doppler secrets get CORPORATE_DOMAIN --plain -c {})",
+                        prefix, doppler_config_expr
+                    )
+                }
+            } else if host_raw.contains("${CORPORATE_DOMAIN}") {
+                // v1 compat: ${CORPORATE_DOMAIN} → doppler expansion
+                let prefix = host_raw.replace("${CORPORATE_DOMAIN}", "");
                 if prefix.is_empty() {
                     format!(
                         "$(doppler secrets get CORPORATE_DOMAIN --plain -c {})",
@@ -485,9 +503,10 @@ impl TemplateEngine {
                     )
                 }
             } else {
-                host.to_string()
+                host_raw.to_string()
             };
 
+            generated_app_names.push(kebab.to_string());
             docker_jobs.push(format!(
                 "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: dopplerhq/cli-action@v3\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in 1 2 3 4 5 6; do\n            sleep 10\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after 6 attempts\"; exit 1",
                 health_path = deploy.health_path,
@@ -510,22 +529,23 @@ impl TemplateEngine {
             let kebab = &app.name;
             let path = app.path.as_deref().unwrap_or(&app.name);
 
+            generated_app_names.push(kebab.to_string());
             worker_jobs.push(format!(
                 "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {worker_runner}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 10\n    steps:\n      - uses: actions/checkout@v4\n      - uses: dopplerhq/cli-action@v3\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '{node_version}'\n{pnpm_store_step}\n      - name: Install dependencies\n        run: pnpm install --frozen-lockfile\n      - name: Deploy to Cloudflare Workers\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          cd {path}\n          export CLOUDFLARE_API_TOKEN=$(doppler secrets get CLOUDFLARE_API_TOKEN --plain -c {doppler_config_expr})\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            pnpm wrangler deploy\n          else\n            pnpm wrangler deploy --env staging\n          fi\n      - name: Health Check\n        run: |\n          sleep 5\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            URL=\"https://{kebab}-production.agiletec.workers.dev/healthz\"\n          else\n            URL=\"https://{kebab}.agiletec.workers.dev/healthz\"\n          fi\n          curl -sf \"$URL\" && echo \"{kebab} health check passed\" || {{ echo \"Health check failed\"; exit 1; }}",
             ));
         }
 
-        // --- Notify job ---
+        // --- Notify job (only reference actually generated jobs) ---
         let notify_needs: Vec<String> = std::iter::once("prepare".to_string())
-            .chain(all_deploy_apps.iter().map(|a| format!("deploy-{}", a.name)))
+            .chain(generated_app_names.iter().map(|name| format!("deploy-{}", name)))
             .collect();
 
-        let notify_rows: Vec<String> = all_deploy_apps
+        let notify_rows: Vec<String> = generated_app_names
             .iter()
-            .map(|a| {
+            .map(|name| {
                 format!(
                     "          echo \"| {} | ${{{{ needs.deploy-{}.result || 'skipped' }}}} |\" >> $GITHUB_STEP_SUMMARY",
-                    a.name, a.name
+                    name, name
                 )
             })
             .collect();
