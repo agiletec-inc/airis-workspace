@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use indexmap::IndexMap;
 use serde_json::json;
-use crate::version_resolver::{resolve_version, resolve_all_action_versions};
+use crate::version_resolver::resolve_all_action_versions;
 use crate::manifest::{ActionsVersions, MANIFEST_FILE, Manifest};
 
 /// Resolved GitHub Actions versions with full action references (e.g., "actions/checkout@v6")
@@ -27,55 +27,6 @@ impl ResolvedActions {
     }
 }
 
-/// Resolve dependency versions by expanding catalog references and version policies
-///
-/// Supports:
-/// - "catalog:" → look up package name in resolved_catalog
-/// - "catalog:key" → look up "key" in resolved_catalog
-/// - "latest" / "lts" → resolve from npm registry
-/// - Specific version (e.g. "^1.0.0") → use as-is
-fn resolve_dependencies(
-    deps: &IndexMap<String, String>,
-    resolved_catalog: &IndexMap<String, String>,
-) -> Result<IndexMap<String, String>> {
-    let mut resolved = IndexMap::new();
-
-    for (package, version_spec) in deps {
-        let resolved_version = if version_spec == "catalog:" {
-            // "catalog:" → use package name as key
-            resolved_catalog
-                .get(package)
-                .cloned()
-                .with_context(|| format!(
-                    "'{}' uses catalog: but is not defined in [packages.catalog]",
-                    package
-                ))?
-        } else if let Some(catalog_key) = version_spec.strip_prefix("catalog:") {
-            // "catalog:key" → look up specific key
-            resolved_catalog
-                .get(catalog_key)
-                .cloned()
-                .with_context(|| format!(
-                    "'{}' references catalog key '{}' which is not defined in [packages.catalog]",
-                    package, catalog_key
-                ))?
-        } else if version_spec == "latest" || version_spec == "lts" {
-            // Resolve from npm registry
-            resolve_version(package, version_spec)
-                .with_context(|| format!(
-                    "Failed to resolve {} for '{}' from npm registry",
-                    version_spec, package
-                ))?
-        } else {
-            // Use as-is (specific version)
-            version_spec.clone()
-        };
-
-        resolved.insert(package.clone(), resolved_version);
-    }
-
-    Ok(resolved)
-}
 
 pub struct TemplateEngine {
     hbs: Handlebars<'static>,
@@ -152,73 +103,53 @@ impl TemplateEngine {
             .context("Failed to render service Dockerfile")
     }
 
+    /// Render root package.json in hybrid mode.
+    ///
+    /// Managed fields: name, version, private, type, packageManager, workspaces.
+    /// All other fields (dependencies, scripts, engines, pnpm config) are user-managed.
     pub fn render_package_json(
         &self,
         manifest: &Manifest,
-        resolved_catalog: &IndexMap<String, String>,
+        _resolved_catalog: &IndexMap<String, String>,
     ) -> Result<String> {
-        let root = &manifest.packages.root;
+        let managed_fields = ["name", "version", "private", "type", "packageManager", "workspaces"];
 
-        // Build package.json directly with serde_json to avoid Handlebars escaping issues
-        let mut package_json = serde_json::json!({
-            "name": manifest.workspace.name,
-            "version": "0.0.0",
-            "private": true,
-            "type": "module",
-        });
+        // Read existing package.json if it exists
+        let package_json_path = std::path::Path::new("package.json");
+        let mut package_json = if package_json_path.exists() {
+            let existing = std::fs::read_to_string(package_json_path)
+                .context("Failed to read existing root package.json")?;
+            serde_json::from_str::<serde_json::Value>(&existing)
+                .context("Failed to parse existing root package.json")?
+        } else {
+            serde_json::json!({})
+        };
 
-        let obj = package_json.as_object_mut().unwrap();
+        let obj = package_json.as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("Root package.json is not a JSON object"))?;
 
-        // Add engines if present
-        if !root.engines.is_empty() {
-            obj.insert("engines".to_string(), serde_json::to_value(&root.engines)?);
-        }
-
-        // Add packageManager
+        // Update only managed fields
+        obj.insert("name".to_string(), serde_json::json!(manifest.workspace.name));
+        obj.insert("version".to_string(), serde_json::json!("0.0.0"));
+        obj.insert("private".to_string(), serde_json::json!(true));
+        obj.insert("type".to_string(), serde_json::json!("module"));
         obj.insert("packageManager".to_string(), serde_json::json!(manifest.workspace.package_manager));
 
-        // Add workspaces if this is a monorepo with packages
-        // This replaces pnpm-workspace.yaml and works with pnpm/npm/yarn/bun
         if !manifest.packages.workspaces.is_empty() {
             obj.insert("workspaces".to_string(), serde_json::to_value(&manifest.packages.workspaces)?);
         }
 
-        // Resolve and add dependencies
-        let dependencies = resolve_dependencies(&root.dependencies, resolved_catalog)?;
-        obj.insert("dependencies".to_string(), serde_json::to_value(&dependencies)?);
-
-        // Resolve and add devDependencies
-        let dev_dependencies = resolve_dependencies(&root.dev_dependencies, resolved_catalog)?;
-        obj.insert("devDependencies".to_string(), serde_json::to_value(&dev_dependencies)?);
-
-        // Resolve and add optionalDependencies if present
-        if !root.optional_dependencies.is_empty() {
-            let optional_dependencies = resolve_dependencies(&root.optional_dependencies, resolved_catalog)?;
-            obj.insert("optionalDependencies".to_string(), serde_json::to_value(&optional_dependencies)?);
-        }
-
-        // Add pnpm config if present
-        if !root.pnpm.overrides.is_empty()
-            || !root.pnpm.peer_dependency_rules.ignore_missing.is_empty()
-            || !root.pnpm.only_built_dependencies.is_empty()
-            || !root.pnpm.allowed_scripts.is_empty()
-        {
-            obj.insert("pnpm".to_string(), serde_json::to_value(&root.pnpm)?);
-        }
-
-        // Add scripts
-        obj.insert("scripts".to_string(), serde_json::to_value(&root.scripts)?);
-
-        // Add generation metadata
+        // Update generation marker
         obj.insert("_generated".to_string(), serde_json::json!({
-            "by": "airis init",
-            "from": "manifest.toml",
-            "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
+            "by": "airis gen",
+            "managed_fields": managed_fields,
+            "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
         }));
 
         // Serialize to pretty JSON
-        serde_json::to_string_pretty(&package_json)
-            .context("Failed to serialize package.json")
+        let content = serde_json::to_string_pretty(&package_json)
+            .context("Failed to serialize package.json")?;
+        Ok(format!("{content}\n"))
     }
 
     pub fn render_pnpm_workspace(
@@ -1747,34 +1678,6 @@ workspaces = ["apps/*", "libs/*"]
 
         // Should set COMPOSE_PROJECT_NAME from workspace name
         assert!(result.contains("export COMPOSE_PROJECT_NAME=\"my-awesome-project\""));
-    }
-
-    #[test]
-    fn test_resolve_dependencies_catalog_with_colon() {
-        let mut deps = IndexMap::new();
-        deps.insert("react".to_string(), "catalog:".to_string());
-        deps.insert("typescript".to_string(), "^5.0.0".to_string());
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.2.0".to_string());
-
-        let result = resolve_dependencies(&deps, &catalog).unwrap();
-
-        assert_eq!(result.get("react").unwrap(), "^19.2.0");
-        assert_eq!(result.get("typescript").unwrap(), "^5.0.0");
-    }
-
-    #[test]
-    fn test_resolve_dependencies_catalog_with_key() {
-        let mut deps = IndexMap::new();
-        deps.insert("my-react".to_string(), "catalog:react".to_string());
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.2.0".to_string());
-
-        let result = resolve_dependencies(&deps, &catalog).unwrap();
-
-        assert_eq!(result.get("my-react").unwrap(), "^19.2.0");
     }
 
     #[test]
