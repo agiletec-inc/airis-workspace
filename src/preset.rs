@@ -75,10 +75,7 @@ pub fn resolve_app_presets(
                         enabled: true,
                         variant: defaults.variant.clone(),
                         port: defaults.port,
-                        health_path: defaults
-                            .health_path
-                            .clone()
-                            .unwrap_or_else(|| "/health".to_string()),
+                        health_path: defaults.health_path.clone(),
                         ..Default::default()
                     });
                 }

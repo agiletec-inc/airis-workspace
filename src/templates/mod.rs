@@ -90,7 +90,7 @@ impl TemplateEngine {
             "pnpm_version": pnpm_version,
             "port": port,
             "entrypoint": entrypoint,
-            "health_path": deploy.health_path,
+            "health_path": deploy.health_path.as_deref().unwrap_or("/health"),
             "health_interval": deploy.health_interval,
             "build_args_lines": build_args_lines,
             "extra_apk": deploy.extra_apk,
@@ -508,7 +508,7 @@ impl TemplateEngine {
             generated_app_names.push(kebab.to_string());
             docker_jobs.push(format!(
                 "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: {timeout}\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in {retry_seq}; do\n            sleep {interval}\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after {retries} attempts\"; exit 1",
-                health_path = deploy.health_path,
+                health_path = deploy.health_path.as_deref().unwrap_or("/health"),
             ));
         }
 
@@ -530,7 +530,7 @@ impl TemplateEngine {
 
             let deploy = app.deploy.as_ref().unwrap();
             let timeout = deploy.timeout.unwrap_or(10);
-            let health_path = &deploy.health_path;
+            let health_path = deploy.health_path.as_deref().unwrap_or("/health");
             let workers_domain = deploy.workers_domain.as_deref()
                 .ok_or_else(|| anyhow::anyhow!(
                     "app '{}': deploy_target=worker requires workers_domain (e.g., 'myorg.workers.dev')",
@@ -625,11 +625,20 @@ impl TemplateEngine {
 
     fn prepare_dockerfile_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
         let pm_bin = manifest.workspace.package_manager.split('@').next().unwrap_or("pnpm");
+
+        // Collect workspace package.json paths for COPY lines
+        // This enables pnpm install to resolve the full workspace graph
+        let workspace_pkg_copies: Vec<String> = manifest.app.iter()
+            .filter_map(|app| app.path.as_ref())
+            .map(|p| p.to_string())
+            .collect();
+
         Ok(json!({
             "workspace_image": manifest.workspace.image,
             "workdir": manifest.workspace.workdir,
             "pm_bin": pm_bin,
             "is_pnpm": pm_bin == "pnpm",
+            "workspace_pkg_copies": workspace_pkg_copies,
         }))
     }
 
@@ -799,34 +808,45 @@ impl TemplateEngine {
     // Note: prepare_cargo_toml_data removed - Cargo.toml is source of truth for Rust projects
 
     /// Render tsconfig.base.json — shared compilerOptions only (no baseUrl/paths).
+    ///
+    /// All values are manifest-driven with smart defaults:
+    /// - target: auto-detected from Node version, or `[typescript].target`
+    /// - lib: defaults to [target], or `[typescript].lib`
+    /// - types: defaults to ["node"] (TS6 requires explicit), or `[typescript].types`
+    /// - module/moduleResolution: or `[typescript].module` / `[typescript].module_resolution`
     pub fn render_tsconfig_base(&self, manifest: &Manifest) -> Result<String> {
         let mut compiler_options = serde_json::Map::new();
+        let ts = &manifest.typescript;
 
-        // Derive ES target from workspace.image Node version
-        let es_target = crate::conventions::parse_node_version_from_image(&manifest.workspace.image)
+        // Derive ES target: manifest override → auto-detect from Node version → fallback
+        let auto_target = crate::conventions::parse_node_version_from_image(&manifest.workspace.image)
             .map(crate::conventions::node_version_to_es_target)
             .unwrap_or("ES2023");
+        let target = ts.target.as_deref().unwrap_or(auto_target);
+        let module = ts.module.as_deref().unwrap_or("ESNext");
+        let module_resolution = ts.module_resolution.as_deref().unwrap_or("bundler");
+        let lib: Vec<&str> = ts.lib.as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_else(|| vec![target]);
+        let types: Vec<&str> = ts.types.as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_else(|| vec!["node"]);
 
-        // Defaults
-        let defaults: &[(&str, serde_json::Value)] = &[
-            ("target", json!(es_target)),
-            ("module", json!("ESNext")),
-            ("moduleResolution", json!("bundler")),
-            ("lib", json!([es_target])),
-            ("strict", json!(true)),
-            ("esModuleInterop", json!(true)),
-            ("skipLibCheck", json!(true)),
-            ("forceConsistentCasingInFileNames", json!(true)),
-            ("resolveJsonModule", json!(true)),
-            ("isolatedModules", json!(true)),
-            ("types", json!(["node"])),
-        ];
-        for (key, value) in defaults {
-            compiler_options.insert((*key).to_string(), value.clone());
-        }
+        // Build compilerOptions from resolved values
+        compiler_options.insert("target".into(), json!(target));
+        compiler_options.insert("module".into(), json!(module));
+        compiler_options.insert("moduleResolution".into(), json!(module_resolution));
+        compiler_options.insert("lib".into(), json!(lib));
+        compiler_options.insert("types".into(), json!(types));
+        compiler_options.insert("strict".into(), json!(true));
+        compiler_options.insert("esModuleInterop".into(), json!(true));
+        compiler_options.insert("skipLibCheck".into(), json!(true));
+        compiler_options.insert("forceConsistentCasingInFileNames".into(), json!(true));
+        compiler_options.insert("resolveJsonModule".into(), json!(true));
+        compiler_options.insert("isolatedModules".into(), json!(true));
 
-        // Merge user-specified compilerOptions from [typescript.compiler_options]
-        for (key, value) in &manifest.typescript.compiler_options {
+        // Merge extra compilerOptions from [typescript.compiler_options]
+        for (key, value) in &ts.compiler_options {
             compiler_options.insert(key.clone(), toml_value_to_json(value));
         }
 
@@ -838,6 +858,110 @@ impl TemplateEngine {
         let content = serde_json::to_string_pretty(&tsconfig)
             .context("Failed to serialize tsconfig.base.json")?;
         Ok(format!("{content}\n"))
+    }
+
+    /// Render per-package tsconfig.json based on framework and manifest overrides.
+    ///
+    /// Framework-specific defaults:
+    /// - nextjs: lib += ["DOM"], jsx = "preserve"
+    /// - react-vite: lib += ["DOM"], jsx = "react-jsx"
+    /// - node: inherits base as-is
+    pub fn render_package_tsconfig(
+        &self,
+        package: &crate::manifest::ProjectDefinition,
+        manifest: &crate::manifest::Manifest,
+        rel_path_to_root: &str,
+        ts_major: u32,
+    ) -> Result<String> {
+        let ts = &manifest.typescript;
+        let pkg_ts = package.tsconfig.as_ref();
+
+        // Resolve target for lib defaults
+        let auto_target = crate::conventions::parse_node_version_from_image(&manifest.workspace.image)
+            .map(crate::conventions::node_version_to_es_target)
+            .unwrap_or("ES2023");
+        let target = ts.target.as_deref().unwrap_or(auto_target);
+
+        let framework = package.framework.as_deref().unwrap_or("node");
+        let is_browser = matches!(framework, "nextjs" | "react-vite");
+
+        let mut compiler_options = serde_json::Map::new();
+
+        // lib: package override → framework default → base inherits
+        let lib = pkg_ts.and_then(|t| t.lib.as_ref());
+        if let Some(lib_entries) = lib {
+            compiler_options.insert("lib".into(), json!(lib_entries));
+        } else if is_browser {
+            compiler_options.insert("lib".into(), json!([target, "DOM"]));
+        }
+
+        // jsx: package override → framework default
+        let jsx = pkg_ts.and_then(|t| t.jsx.as_deref());
+        if let Some(jsx_val) = jsx {
+            compiler_options.insert("jsx".into(), json!(jsx_val));
+        } else {
+            match framework {
+                "nextjs" => { compiler_options.insert("jsx".into(), json!("preserve")); },
+                "react-vite" => { compiler_options.insert("jsx".into(), json!("react-jsx")); },
+                _ => {},
+            }
+        }
+
+        // types: package override (if explicitly set)
+        if let Some(types_entries) = pkg_ts.and_then(|t| t.types.as_ref()) {
+            compiler_options.insert("types".into(), json!(types_entries));
+        }
+
+        // Next.js specific
+        if framework == "nextjs" {
+            // Next.js uses its own plugin array
+            compiler_options.insert("plugins".into(), json!([{"name": "next"}]));
+        }
+
+        // outDir for buildable libs
+        if package.kind.as_deref() == Some("lib") {
+            compiler_options.insert("outDir".into(), json!("./dist"));
+            compiler_options.insert("declaration".into(), json!(true));
+        }
+
+        // TS6 ignoreDeprecations
+        if ts_major >= 6 {
+            compiler_options.insert("ignoreDeprecations".into(), json!("6.0"));
+        }
+
+        // Merge extra compilerOptions from [app.tsconfig.compiler_options]
+        if let Some(pkg_ts) = pkg_ts {
+            for (key, value) in &pkg_ts.compiler_options {
+                compiler_options.insert(key.clone(), crate::templates::toml_value_to_json(value));
+            }
+        }
+
+        // Build includes
+        let include = match framework {
+            "nextjs" => json!(["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"]),
+            "react-vite" => json!(["src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts"]),
+            _ => json!(["src/**/*.ts", "src/**/*.tsx"]),
+        };
+
+        let exclude = json!(["node_modules", "dist", "coverage", "__tests__"]);
+
+        let mut tsconfig = serde_json::Map::new();
+        tsconfig.insert("_generated".into(), json!("DO NOT EDIT — regenerated by airis gen from manifest.toml"));
+        tsconfig.insert("extends".into(), json!(format!("{rel_path_to_root}tsconfig.base.json")));
+        if !compiler_options.is_empty() {
+            tsconfig.insert("compilerOptions".into(), serde_json::Value::Object(compiler_options));
+        }
+        tsconfig.insert("include".into(), include);
+        tsconfig.insert("exclude".into(), exclude);
+
+        let content = serde_json::to_string_pretty(&serde_json::Value::Object(tsconfig))
+            .context("Failed to serialize package tsconfig.json")?;
+        Ok(format!("{content}\n"))
+    }
+
+    /// Render CSS module type declaration for Next.js apps (TS6 TS2882 fix).
+    pub fn render_css_declaration(&self) -> String {
+        "// # airis:inject — DO NOT EDIT (generated by airis gen)\ndeclare module '*.css' {}\n".to_string()
     }
 
     /// Render root tsconfig.json — IDE config with baseUrl + paths + ignoreDeprecations.
@@ -1079,13 +1203,15 @@ ENV PNPM_STORE_DIR=/pnpm/store
 WORKDIR {{workdir}}
 
 {{#if is_pnpm}}
-# Fetch dependencies first (lockfile-only layer, maximizes Docker cache hits)
+# Step 1: Copy lockfile + workspace manifests (cache-efficient — only changes when deps change)
 COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} fetch
+{{#each workspace_pkg_copies}}
+COPY {{{this}}}/package.json {{{this}}}/package.json
+{{/each}}
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --frozen-lockfile
 
-# Then copy source and install from cache (no network needed)
+# Step 2: Copy full source (changes on every code edit, but deps are cached above)
 COPY . .
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --offline
 RUN chown -R app:app {{workdir}}
 USER app
 {{else}}
@@ -1466,9 +1592,9 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
-        // Dockerfile should use pnpm fetch + install --offline pattern
-        assert!(result.contains("pnpm fetch"));
-        assert!(result.contains("pnpm install --offline"));
+        // Dockerfile should use pnpm install --frozen-lockfile (single step, workspace-aware)
+        assert!(result.contains("pnpm install --frozen-lockfile"));
+        assert!(!result.contains("pnpm fetch"), "fetch+offline pattern replaced by install --frozen-lockfile");
         // Should use BuildKit cache mount for pnpm store
         assert!(result.contains("--mount=type=cache,id=pnpm,target=/pnpm/store"));
         // Should NOT contain sleep infinity

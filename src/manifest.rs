@@ -121,12 +121,31 @@ impl Manifest {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
 
-        let manifest: Manifest =
+        let mut manifest: Manifest =
             toml::from_str(&content).with_context(|| "Failed to parse manifest.toml")?;
 
         manifest.validate()?;
+        manifest.resolve_conventions();
+
+        // Post-resolve validation
+        for (i, app) in manifest.app.iter().enumerate() {
+            if app.name.is_empty() {
+                bail!(
+                    "[[app]] entry #{} has empty name and no path to derive from",
+                    i + 1
+                );
+            }
+        }
 
         Ok(manifest)
+    }
+
+    /// Apply convention-based defaults to all [[app]] entries.
+    fn resolve_conventions(&mut self) {
+        let workspace = self.workspace.clone();
+        for app in &mut self.app {
+            app.resolve(&workspace);
+        }
     }
 
     /// Returns true if this manifest defines a Node.js workspace.
@@ -1082,7 +1101,7 @@ pub struct EnvValidation {
 /// lib = ["ES2024"]
 /// types = ["node"]
 /// ```
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TypescriptSection {
     /// Override TS major version (auto-detected from catalog if omitted)
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1115,6 +1134,23 @@ pub struct TypescriptSection {
     /// Generate per-package tsconfig.json files (default: true)
     #[serde(default = "default_true")]
     pub generate_per_package: bool,
+}
+
+impl Default for TypescriptSection {
+    fn default() -> Self {
+        Self {
+            version: None,
+            target: None,
+            module: None,
+            module_resolution: None,
+            lib: None,
+            types: None,
+            compiler_options: IndexMap::new(),
+            paths: IndexMap::new(),
+            skip: false,
+            generate_per_package: true,
+        }
+    }
 }
 
 /// Per-package tsconfig overrides in [[app]] definitions.
@@ -1325,9 +1361,9 @@ pub struct AppDeployConfig {
     /// Entrypoint for CMD (e.g., "products/airis/agent/dist/index.js")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
-    /// Health check path (e.g., "/healthz")
-    #[serde(default = "default_health_path")]
-    pub health_path: String,
+    /// Health check path (e.g., "/healthz"). Derived from framework if not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
     /// Health check interval (e.g., "30s")
     #[serde(default = "default_health_interval")]
     pub health_interval: String,
@@ -1365,6 +1401,50 @@ pub struct AppDeployConfig {
 }
 
 impl ProjectDefinition {
+    /// Fill convention-based defaults into empty/None fields.
+    /// Explicit manifest values always win.
+    pub fn resolve(&mut self, workspace: &WorkspaceSection) {
+        let framework = self.framework.as_deref().unwrap_or("node");
+        let defaults = crate::conventions::framework_defaults(framework);
+
+        // name: derive from path
+        if self.name.is_empty() {
+            if let Some(ref path) = self.path {
+                self.name = crate::conventions::name_from_path(path).to_string();
+            }
+        }
+
+        // scope: derive from workspace
+        if self.scope.is_none() {
+            self.scope = workspace.scope.clone();
+        }
+
+        // port: derive from framework
+        if self.port.is_none() {
+            self.port = Some(defaults.port);
+        }
+
+        // deploy defaults from framework
+        if let Some(ref mut deploy) = self.deploy {
+            if deploy.variant.is_none() {
+                deploy.variant = Some(
+                    match framework {
+                        "nextjs" => "nextjs",
+                        "cloudflare-worker" => "worker",
+                        _ => "node",
+                    }
+                    .to_string(),
+                );
+            }
+            if deploy.port.is_none() {
+                deploy.port = Some(defaults.port);
+            }
+            if deploy.health_path.is_none() {
+                deploy.health_path = Some(defaults.health_path.to_string());
+            }
+        }
+    }
+
     /// Check if this app deploys via Cloudflare Workers (not Docker).
     pub fn is_worker_deploy(&self) -> bool {
         self.deploy
@@ -1375,10 +1455,6 @@ impl ProjectDefinition {
             })
             .unwrap_or(false)
     }
-}
-
-fn default_health_path() -> String {
-    "/health".to_string()
 }
 
 fn default_health_interval() -> String {
@@ -2177,5 +2253,98 @@ pnpm = "docker compose exec workspace pnpm"
         assert!(msg.contains("Duplicate port"), "got: {msg}");
         assert!(msg.contains("missing"), "got: {msg}");
         assert!(msg.contains("Guard conflict"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_resolve_name_from_path() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            path: Some("apps/corporate".to_string()),
+            framework: Some("nextjs".to_string()),
+            ..Default::default()
+        };
+        assert!(app.name.is_empty());
+        app.resolve(&ws);
+        assert_eq!(app.name, "corporate");
+    }
+
+    #[test]
+    fn test_resolve_scope_from_workspace() {
+        let mut ws = WorkspaceSection::default();
+        ws.scope = Some("@myorg".to_string());
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            ..Default::default()
+        };
+        assert!(app.scope.is_none());
+        app.resolve(&ws);
+        assert_eq!(app.scope.as_deref(), Some("@myorg"));
+    }
+
+    #[test]
+    fn test_resolve_scope_not_overridden() {
+        let mut ws = WorkspaceSection::default();
+        ws.scope = Some("@myorg".to_string());
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            scope: Some("@custom".to_string()),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        assert_eq!(app.scope.as_deref(), Some("@custom"));
+    }
+
+    #[test]
+    fn test_resolve_port_from_framework() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            ..Default::default()
+        };
+        assert!(app.port.is_none());
+        app.resolve(&ws);
+        assert_eq!(app.port, Some(3000));
+    }
+
+    #[test]
+    fn test_resolve_deploy_defaults_from_framework() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            deploy: Some(AppDeployConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        let deploy = app.deploy.as_ref().unwrap();
+        assert_eq!(deploy.variant.as_deref(), Some("nextjs"));
+        assert_eq!(deploy.port, Some(3000));
+        assert_eq!(deploy.health_path.as_deref(), Some("/api/health"));
+    }
+
+    #[test]
+    fn test_resolve_deploy_explicit_not_overridden() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            deploy: Some(AppDeployConfig {
+                enabled: true,
+                port: Some(8080),
+                health_path: Some("/custom-health".to_string()),
+                variant: Some("node".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        let deploy = app.deploy.as_ref().unwrap();
+        assert_eq!(deploy.variant.as_deref(), Some("node"));
+        assert_eq!(deploy.port, Some(8080));
+        assert_eq!(deploy.health_path.as_deref(), Some("/custom-health"));
     }
 }

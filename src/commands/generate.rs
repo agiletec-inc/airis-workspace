@@ -4,7 +4,7 @@ use indexmap::IndexMap;
 use serde_json;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::version_resolver::resolve_version;
 use crate::commands::discover::discover_from_workspaces;
@@ -193,19 +193,16 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             let mut app_count = 0;
             if !workspace_patterns.is_empty() {
                 let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
-                let default_scope = manifest.workspace.scope.clone();
-
                 for disc in &discovered {
                     if explicit_names.contains(&disc.name) {
                         continue; // Explicit [[app]] takes priority
                     }
-                    let auto_app = ProjectDefinition {
-                        name: disc.name.clone(),
+                    let mut auto_app = ProjectDefinition {
                         path: Some(disc.path.clone()),
-                        scope: default_scope.clone(),
                         framework: Some(disc.framework.to_string()),
                         ..Default::default()
                     };
+                    auto_app.resolve(&manifest.workspace);
                     generate_project_package_json(&auto_app, &workspace_root, &resolved_catalog)?;
                     app_count += 1;
                 }
@@ -946,6 +943,64 @@ fn generate_tsconfig(
             path_entries.len(),
             ts_major,
         );
+    }
+
+    // 4. Per-package tsconfig.json files
+    if manifest.typescript.generate_per_package {
+        let mut pkg_count = 0;
+        let mut css_count = 0;
+        for app in &manifest.app {
+            // Skip rust packages
+            if app.framework.as_deref() == Some("rust") {
+                continue;
+            }
+
+            let pkg_path = if let Some(ref p) = app.path {
+                PathBuf::from(p)
+            } else {
+                // Auto-detect path from workspace discovery
+                let matched = path_entries.iter().find(|(name, _)| {
+                    let scoped = format!(
+                        "@{}/{}",
+                        manifest.workspace.scope.as_deref().unwrap_or(&manifest.workspace.name),
+                        app.name
+                    );
+                    name == &scoped || name == &app.name
+                });
+                if let Some((_, path)) = matched {
+                    PathBuf::from(path)
+                } else {
+                    continue;
+                }
+            };
+
+            // Calculate relative path to root
+            let depth = pkg_path.components().count();
+            let rel_to_root = "../".repeat(depth);
+
+            let pkg_tsconfig = engine.render_package_tsconfig(app, manifest, &rel_to_root, ts_major)?;
+            let tsconfig_path = pkg_path.join("tsconfig.json");
+            write_with_backup(&tsconfig_path, &pkg_tsconfig)?;
+            pkg_count += 1;
+
+            // Generate css.d.ts for Next.js apps (TS6 TS2882 fix)
+            if app.framework.as_deref() == Some("nextjs") {
+                let css_decl = engine.render_css_declaration();
+                let src_dir = pkg_path.join("src");
+                if src_dir.exists() {
+                    let css_path = src_dir.join("css.d.ts");
+                    write_with_backup(&css_path, &css_decl)?;
+                    css_count += 1;
+                }
+            }
+        }
+        if pkg_count > 0 {
+            print!("   {} {} package tsconfig.json files", "✓".green(), pkg_count);
+            if css_count > 0 {
+                print!(" + {} css.d.ts", css_count);
+            }
+            println!();
+        }
     }
 
     Ok(())
