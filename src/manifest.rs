@@ -210,16 +210,6 @@ impl Manifest {
         "22".to_string()
     }
 
-    /// Get the effective workspaces list.
-    /// v2: [workspace].workspaces, v1: [packages].workspaces
-    pub fn effective_workspaces(&self) -> &[String] {
-        if !self.workspace.workspaces.is_empty() {
-            &self.workspace.workspaces
-        } else {
-            &self.packages.workspaces
-        }
-    }
-
     /// Get deploy profiles from [profile] section.
     /// Returns profiles that have a branch (i.e., are deploy targets).
     pub fn deploy_profiles(&self) -> Vec<(&str, &ProfileSection)> {
@@ -1177,6 +1167,7 @@ pub enum PresetRef {
 }
 
 impl PresetRef {
+    #[allow(dead_code)] // Used by preset.rs (v2 feature, not yet in main codepath)
     pub fn as_list(&self) -> Vec<&str> {
         match self {
             PresetRef::Single(s) => vec![s.as_str()],
@@ -1420,6 +1411,9 @@ pub struct CiSection {
     /// Runner label for Cloudflare Workers deploy jobs. Default: "ubuntu-latest"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_runner: Option<String>,
+    /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
+    #[serde(default)]
+    pub actions: ActionsVersions,
 }
 
 impl Default for CiSection {
@@ -1437,6 +1431,46 @@ impl Default for CiSection {
             cache: true,
             pnpm_store_path: None,
             worker_runner: None,
+            actions: ActionsVersions::default(),
+        }
+    }
+}
+
+fn default_action_version() -> String {
+    "v6".to_string()
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ActionsVersions {
+    /// actions/checkout version. Default: "v6"
+    #[serde(default = "default_action_version")]
+    pub checkout: String,
+    /// pnpm/action-setup version. Default: "v6"
+    #[serde(default = "default_action_version")]
+    pub pnpm: String,
+    /// actions/setup-node version. Default: "v6"
+    #[serde(default = "default_action_version")]
+    pub setup_node: String,
+    /// actions/cache version. Default: "v6"
+    #[serde(default = "default_action_version")]
+    pub cache: String,
+    /// dopplerhq/cli-action version. Default: "v3"
+    #[serde(default = "default_doppler_version")]
+    pub doppler: String,
+}
+
+fn default_doppler_version() -> String {
+    "v3".to_string()
+}
+
+impl Default for ActionsVersions {
+    fn default() -> Self {
+        ActionsVersions {
+            checkout: default_action_version(),
+            pnpm: default_action_version(),
+            setup_node: default_action_version(),
+            cache: default_action_version(),
+            doppler: default_doppler_version(),
         }
     }
 }
@@ -1542,11 +1576,6 @@ impl Default for EnvSource {
 }
 
 impl EnvSource {
-    /// Check if this is a Doppler source
-    pub fn is_doppler(&self) -> bool {
-        matches!(self, EnvSource::Doppler { .. })
-    }
-
     /// Get Doppler config if available
     pub fn doppler_config(&self) -> Option<&DopplerConfig> {
         match self {

@@ -5,8 +5,7 @@ use serde_json::json;
 use crate::version_resolver::resolve_version;
 use crate::manifest::{MANIFEST_FILE, Manifest};
 
-/// GitHub Actions versions — single source of truth
-const CHECKOUT_ACTION: &str = "actions/checkout@v6";
+// No hardcoded action versions — all driven by manifest.toml [ci.actions]
 
 /// Resolve dependency versions by expanding catalog references and version policies
 ///
@@ -308,11 +307,13 @@ impl TemplateEngine {
             return self.render_infra_ci_workflow(manifest);
         }
 
-        use crate::preset::resolve_profile;
-
-        let checkout = CHECKOUT_ACTION;
-        let node_version = manifest.node_version();
         let ci = &manifest.ci;
+        let actions = &ci.actions;
+        let checkout = format!("actions/checkout@{}", actions.checkout);
+        let pnpm_action = format!("pnpm/action-setup@{}", actions.pnpm);
+        let setup_node = format!("actions/setup-node@{}", actions.setup_node);
+        let cache_action = format!("actions/cache@{}", actions.cache);
+        let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let affected_flag = if ci.affected { " --affected" } else { "" };
 
@@ -330,7 +331,7 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            "      - name: Cache pnpm store\n        uses: actions/cache@v4\n        with:\n          path: ~/.pnpm-store\n          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}\n          restore-keys: ${{ runner.os }}-pnpm-".to_string()
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", cache_action)
         };
 
         // Determine CI branch and PR target from profiles
@@ -355,8 +356,8 @@ impl TemplateEngine {
         // Build CI job (same structure for lint, typecheck, test)
         let build_job = |task: &str, timeout: u8| -> String {
             format!(
-                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: {}\n        with:\n          fetch-depth: 2\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}",
-                task, runner_yaml, timeout, checkout, node_version, pnpm_store_step, task, affected_flag
+                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: {}\n        with:\n          fetch-depth: 2\n      - uses: {}\n      - uses: {}\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}",
+                task, runner_yaml, timeout, checkout, pnpm_action, setup_node, node_version, pnpm_store_step, task, affected_flag
             )
         };
 
@@ -374,13 +375,13 @@ impl TemplateEngine {
     /// Generate CI workflow for infrastructure-only repos (no Node.js)
     fn render_infra_ci_workflow(&self, manifest: &Manifest) -> Result<String> {
         let ci = &manifest.ci;
+        let checkout = format!("actions/checkout@{}", ci.actions.checkout);
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let runner_yaml = if runner.contains(',') {
             format!("[{}]", runner)
         } else {
             runner.to_string()
         };
-        let checkout = CHECKOUT_ACTION;
 
         let deploy_profiles = manifest.deploy_profiles();
         let pr_target = deploy_profiles
@@ -396,8 +397,13 @@ impl TemplateEngine {
 
     /// Generate .github/workflows/deploy.yml from manifest v2
     pub fn render_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
-        let checkout = CHECKOUT_ACTION;
         let ci = &manifest.ci;
+        let actions = &ci.actions;
+        let checkout = format!("actions/checkout@{}", actions.checkout);
+        let pnpm_action = format!("pnpm/action-setup@{}", actions.pnpm);
+        let setup_node = format!("actions/setup-node@{}", actions.setup_node);
+        let cache_action = format!("actions/cache@{}", actions.cache);
+        let doppler_action = format!("dopplerhq/cli-action@{}", actions.doppler);
         let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let worker_runner = ci.worker_runner.as_deref().unwrap_or("ubuntu-latest");
@@ -546,7 +552,7 @@ impl TemplateEngine {
 
             generated_app_names.push(kebab.to_string());
             docker_jobs.push(format!(
-                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 15\n    steps:\n      - uses: {checkout}\n      - uses: dopplerhq/cli-action@v3\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in 1 2 3 4 5 6; do\n            sleep 10\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after 6 attempts\"; exit 1",
+                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 15\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in 1 2 3 4 5 6; do\n            sleep 10\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after 6 attempts\"; exit 1",
                 health_path = deploy.health_path,
             ));
         }
@@ -558,7 +564,7 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            "      - name: Cache pnpm store\n        uses: actions/cache@v4\n        with:\n          path: ~/.pnpm-store\n          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}\n          restore-keys: ${{ runner.os }}-pnpm-".to_string()
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", cache_action)
         };
 
         let mut worker_jobs = Vec::new();
@@ -569,7 +575,7 @@ impl TemplateEngine {
 
             generated_app_names.push(kebab.to_string());
             worker_jobs.push(format!(
-                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {worker_runner}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 10\n    steps:\n      - uses: {checkout}\n      - uses: dopplerhq/cli-action@v3\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '{node_version}'\n{pnpm_store_step}\n      - name: Install dependencies\n        run: pnpm install --frozen-lockfile\n      - name: Deploy to Cloudflare Workers\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          cd {path}\n          export CLOUDFLARE_API_TOKEN=$(doppler secrets get CLOUDFLARE_API_TOKEN --plain -c {doppler_config_expr})\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            pnpm wrangler deploy\n          else\n            pnpm wrangler deploy --env staging\n          fi\n      - name: Health Check\n        run: |\n          sleep 5\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            URL=\"https://{kebab}-production.agiletec.workers.dev/healthz\"\n          else\n            URL=\"https://{kebab}.agiletec.workers.dev/healthz\"\n          fi\n          curl -sf \"$URL\" && echo \"{kebab} health check passed\" || {{ echo \"Health check failed\"; exit 1; }}",
+                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {worker_runner}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 10\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - uses: {pnpm_action}\n      - uses: {setup_node}\n        with:\n          node-version: '{node_version}'\n{pnpm_store_step}\n      - name: Install dependencies\n        run: pnpm install --frozen-lockfile\n      - name: Deploy to Cloudflare Workers\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          cd {path}\n          export CLOUDFLARE_API_TOKEN=$(doppler secrets get CLOUDFLARE_API_TOKEN --plain -c {doppler_config_expr})\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            pnpm wrangler deploy\n          else\n            pnpm wrangler deploy --env staging\n          fi\n      - name: Health Check\n        run: |\n          sleep 5\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            URL=\"https://{kebab}-production.agiletec.workers.dev/healthz\"\n          else\n            URL=\"https://{kebab}.agiletec.workers.dev/healthz\"\n          fi\n          curl -sf \"$URL\" && echo \"{kebab} health check passed\" || {{ echo \"Health check failed\"; exit 1; }}",
             ));
         }
 
@@ -607,8 +613,9 @@ impl TemplateEngine {
 
     /// Generate deploy workflow for infrastructure-only repos (no apps)
     fn render_infra_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
-        let checkout = CHECKOUT_ACTION;
         let ci = &manifest.ci;
+        let checkout = format!("actions/checkout@{}", ci.actions.checkout);
+        let doppler_action = format!("dopplerhq/cli-action@{}", ci.actions.doppler);
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let runner_yaml = if runner.contains(',') {
             format!("[{}]", runner)
@@ -632,7 +639,7 @@ impl TemplateEngine {
             .unwrap_or("DOPPLER_TOKEN");
 
         Ok(format!(
-            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: Deploy\n\non:\n  push:\n    branches: [{branches_yaml}]\n  workflow_dispatch:\n\nconcurrency:\n  group: deploy-{project_id}\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    runs-on: {runner_yaml}\n    steps:\n      - uses: {checkout}\n      - uses: dopplerhq/cli-action@v3\n      - name: Ensure proxy network\n        run: docker network create proxy 2>/dev/null || true\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: ${{{{ secrets.{doppler_secret} }}}}\n        run: doppler run -- docker compose up -d --pull always --remove-orphans\n      - name: Show status\n        run: docker compose ps\n"
+            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: Deploy\n\non:\n  push:\n    branches: [{branches_yaml}]\n  workflow_dispatch:\n\nconcurrency:\n  group: deploy-{project_id}\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    runs-on: {runner_yaml}\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - name: Ensure proxy network\n        run: docker network create proxy 2>/dev/null || true\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: ${{{{ secrets.{doppler_secret} }}}}\n        run: doppler run -- docker compose up -d --pull always --remove-orphans\n      - name: Show status\n        run: docker compose ps\n"
         ))
     }
 
