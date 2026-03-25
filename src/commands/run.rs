@@ -1359,6 +1359,11 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         ensure_env_file();
     }
 
+    // Run pre-command hook if configured
+    if !manifest.hooks.skip.contains(&task.to_string()) {
+        ensure_pre_command(&manifest)?;
+    }
+
     // Append extra arguments if provided (metacharacter check already done above)
     let full_cmd = if extra_args.is_empty() {
         cmd.to_string()
@@ -1812,6 +1817,103 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
     }
 
     Ok(())
+}
+
+// ── Pre-command hooks ─────────────────────────────────────
+
+/// Run the pre_command hook if configured and cache key has changed.
+fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
+    let pre_command = match &manifest.hooks.pre_command {
+        Some(cmd) => cmd,
+        None => return Ok(()),
+    };
+
+    // Cache check: skip if key file unchanged
+    if let Some(cache) = &manifest.hooks.cache {
+        let key_path = Path::new(&cache.key);
+        if key_path.exists() {
+            let current_hash = sha256_file(key_path)?;
+            let hash_file = Path::new(".airis/hook-cache");
+            if let Ok(saved) = std::fs::read_to_string(hash_file) {
+                if saved.trim() == current_hash {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    println!("{}", format!("📦 Running pre-command: {}", pre_command).bright_blue());
+
+    let success = execute_hook_command(pre_command, manifest)?;
+
+    if success {
+        // Save hash after successful execution
+        if let Some(cache) = &manifest.hooks.cache {
+            let key_path = Path::new(&cache.key);
+            if key_path.exists() {
+                let hash = sha256_file(key_path)?;
+                std::fs::create_dir_all(".airis")
+                    .context("Failed to create .airis directory")?;
+                std::fs::write(".airis/hook-cache", &hash)
+                    .context("Failed to write hook cache")?;
+            }
+        }
+        println!("{}", "  ✓ Pre-command completed".green());
+    } else {
+        println!("{}", "  ⚠ Pre-command failed (continuing anyway)".yellow());
+    }
+
+    Ok(())
+}
+
+/// Compute SHA256 hash of a file.
+fn sha256_file(path: &Path) -> Result<String> {
+    use sha2::{Sha256, Digest};
+    let content = std::fs::read(path)
+        .with_context(|| format!("Failed to read {}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(&content)))
+}
+
+/// Execute a hook command respecting Docker-first mode.
+/// Docker-first: exec (running container) → run --rm (temporary container) fallback.
+/// Non-Docker: direct shell execution.
+fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
+    let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
+
+    if is_docker_first {
+        let svc = manifest.docker.workspace
+            .as_ref()
+            .map(|w| w.service.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
+
+        if let Some(svc) = svc {
+            // Try exec first (fast, uses running container)
+            let status = Command::new("docker")
+                .args(["compose", "exec", "-T", svc, "sh", "-c", cmd])
+                .status();
+
+            match status {
+                Ok(s) if s.success() => return Ok(true),
+                _ => {
+                    // Fallback: run --rm (starts temporary container)
+                    println!("  {} container not running, starting temporary container...", "↻".yellow());
+                    let status = Command::new("docker")
+                        .args(["compose", "run", "--rm", "--no-deps", "-T", svc, "sh", "-c", cmd])
+                        .status()
+                        .context("Failed to execute docker compose run")?;
+                    return Ok(status.success());
+                }
+            }
+        }
+    }
+
+    // Non-Docker: direct execution
+    let status = Command::new("sh")
+        .args(["-c", cmd])
+        .status()
+        .with_context(|| format!("Failed to execute hook: {}", cmd))?;
+    Ok(status.success())
 }
 
 #[cfg(test)]
@@ -2739,5 +2841,62 @@ test = "echo safe"
             networks: vec![],
         };
         assert_eq!(extract_host_port_from_service(&svc), None);
+    }
+
+    #[test]
+    fn test_sha256_file_deterministic() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+        std::fs::write(&file, "hello world").unwrap();
+
+        let hash1 = sha256_file(&file).unwrap();
+        let hash2 = sha256_file(&file).unwrap();
+        assert_eq!(hash1, hash2);
+        // Known SHA256 of "hello world"
+        assert_eq!(hash1, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    }
+
+    #[test]
+    fn test_sha256_file_changes_with_content() {
+        let dir = tempdir().unwrap();
+        let file = dir.path().join("test.txt");
+
+        std::fs::write(&file, "version 1").unwrap();
+        let hash1 = sha256_file(&file).unwrap();
+
+        std::fs::write(&file, "version 2").unwrap();
+        let hash2 = sha256_file(&file).unwrap();
+
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_pre_command_hooks_default_is_none() {
+        let hooks = crate::manifest::PreCommandHooks::default();
+        assert!(hooks.pre_command.is_none());
+        assert!(hooks.skip.is_empty());
+        assert!(hooks.cache.is_none());
+    }
+
+    #[test]
+    fn test_hooks_section_parses_from_toml() {
+        let toml_str = r#"
+[workspace]
+name = "test"
+
+[hooks]
+pre_command = "pnpm install"
+skip = ["up", "down", "ps"]
+
+[hooks.cache]
+key = "pnpm-lock.yaml"
+
+[versioning]
+strategy = "manual"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        assert_eq!(manifest.hooks.pre_command.as_deref(), Some("pnpm install"));
+        assert_eq!(manifest.hooks.skip, vec!["up", "down", "ps"]);
+        assert_eq!(manifest.hooks.cache.as_ref().unwrap().key, "pnpm-lock.yaml");
     }
 }

@@ -59,6 +59,9 @@ pub struct Manifest {
     pub app: Vec<ProjectDefinition>,
     #[serde(default)]
     pub orchestration: OrchestrationSection,
+    /// Pre-command hooks (e.g., auto-install before test/build)
+    #[serde(default)]
+    pub hooks: PreCommandHooks,
     /// User-defined commands (airis run <task>)
     #[serde(default)]
     pub commands: IndexMap<String, String>,
@@ -86,6 +89,9 @@ pub struct Manifest {
     /// Value injection into user-owned files via `# airis:inject <key>` markers
     #[serde(default)]
     pub inject: IndexMap<String, InjectValue>,
+    /// TypeScript configuration for tsconfig generation
+    #[serde(default)]
+    pub typescript: TypescriptSection,
 
     // ── v2 fields (ignored when version = 1) ──
 
@@ -435,6 +441,7 @@ impl Manifest {
                 cmds.insert("ps".to_string(), "docker compose ps".to_string());
                 cmds
             },
+            hooks: PreCommandHooks::default(),
             remap,
             versioning: VersioningSection {
                 strategy: VersioningStrategy::Manual,
@@ -446,6 +453,7 @@ impl Manifest {
             runtimes: RuntimesSection::default(),
             env: EnvSection::default(),
             inject: IndexMap::new(),
+            typescript: TypescriptSection::default(),
             profile: IndexMap::new(),
             preset: IndexMap::new(),
             external: IndexMap::new(),
@@ -783,6 +791,29 @@ pub struct RuleConfig {
     pub commands: Vec<String>,
 }
 
+/// Pre-command hooks configuration.
+/// Runs a command before each `airis run <task>` invocation.
+/// Cache key avoids re-running when dependencies haven't changed.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PreCommandHooks {
+    /// Shell command to run before each airis command (e.g., "pnpm install")
+    #[serde(default)]
+    pub pre_command: Option<String>,
+    /// Commands that skip the pre_command hook (e.g., ["up", "down", "ps"])
+    #[serde(default)]
+    pub skip: Vec<String>,
+    /// Cache config: only run hook when key file changes
+    #[serde(default)]
+    pub cache: Option<HookCache>,
+}
+
+/// Cache configuration for pre-command hooks.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HookCache {
+    /// File whose SHA256 hash determines whether to run the hook
+    pub key: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct PackagesSection {
     #[serde(default)]
@@ -1031,6 +1062,28 @@ pub struct EnvValidation {
     /// Example value (used in .env.example)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<String>,
+}
+
+/// TypeScript configuration for tsconfig generation by `airis gen`.
+///
+/// Controls generation of `tsconfig.base.json` (shared compilerOptions) and
+/// `tsconfig.json` (IDE paths + ignoreDeprecations for TS6).
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TypescriptSection {
+    /// Override TS major version (auto-detected from catalog if omitted)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    /// Extra compilerOptions merged into tsconfig.base.json
+    #[serde(default)]
+    pub compiler_options: IndexMap<String, toml::Value>,
+    /// Extra path aliases merged into root tsconfig.json (IDE)
+    /// key = alias (e.g. "@agiletec/supabase-client"),
+    /// value = path (e.g. "libs/supabase/client/src/index.ts")
+    #[serde(default)]
+    pub paths: IndexMap<String, String>,
+    /// Disable tsconfig generation (default: false)
+    #[serde(default)]
+    pub skip: bool,
 }
 
 /// Runtime configuration for Docker builds
