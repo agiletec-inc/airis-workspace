@@ -171,6 +171,7 @@ pub fn resolve_profile<'a>(
                 profile.compose_profiles.clone()
             },
             inherits: None, // Already resolved
+            role: profile.role.clone().or(parent.role),
         })
     } else {
         Ok(profile.clone())
@@ -369,6 +370,7 @@ mod tests {
             node_env: "production".to_string(),
             compose_profiles: vec![],
             inherits: None,
+            role: None,
         };
 
         assert_eq!(

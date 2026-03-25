@@ -1290,6 +1290,19 @@ pub struct AppDeployConfig {
     /// Runtime environment variables for deploy compose
     #[serde(default)]
     pub env: Vec<String>,
+    /// Deploy job timeout in minutes. Default: 15 (docker), 10 (worker).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u8>,
+    /// Health check retry count. Default: 6
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_retries: Option<u8>,
+    /// Health check retry interval in seconds. Default: 10
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_retry_interval: Option<u8>,
+    /// Cloudflare Workers domain suffix (e.g., "myorg.workers.dev").
+    /// Required when deploy_target = "worker".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers_domain: Option<String>,
 }
 
 impl ProjectDefinition {
@@ -1468,6 +1481,10 @@ pub struct CiSection {
     /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
     #[serde(default)]
     pub actions: ActionsVersions,
+    /// CI check job timeouts. Key = turbo task name, Value = timeout minutes.
+    /// Default: {"lint": 10, "typecheck": 10, "test": 15}
+    #[serde(default = "default_ci_jobs")]
+    pub jobs: IndexMap<String, u8>,
 }
 
 impl Default for CiSection {
@@ -1486,8 +1503,17 @@ impl Default for CiSection {
             pnpm_store_path: None,
             worker_runner: None,
             actions: ActionsVersions::default(),
+            jobs: default_ci_jobs(),
         }
     }
+}
+
+fn default_ci_jobs() -> IndexMap<String, u8> {
+    let mut m = IndexMap::new();
+    m.insert("lint".into(), 10);
+    m.insert("typecheck".into(), 10);
+    m.insert("test".into(), 15);
+    m
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -1590,6 +1616,25 @@ pub struct ProfileSection {
     /// Inherit from another profile (override only what differs)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
+    /// Profile role: "production" | "staging" | "local".
+    /// Overrides name-based inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+impl ProfileSection {
+    /// Resolve the effective role of this profile.
+    /// Explicit `role` field takes priority; otherwise inferred from profile name.
+    pub fn effective_role(&self, name: &str) -> &str {
+        if let Some(ref role) = self.role {
+            return role.as_str();
+        }
+        match name {
+            "prd" | "prod" | "production" => "production",
+            "local" | "dev" | "development" => "local",
+            _ => "staging",
+        }
+    }
 }
 
 fn default_node_env_dev() -> String {
@@ -1605,6 +1650,7 @@ impl Default for ProfileSection {
             node_env: default_node_env_dev(),
             compose_profiles: vec![],
             inherits: None,
+            role: None,
         }
     }
 }
