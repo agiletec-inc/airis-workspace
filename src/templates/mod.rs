@@ -1059,17 +1059,19 @@ WORKDIR {{workdir}}
 
 {{#if is_pnpm}}
 # Fetch dependencies first (lockfile-only layer, maximizes Docker cache hits)
-COPY --chown=app:app pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
-USER app
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} fetch
 
 # Then copy source and install from cache (no network needed)
-COPY --chown=app:app . .
+COPY . .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --offline
-{{else}}
-COPY --chown=app:app . .
+RUN chown -R app:app {{workdir}}
 USER app
+{{else}}
+COPY . .
 RUN {{pm_bin}} install
+RUN chown -R app:app {{workdir}}
+USER app
 {{/if}}
 
 ENTRYPOINT ["tini","--"]
@@ -1451,9 +1453,9 @@ workspaces = ["apps/*", "libs/*"]
         // Should NOT contain sleep infinity
         assert!(!result.contains("sleep infinity"));
         // Should contain COPY
-        assert!(result.contains("COPY --chown=app:app . ."));
+        assert!(result.contains("COPY . ."));
         // Lockfile should be copied before source for cache optimization
-        assert!(result.contains("COPY --chown=app:app pnpm-lock.yaml"));
+        assert!(result.contains("COPY pnpm-lock.yaml"));
     }
 
     #[test]
