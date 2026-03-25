@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use indexmap::IndexMap;
+use serde_json;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -96,6 +97,8 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
         ("Dockerfile", has_workspace),
         ("compose.yml", has_workspace),
         ("pnpm-workspace.yaml", has_workspace && !manifest.packages.workspaces.is_empty()),
+        ("tsconfig.base.json", has_workspace && !manifest.typescript.skip),
+        ("tsconfig.json", has_workspace && !manifest.typescript.skip),
     ];
 
     for (file, should_generate) in files_to_check {
@@ -229,6 +232,12 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         // Generate .npmrc for pnpm store isolation
         generate_npmrc(&engine)?;
         generated_files.push(".npmrc (pnpm store isolation)".into());
+
+        // Generate tsconfig files (tsconfig.base.json + tsconfig.json)
+        if !manifest.typescript.skip {
+            generate_tsconfig(manifest, &engine, &resolved_catalog)?;
+            generated_files.push("tsconfig.base.json + tsconfig.json".into());
+        }
 
         // Generate .env.example if [env] section has required or optional vars
         if !manifest.env.required.is_empty() || !manifest.env.optional.is_empty() {
@@ -870,3 +879,100 @@ fn resolve_inject_values(
     Ok(values)
 }
 
+// ── TypeScript tsconfig generation ───────────────────────────
+
+fn generate_tsconfig(
+    manifest: &Manifest,
+    engine: &TemplateEngine,
+    resolved_catalog: &IndexMap<String, String>,
+) -> Result<()> {
+    println!();
+    println!("{}", "📝 Generating tsconfig files...".bright_blue());
+
+    let ts_major = detect_ts_major(manifest, resolved_catalog);
+
+    // 1. tsconfig.base.json — shared compilerOptions
+    let base_content = engine.render_tsconfig_base(manifest)?;
+    let base_path = Path::new("tsconfig.base.json");
+    write_with_backup(base_path, &base_content)?;
+    println!("   {} tsconfig.base.json (shared compilerOptions)", "✓".green());
+
+    // 2. Collect workspace paths for IDE path aliases
+    let workspace_root = env::current_dir().context("Failed to get current directory")?;
+    let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
+        &manifest.packages.workspaces
+    } else {
+        &manifest.workspace.workspaces
+    };
+
+    let mut path_entries: Vec<(String, String)> = Vec::new();
+    if !workspace_patterns.is_empty() {
+        let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
+        for disc in &discovered {
+            // Skip node_modules and build artifacts
+            if disc.path.contains("node_modules")
+                || disc.path.contains(".next")
+                || disc.path.contains("/dist/")
+            {
+                continue;
+            }
+            let pkg_json_path = workspace_root.join(&disc.path).join("package.json");
+            if let Ok(content) = fs::read_to_string(&pkg_json_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(name) = json.get("name").and_then(|n| n.as_str()) {
+                        path_entries.push((name.to_string(), disc.path.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. tsconfig.json — IDE config with paths
+    let root_content = engine.render_tsconfig_root(manifest, &path_entries, ts_major)?;
+    let root_path = Path::new("tsconfig.json");
+    write_with_backup(root_path, &root_content)?;
+
+    if ts_major >= 6 {
+        println!(
+            "   {} tsconfig.json (IDE, {} paths, TS{} — ignoreDeprecations: \"6.0\")",
+            "✓".green(),
+            path_entries.len(),
+            ts_major,
+        );
+    } else {
+        println!(
+            "   {} tsconfig.json (IDE, {} paths, TS{})",
+            "✓".green(),
+            path_entries.len(),
+            ts_major,
+        );
+    }
+
+    Ok(())
+}
+
+/// Detect TypeScript major version from manifest or resolved catalog.
+fn detect_ts_major(
+    manifest: &Manifest,
+    resolved_catalog: &IndexMap<String, String>,
+) -> u32 {
+    // Explicit override in [typescript]
+    if let Some(v) = manifest.typescript.version {
+        return v;
+    }
+
+    // Auto-detect from resolved catalog
+    if let Some(version_str) = resolved_catalog.get("typescript") {
+        let clean = version_str
+            .trim_start_matches('^')
+            .trim_start_matches('~');
+        if let Some(major_str) = clean.split('.').next() {
+            if let Ok(major) = major_str.parse::<u32>() {
+                return major;
+            }
+        }
+    }
+
+    // Default: assume TS5 (safe, no ignoreDeprecations)
+    5
+}
