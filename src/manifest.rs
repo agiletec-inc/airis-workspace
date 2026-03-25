@@ -1436,41 +1436,37 @@ impl Default for CiSection {
     }
 }
 
-fn default_action_version() -> String {
-    "v6".to_string()
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ActionsVersions {
     /// actions/checkout version. Default: "v6"
-    #[serde(default = "default_action_version")]
+    #[serde(default = "default_v6")]
     pub checkout: String,
-    /// pnpm/action-setup version. Default: "v6"
-    #[serde(default = "default_action_version")]
+    /// pnpm/action-setup version. Default: "v5"
+    #[serde(default = "default_v5")]
     pub pnpm: String,
     /// actions/setup-node version. Default: "v6"
-    #[serde(default = "default_action_version")]
+    #[serde(default = "default_v6")]
     pub setup_node: String,
-    /// actions/cache version. Default: "v6"
-    #[serde(default = "default_action_version")]
+    /// actions/cache version. Default: "v5"
+    #[serde(default = "default_v5")]
     pub cache: String,
     /// dopplerhq/cli-action version. Default: "v3"
-    #[serde(default = "default_doppler_version")]
+    #[serde(default = "default_v3")]
     pub doppler: String,
 }
 
-fn default_doppler_version() -> String {
-    "v3".to_string()
-}
+fn default_v6() -> String { "v6".to_string() }
+fn default_v5() -> String { "v5".to_string() }
+fn default_v3() -> String { "v3".to_string() }
 
 impl Default for ActionsVersions {
     fn default() -> Self {
         ActionsVersions {
-            checkout: default_action_version(),
-            pnpm: default_action_version(),
-            setup_node: default_action_version(),
-            cache: default_action_version(),
-            doppler: default_doppler_version(),
+            checkout: default_v6(),
+            pnpm: default_v5(),
+            setup_node: default_v6(),
+            cache: default_v5(),
+            doppler: default_v3(),
         }
     }
 }

@@ -2,10 +2,30 @@ use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use indexmap::IndexMap;
 use serde_json::json;
-use crate::version_resolver::resolve_version;
-use crate::manifest::{MANIFEST_FILE, Manifest};
+use crate::version_resolver::{resolve_version, resolve_all_action_versions};
+use crate::manifest::{ActionsVersions, MANIFEST_FILE, Manifest};
 
-// No hardcoded action versions — all driven by manifest.toml [ci.actions]
+/// Resolved GitHub Actions versions with full action references (e.g., "actions/checkout@v6")
+struct ResolvedActions {
+    checkout: String,
+    pnpm: String,
+    setup_node: String,
+    cache: String,
+    doppler: String,
+}
+
+impl ResolvedActions {
+    fn from_manifest(actions: &ActionsVersions) -> Result<Self> {
+        let resolved = resolve_all_action_versions(actions)?;
+        Ok(ResolvedActions {
+            checkout: format!("actions/checkout@{}", resolved.checkout),
+            pnpm: format!("pnpm/action-setup@{}", resolved.pnpm),
+            setup_node: format!("actions/setup-node@{}", resolved.setup_node),
+            cache: format!("actions/cache@{}", resolved.cache),
+            doppler: format!("dopplerhq/cli-action@{}", resolved.doppler),
+        })
+    }
+}
 
 /// Resolve dependency versions by expanding catalog references and version policies
 ///
@@ -308,11 +328,10 @@ impl TemplateEngine {
         }
 
         let ci = &manifest.ci;
-        let actions = &ci.actions;
-        let checkout = format!("actions/checkout@{}", actions.checkout);
-        let pnpm_action = format!("pnpm/action-setup@{}", actions.pnpm);
-        let setup_node = format!("actions/setup-node@{}", actions.setup_node);
-        let cache_action = format!("actions/cache@{}", actions.cache);
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let pnpm_action = &a.pnpm;
+        let setup_node = &a.setup_node;
         let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let affected_flag = if ci.affected { " --affected" } else { "" };
@@ -331,7 +350,7 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", cache_action)
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", a.cache)
         };
 
         // Determine CI branch and PR target from profiles
@@ -375,7 +394,8 @@ impl TemplateEngine {
     /// Generate CI workflow for infrastructure-only repos (no Node.js)
     fn render_infra_ci_workflow(&self, manifest: &Manifest) -> Result<String> {
         let ci = &manifest.ci;
-        let checkout = format!("actions/checkout@{}", ci.actions.checkout);
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let runner_yaml = if runner.contains(',') {
             format!("[{}]", runner)
@@ -398,12 +418,11 @@ impl TemplateEngine {
     /// Generate .github/workflows/deploy.yml from manifest v2
     pub fn render_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
         let ci = &manifest.ci;
-        let actions = &ci.actions;
-        let checkout = format!("actions/checkout@{}", actions.checkout);
-        let pnpm_action = format!("pnpm/action-setup@{}", actions.pnpm);
-        let setup_node = format!("actions/setup-node@{}", actions.setup_node);
-        let cache_action = format!("actions/cache@{}", actions.cache);
-        let doppler_action = format!("dopplerhq/cli-action@{}", actions.doppler);
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let pnpm_action = &a.pnpm;
+        let setup_node = &a.setup_node;
+        let doppler_action = &a.doppler;
         let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let worker_runner = ci.worker_runner.as_deref().unwrap_or("ubuntu-latest");
@@ -564,7 +583,7 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", cache_action)
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", a.cache)
         };
 
         let mut worker_jobs = Vec::new();
@@ -614,8 +633,9 @@ impl TemplateEngine {
     /// Generate deploy workflow for infrastructure-only repos (no apps)
     fn render_infra_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
         let ci = &manifest.ci;
-        let checkout = format!("actions/checkout@{}", ci.actions.checkout);
-        let doppler_action = format!("dopplerhq/cli-action@{}", ci.actions.doppler);
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let doppler_action = &a.doppler;
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let runner_yaml = if runner.contains(',') {
             format!("[{}]", runner)

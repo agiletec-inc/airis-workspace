@@ -90,6 +90,112 @@ pub fn get_npm_lts(package: &str) -> Result<String> {
     Ok(format!("^{version}"))
 }
 
+/// GitHub Actions version resolver
+///
+/// Maps action short names to their GitHub repos, then queries
+/// the GitHub API for the latest major version tag (e.g., "v6").
+const GITHUB_ACTIONS: &[(&str, &str)] = &[
+    ("checkout", "actions/checkout"),
+    ("pnpm", "pnpm/action-setup"),
+    ("setup_node", "actions/setup-node"),
+    ("cache", "actions/cache"),
+    ("doppler", "dopplerhq/cli-action"),
+];
+
+/// Resolve a GitHub Action version policy.
+///
+/// - "latest" → fetch latest major version tag from GitHub
+/// - "v5", "v6" etc. → pass through as-is
+pub fn resolve_action_version(action_key: &str, policy: &str) -> Result<String> {
+    if policy != "latest" {
+        return Ok(policy.to_string());
+    }
+
+    let repo = GITHUB_ACTIONS
+        .iter()
+        .find(|(k, _)| *k == action_key)
+        .map(|(_, r)| *r)
+        .context(format!("Unknown action key: {action_key}"))?;
+
+    get_github_latest_major_tag(repo)
+}
+
+/// Fetch the latest major version tag (e.g., "v6") from a GitHub repo.
+///
+/// Looks for tags matching `vN` (major-only), sorted descending.
+fn get_github_latest_major_tag(repo: &str) -> Result<String> {
+    let url = format!("https://api.github.com/repos/{repo}/tags?per_page=100");
+    let response = ureq::get(&url)
+        .set("Accept", "application/vnd.github+json")
+        .set("User-Agent", "airis-monorepo")
+        .call()
+        .context(format!("Failed to fetch tags for {repo}"))?;
+
+    let tags: Vec<serde_json::Value> = response
+        .into_json()
+        .context(format!("Failed to parse tags JSON for {repo}"))?;
+
+    // Find major-only tags (v1, v2, ..., v6) — these are the stable refs
+    let mut major_versions: Vec<u32> = tags
+        .iter()
+        .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
+        .filter_map(|name| {
+            let stripped = name.strip_prefix('v')?;
+            // Only pure major tags like "v6", not "v6.0.0" or "v6-beta"
+            if stripped.chars().all(|c| c.is_ascii_digit()) {
+                stripped.parse::<u32>().ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    major_versions.sort_unstable();
+    major_versions
+        .last()
+        .map(|v| format!("v{v}"))
+        .context(format!("No major version tags found for {repo}"))
+}
+
+/// Resolve all action versions in an ActionsVersions struct.
+///
+/// Any field set to "latest" will be resolved to the actual latest major tag.
+/// Progress is printed to stderr for user feedback.
+pub fn resolve_all_action_versions(
+    actions: &crate::manifest::ActionsVersions,
+) -> Result<crate::manifest::ActionsVersions> {
+    let fields = [
+        ("checkout", &actions.checkout),
+        ("pnpm", &actions.pnpm),
+        ("setup_node", &actions.setup_node),
+        ("cache", &actions.cache),
+        ("doppler", &actions.doppler),
+    ];
+
+    let mut resolved = actions.clone();
+    for (key, value) in &fields {
+        if *value == "latest" {
+            let repo = GITHUB_ACTIONS
+                .iter()
+                .find(|(k, _)| k == key)
+                .map(|(_, r)| *r)
+                .unwrap();
+            let version = resolve_action_version(key, value)?;
+            eprintln!("  ✓ {} ({}) latest → {}", key, repo, version);
+            match *key {
+                "checkout" => resolved.checkout = version,
+                "pnpm" => resolved.pnpm = version,
+                "setup_node" => resolved.setup_node = version,
+                "cache" => resolved.cache = version,
+                "doppler" => resolved.doppler = version,
+                _ => {}
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
