@@ -149,14 +149,8 @@ fn generate_api_project(project_dir: &Path, name: &str) -> Result<()> {
 
     // tsconfig.json
     let tsconfig = r#"{
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022"],
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": true,
@@ -333,20 +327,15 @@ module.exports = nextConfig
 "#;
     fs::write(project_dir.join("next.config.js"), next_config)?;
 
-    // tsconfig.json
+    // tsconfig.json — extends base, Next.js-specific options
     let tsconfig = r#"{
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
     "noEmit": true,
-    "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
@@ -455,14 +444,8 @@ fn generate_lib_project(project_dir: &Path, name: &str) -> Result<()> {
 
     // tsconfig.json
     let tsconfig = r#"{
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022"],
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "declaration": true,

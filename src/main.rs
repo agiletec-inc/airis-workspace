@@ -1,5 +1,6 @@
 mod channel;
 mod commands;
+mod conventions;
 mod dag;
 mod docker_build;
 mod executor;
