@@ -25,7 +25,7 @@ fn test_help_flag() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Docker-first monorepo workspace manager"));
+        .stdout(predicate::str::contains("Docker-first monorepo manager for the vibe coding era"));
 }
 
 #[test]
