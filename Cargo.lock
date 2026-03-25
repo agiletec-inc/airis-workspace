@@ -19,7 +19,7 @@ dependencies = [
 
 [[package]]
 name = "airis-monorepo"
-version = "1.121.0"
+version = "1.127.0"
 dependencies = [
  "anyhow",
  "assert_cmd",

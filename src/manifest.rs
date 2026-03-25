@@ -37,7 +37,7 @@ pub struct Manifest {
     #[serde(default)]
     pub workspaces: WorkspacesSection,
     #[serde(default)]
-    pub dev: DevSection,
+    pub dev: HooksSection,
     #[serde(default)]
     pub apps: IndexMap<String, AppConfig>,
     #[serde(default)]
@@ -406,7 +406,7 @@ impl Manifest {
             },
             catalog: IndexMap::new(),
             workspaces: WorkspacesSection::default(),
-            dev: DevSection::default(),
+            dev: HooksSection::default(),
             apps: IndexMap::new(),
             libs: IndexMap::new(),
             docker: DockerSection {
@@ -615,7 +615,7 @@ fn default_workspace_workdir() -> String {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DevSection {
+pub struct HooksSection {
     /// Glob pattern for auto-discovering app docker-compose files
     /// Default: "apps/*/docker-compose.yml"
     #[serde(default = "default_apps_pattern")]
@@ -628,14 +628,14 @@ pub struct DevSection {
     pub traefik: Option<String>,
     /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub urls: Option<DevUrls>,
+    pub urls: Option<ServiceUrls>,
     /// Commands to run after `airis up` (e.g., DB migration)
     #[serde(default)]
     pub post_up: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct DevUrls {
+pub struct ServiceUrls {
     /// Infrastructure URLs (e.g., Supabase Studio, Traefik Dashboard)
     #[serde(default)]
     pub infra: Vec<UrlEntry>,
@@ -652,9 +652,9 @@ pub struct UrlEntry {
     pub url: String,
 }
 
-impl Default for DevSection {
+impl Default for HooksSection {
     fn default() -> Self {
-        DevSection {
+        HooksSection {
             apps_pattern: default_apps_pattern(),
             supabase: None,
             traefik: None,
@@ -1065,8 +1065,9 @@ pub struct K8sResources {
     pub limits: Option<ResourceSpec>,
 }
 
-/// Project definition for full package.json generation
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Project definition for package.json management.
+/// In hybrid mode, airis manages only name/version/private/type.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]

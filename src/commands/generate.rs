@@ -6,8 +6,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::version_resolver::resolve_version;
+use crate::commands::discover::discover_from_workspaces;
 use crate::generators::package_json::generate_project_package_json;
-use crate::manifest::{CatalogEntry, InjectValue, Manifest, MANIFEST_FILE};
+use crate::manifest::{CatalogEntry, InjectValue, Manifest, ProjectDefinition, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
 
@@ -165,15 +166,55 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generate_pnpm_workspace(manifest, &engine, force)?;
         }
 
-        // Generate individual app package.json files
-        if !manifest.app.is_empty() {
+        // Generate individual app package.json files (auto-discovery + explicit)
+        {
             println!();
-            println!("{}", "📦 Generating app package.json files...".bright_blue());
+            println!("{}", "📦 Syncing app package.json files...".bright_blue());
             let workspace_root = env::current_dir().context("Failed to get current directory")?;
+
+            // Collect workspace patterns from both v1 and v2 locations
+            let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
+                &manifest.packages.workspaces
+            } else {
+                &manifest.workspace.workspaces
+            };
+
+            // Build set of explicitly defined app names (these take priority)
+            let explicit_names: std::collections::HashSet<String> = manifest
+                .app
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+
+            // Auto-discover projects from workspace patterns
+            let mut app_count = 0;
+            if !workspace_patterns.is_empty() {
+                let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
+                let default_scope = manifest.workspace.scope.clone();
+
+                for disc in &discovered {
+                    if explicit_names.contains(&disc.name) {
+                        continue; // Explicit [[app]] takes priority
+                    }
+                    let auto_app = ProjectDefinition {
+                        name: disc.name.clone(),
+                        path: Some(disc.path.clone()),
+                        scope: default_scope.clone(),
+                        framework: Some(disc.framework.to_string()),
+                        ..Default::default()
+                    };
+                    generate_project_package_json(&auto_app, &workspace_root, &resolved_catalog)?;
+                    app_count += 1;
+                }
+            }
+
+            // Generate for explicitly defined apps
             for app in &manifest.app {
                 generate_project_package_json(app, &workspace_root, &resolved_catalog)?;
+                app_count += 1;
             }
-            generated_files.push(format!("{} app package.json files", manifest.app.len()));
+
+            generated_files.push(format!("{} app package.json files", app_count));
         }
 
         // Generate production Dockerfiles for services with [app.deploy] enabled
@@ -589,6 +630,10 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
 /// Sync pnpm-lock.yaml after package.json updates.
 /// Uses `--lockfile-only` to avoid installing into node_modules (fast).
 /// Runs via Docker if mode is docker-first, otherwise directly.
+///
+/// In docker-first mode: tries `docker compose exec` first (fast, uses running container).
+/// If the container is not running, falls back to `docker compose run --rm` (starts a
+/// temporary container, slower but always works without requiring `airis up` first).
 fn sync_lockfile(manifest: &Manifest) -> Result<()> {
     use std::process::Command;
 
@@ -602,7 +647,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
 
     let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
 
-    // Find a running service to exec into
+    // Find a service to use
     let docker_service = manifest.docker.workspace
         .as_ref()
         .map(|w| w.service.as_str())
@@ -620,10 +665,22 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
                 return Ok(());
             }
         };
-        // Docker-first: always run inside container. Host has no pnpm.
-        Command::new("docker")
+
+        // Try exec first (fast, uses running container)
+        let exec_status = Command::new("docker")
             .args(["compose", "exec", "-T", svc, "pnpm", "install", "--lockfile-only"])
-            .status()
+            .status();
+
+        match exec_status {
+            Ok(s) if s.success() => Ok(s),
+            _ => {
+                // Container not running — use `run --rm` to start a temporary one
+                println!("   {} container not running, starting temporary container...", "↻".yellow());
+                Command::new("docker")
+                    .args(["compose", "run", "--rm", "--no-deps", "-T", svc, "pnpm", "install", "--lockfile-only"])
+                    .status()
+            }
+        }
     } else {
         // Non-docker mode: run directly on host
         Command::new("pnpm")
@@ -637,7 +694,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         }
         Ok(_) => {
             println!(
-                "   {} pnpm-lock.yaml sync failed (run `docker compose exec <service> pnpm install --lockfile-only`)",
+                "   {} pnpm-lock.yaml sync failed (run `docker compose run --rm <service> pnpm install --lockfile-only`)",
                 "⚠".yellow()
             );
         }
