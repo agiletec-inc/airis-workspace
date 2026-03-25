@@ -174,6 +174,12 @@ mod tests {
             replicas: None,
             resources: None,
             deploy: None,
+            preset: None,
+            profiles: None,
+            depends_on: None,
+            mem_limit: None,
+            cpus: None,
+            service: None,
         }
     }
 

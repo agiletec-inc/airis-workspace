@@ -7,6 +7,7 @@ mod generators;
 mod manifest;
 mod ownership;
 mod pnpm;
+mod preset;
 mod remote_cache;
 mod safe_fs;
 mod templates;
