@@ -610,6 +610,7 @@ impl TemplateEngine {
             "workspace_image": manifest.workspace.image,
             "workdir": manifest.workspace.workdir,
             "pm_bin": pm_bin,
+            "is_pnpm": pm_bin == "pnpm",
         }))
     }
 
@@ -934,10 +935,20 @@ ENV PNPM_STORE_DIR=/pnpm/store
 
 WORKDIR {{workdir}}
 
-COPY --chown=app:app . .
+{{#if is_pnpm}}
+# Fetch dependencies first (lockfile-only layer, maximizes Docker cache hits)
+COPY --chown=app:app pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
+USER app
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} fetch
 
+# Then copy source and install from cache (no network needed)
+COPY --chown=app:app . .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --offline
+{{else}}
+COPY --chown=app:app . .
 USER app
 RUN {{pm_bin}} install
+{{/if}}
 
 ENTRYPOINT ["tini","--"]
 "#;
@@ -1290,12 +1301,17 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
-        // Dockerfile should contain install step
-        assert!(result.contains("RUN pnpm install"));
+        // Dockerfile should use pnpm fetch + install --offline pattern
+        assert!(result.contains("pnpm fetch"));
+        assert!(result.contains("pnpm install --offline"));
+        // Should use BuildKit cache mount for pnpm store
+        assert!(result.contains("--mount=type=cache,id=pnpm,target=/pnpm/store"));
         // Should NOT contain sleep infinity
         assert!(!result.contains("sleep infinity"));
         // Should contain COPY
         assert!(result.contains("COPY --chown=app:app . ."));
+        // Lockfile should be copied before source for cache optimization
+        assert!(result.contains("COPY --chown=app:app pnpm-lock.yaml"));
     }
 
     #[test]
@@ -1321,7 +1337,9 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
+        // Non-pnpm uses simple install (no fetch + offline pattern)
         assert!(result.contains("RUN bun install"));
+        assert!(!result.contains("bun fetch"));
     }
 
     #[test]
