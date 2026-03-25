@@ -798,6 +798,7 @@ impl TemplateEngine {
             ("forceConsistentCasingInFileNames", json!(true)),
             ("resolveJsonModule", json!(true)),
             ("isolatedModules", json!(true)),
+            ("types", json!(["node"])),
         ];
         for (key, value) in defaults {
             compiler_options.insert((*key).to_string(), value.clone());
