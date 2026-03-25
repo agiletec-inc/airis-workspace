@@ -5,6 +5,10 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 /// Workspace mode (docker-first, hybrid, strict)
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -1066,24 +1070,76 @@ pub struct EnvValidation {
 
 /// TypeScript configuration for tsconfig generation by `airis gen`.
 ///
-/// Controls generation of `tsconfig.base.json` (shared compilerOptions) and
-/// `tsconfig.json` (IDE paths + ignoreDeprecations for TS6).
+/// Controls generation of `tsconfig.base.json` (shared compilerOptions),
+/// `tsconfig.json` (IDE paths), and per-package tsconfig.json files.
+///
+/// All fields are optional — smart defaults are derived from the Node version
+/// and package framework. Users can override any field in manifest.toml:
+///
+/// ```toml
+/// [typescript]
+/// target = "ES2024"
+/// lib = ["ES2024"]
+/// types = ["node"]
+/// ```
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct TypescriptSection {
     /// Override TS major version (auto-detected from catalog if omitted)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<u32>,
+    /// ES target (e.g. "ES2024"). Default: auto-detected from Node version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Module system (e.g. "ESNext"). Default: "ESNext".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    /// Module resolution strategy. Default: "bundler".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_resolution: Option<String>,
+    /// Lib entries (e.g. ["ES2024"]). Default: [target].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lib: Option<Vec<String>>,
+    /// Type packages to auto-include (e.g. ["node"]). Default: ["node"].
+    /// TS6 changed the default from "all @types" to "none", so this is required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub types: Option<Vec<String>>,
     /// Extra compilerOptions merged into tsconfig.base.json
     #[serde(default)]
     pub compiler_options: IndexMap<String, toml::Value>,
     /// Extra path aliases merged into root tsconfig.json (IDE)
-    /// key = alias (e.g. "@agiletec/supabase-client"),
-    /// value = path (e.g. "libs/supabase/client/src/index.ts")
     #[serde(default)]
     pub paths: IndexMap<String, String>,
     /// Disable tsconfig generation (default: false)
     #[serde(default)]
     pub skip: bool,
+    /// Generate per-package tsconfig.json files (default: true)
+    #[serde(default = "default_true")]
+    pub generate_per_package: bool,
+}
+
+/// Per-package tsconfig overrides in [[app]] definitions.
+///
+/// ```toml
+/// [[app]]
+/// name = "dashboard"
+/// framework = "nextjs"
+/// [app.tsconfig]
+/// lib = ["ES2024", "DOM"]
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PackageTsconfigOverride {
+    /// Override lib entries for this package
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lib: Option<Vec<String>>,
+    /// Override type packages for this package
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub types: Option<Vec<String>>,
+    /// JSX transform mode (e.g. "preserve", "react-jsx")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jsx: Option<String>,
+    /// Additional compilerOptions for this package
+    #[serde(default)]
+    pub compiler_options: IndexMap<String, toml::Value>,
 }
 
 /// Runtime configuration for Docker builds
@@ -1210,6 +1266,9 @@ pub struct ProjectDefinition {
     /// Inline service config (env, profile-specific overrides)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<ServiceInlineConfig>,
+    /// Per-package tsconfig overrides
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<PackageTsconfigOverride>,
 }
 
 /// Preset reference: single string or array of strings
@@ -1552,10 +1611,6 @@ impl Default for ActionsVersions {
 }
 
 fn default_ci_enabled() -> bool {
-    true
-}
-
-fn default_true() -> bool {
     true
 }
 
