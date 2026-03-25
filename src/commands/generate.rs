@@ -6,8 +6,9 @@ use std::fs;
 use std::path::Path;
 
 use crate::version_resolver::resolve_version;
+use crate::commands::discover::discover_from_workspaces;
 use crate::generators::package_json::generate_project_package_json;
-use crate::manifest::{CatalogEntry, InjectValue, Manifest, MANIFEST_FILE};
+use crate::manifest::{CatalogEntry, InjectValue, Manifest, ProjectDefinition, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
 
@@ -165,15 +166,55 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generate_pnpm_workspace(manifest, &engine, force)?;
         }
 
-        // Generate individual app package.json files
-        if !manifest.app.is_empty() {
+        // Generate individual app package.json files (auto-discovery + explicit)
+        {
             println!();
-            println!("{}", "📦 Generating app package.json files...".bright_blue());
+            println!("{}", "📦 Syncing app package.json files...".bright_blue());
             let workspace_root = env::current_dir().context("Failed to get current directory")?;
+
+            // Collect workspace patterns from both v1 and v2 locations
+            let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
+                &manifest.packages.workspaces
+            } else {
+                &manifest.workspace.workspaces
+            };
+
+            // Build set of explicitly defined app names (these take priority)
+            let explicit_names: std::collections::HashSet<String> = manifest
+                .app
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
+
+            // Auto-discover projects from workspace patterns
+            let mut app_count = 0;
+            if !workspace_patterns.is_empty() {
+                let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
+                let default_scope = manifest.workspace.scope.clone();
+
+                for disc in &discovered {
+                    if explicit_names.contains(&disc.name) {
+                        continue; // Explicit [[app]] takes priority
+                    }
+                    let auto_app = ProjectDefinition {
+                        name: disc.name.clone(),
+                        path: Some(disc.path.clone()),
+                        scope: default_scope.clone(),
+                        framework: Some(disc.framework.to_string()),
+                        ..Default::default()
+                    };
+                    generate_project_package_json(&auto_app, &workspace_root, &resolved_catalog)?;
+                    app_count += 1;
+                }
+            }
+
+            // Generate for explicitly defined apps
             for app in &manifest.app {
                 generate_project_package_json(app, &workspace_root, &resolved_catalog)?;
+                app_count += 1;
             }
-            generated_files.push(format!("{} app package.json files", manifest.app.len()));
+
+            generated_files.push(format!("{} app package.json files", app_count));
         }
 
         // Generate production Dockerfiles for services with [app.deploy] enabled

@@ -1065,8 +1065,9 @@ pub struct K8sResources {
     pub limits: Option<ResourceSpec>,
 }
 
-/// Project definition for full package.json generation
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Project definition for package.json management.
+/// In hybrid mode, airis manages only name/version/private/type.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
