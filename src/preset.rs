@@ -75,10 +75,7 @@ pub fn resolve_app_presets(
                         enabled: true,
                         variant: defaults.variant.clone(),
                         port: defaults.port,
-                        health_path: defaults
-                            .health_path
-                            .clone()
-                            .unwrap_or_else(|| "/health".to_string()),
+                        health_path: defaults.health_path.clone(),
                         ..Default::default()
                     });
                 }
@@ -171,6 +168,7 @@ pub fn resolve_profile<'a>(
                 profile.compose_profiles.clone()
             },
             inherits: None, // Already resolved
+            role: profile.role.clone().or(parent.role),
         })
     } else {
         Ok(profile.clone())
@@ -215,6 +213,7 @@ mod tests {
             mem_limit: None,
             cpus: None,
             service: None,
+            tsconfig: None,
         }
     }
 
@@ -369,6 +368,7 @@ mod tests {
             node_env: "production".to_string(),
             compose_profiles: vec![],
             inherits: None,
+            role: None,
         };
 
         assert_eq!(

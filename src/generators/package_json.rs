@@ -130,6 +130,7 @@ mod tests {
             mem_limit: None,
             cpus: None,
             service: None,
+            tsconfig: None,
         }
     }
 
