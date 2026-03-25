@@ -937,7 +937,7 @@ WORKDIR {{workdir}}
 COPY --chown=app:app . .
 
 USER app
-RUN {{pm_bin}} install --frozen-lockfile
+RUN {{pm_bin}} install
 
 ENTRYPOINT ["tini","--"]
 "#;
@@ -1291,7 +1291,7 @@ workspaces = ["apps/*", "libs/*"]
         let result = engine.render_dockerfile(&manifest).unwrap();
 
         // Dockerfile should contain install step
-        assert!(result.contains("RUN pnpm install --frozen-lockfile"));
+        assert!(result.contains("RUN pnpm install"));
         // Should NOT contain sleep infinity
         assert!(!result.contains("sleep infinity"));
         // Should contain COPY
@@ -1321,7 +1321,7 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
-        assert!(result.contains("RUN bun install --frozen-lockfile"));
+        assert!(result.contains("RUN bun install"));
     }
 
     #[test]

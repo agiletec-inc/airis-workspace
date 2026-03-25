@@ -630,6 +630,10 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
 /// Sync pnpm-lock.yaml after package.json updates.
 /// Uses `--lockfile-only` to avoid installing into node_modules (fast).
 /// Runs via Docker if mode is docker-first, otherwise directly.
+///
+/// In docker-first mode: tries `docker compose exec` first (fast, uses running container).
+/// If the container is not running, falls back to `docker compose run --rm` (starts a
+/// temporary container, slower but always works without requiring `airis up` first).
 fn sync_lockfile(manifest: &Manifest) -> Result<()> {
     use std::process::Command;
 
@@ -643,7 +647,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
 
     let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
 
-    // Find a running service to exec into
+    // Find a service to use
     let docker_service = manifest.docker.workspace
         .as_ref()
         .map(|w| w.service.as_str())
@@ -661,10 +665,22 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
                 return Ok(());
             }
         };
-        // Docker-first: always run inside container. Host has no pnpm.
-        Command::new("docker")
+
+        // Try exec first (fast, uses running container)
+        let exec_status = Command::new("docker")
             .args(["compose", "exec", "-T", svc, "pnpm", "install", "--lockfile-only"])
-            .status()
+            .status();
+
+        match exec_status {
+            Ok(s) if s.success() => Ok(s),
+            _ => {
+                // Container not running — use `run --rm` to start a temporary one
+                println!("   {} container not running, starting temporary container...", "↻".yellow());
+                Command::new("docker")
+                    .args(["compose", "run", "--rm", "--no-deps", "-T", svc, "pnpm", "install", "--lockfile-only"])
+                    .status()
+            }
+        }
     } else {
         // Non-docker mode: run directly on host
         Command::new("pnpm")
@@ -678,7 +694,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         }
         Ok(_) => {
             println!(
-                "   {} pnpm-lock.yaml sync failed (run `docker compose exec <service> pnpm install --lockfile-only`)",
+                "   {} pnpm-lock.yaml sync failed (run `docker compose run --rm <service> pnpm install --lockfile-only`)",
                 "⚠".yellow()
             );
         }
