@@ -2,6 +2,10 @@
 //!
 //! Presets provide reusable deps/scripts/deploy defaults for [[app]] definitions.
 //! Profile variables (`{profile.domain}`) are resolved at `airis gen` time.
+//!
+//! NOTE: Not yet wired into the main codepath — will be activated when
+//! `airis gen` supports preset-based app generation.
+#![allow(dead_code)]
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
