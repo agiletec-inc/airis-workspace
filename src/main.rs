@@ -11,6 +11,8 @@ mod preset;
 mod remote_cache;
 mod safe_fs;
 mod templates;
+#[cfg(test)]
+mod test_lock;
 mod version_resolver;
 
 use anyhow::Result;
