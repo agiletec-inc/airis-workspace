@@ -119,6 +119,12 @@ impl Manifest {
         Ok(manifest)
     }
 
+    /// Returns true if this manifest defines a Node.js workspace.
+    /// Determined by whether package_manager is explicitly set in [workspace].
+    pub fn has_workspace(&self) -> bool {
+        !self.workspace.package_manager.is_empty()
+    }
+
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let content = toml::to_string_pretty(self)
             .with_context(|| "Failed to serialize manifest.toml contents")?;
@@ -607,7 +613,7 @@ fn default_workspace_name() -> String {
 }
 
 fn default_package_manager() -> String {
-    "pnpm@10.22.0".to_string()
+    String::new()
 }
 
 fn default_workspace_image() -> String {
