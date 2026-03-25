@@ -174,26 +174,13 @@ supabase = [
 traefik = "traefik/docker-compose.yml"
 
 [commands]
-install = "docker compose exec workspace pnpm install"
-up = "docker compose up -d"
-down = "docker compose down"
-shell = "docker compose exec workspace bash"
-dev = "echo '🚀 Starting dev servers...'; docker compose exec workspace pnpm run dev"
-build = "docker compose exec workspace pnpm build"
-test = "docker compose exec workspace pnpm test"
-lint = "docker compose exec workspace pnpm lint"
-clean = "echo '🧹 Cleaning build artifacts...'; find . -type d -name 'node_modules' -o -name 'dist' -o -name '.next' -o -name 'build' | xargs rm -rf"
+# This is a Rust project — commands run on host via cargo, not in Docker
+build = "cargo build --release"
+test = "cargo test"
+lint = "cargo clippy -- -D warnings"
+format = "cargo fmt --check"
 
 [remap]
-"npm install" = "airis install"
-"pnpm install" = "airis install"
-"yarn install" = "airis install"
-"npm run dev" = "airis dev"
-"pnpm dev" = "airis dev"
-"docker compose up" = "airis up"
-"docker compose up -d" = "airis up"
-"docker compose down" = "airis down"
-"docker exec" = "airis shell"
 
 [versioning]
 strategy = "auto"

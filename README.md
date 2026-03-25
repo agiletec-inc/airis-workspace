@@ -1,4 +1,6 @@
-# airis
+# airis-monorepo
+
+**The Docker-first monorepo manager for the vibe coding era.**
 
 [![Crates.io](https://img.shields.io/crates/v/airis.svg)](https://crates.io/crates/airis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -6,15 +8,40 @@
 
 ![airis demo](assets/airis-demo.gif)
 
-**The monorepo manager built for the vibe coding era.**
-
 One manifest file. Every config generated. Your AI pair-programmer stays inside the container where it belongs.
 
 ---
 
+## Why airis exists
+
+Development tools were designed for humans. Humans read docs, memorize project conventions, and don't forget which package manager to use mid-session. LLMs do.
+
+We wanted Docker-first development for one simple reason: **reproducibility** — every dependency inside a container, same behavior on every machine. But when your AI pair-programmer writes the code, Docker-first breaks in ways it never did with human developers:
+
+1. **The AI forgets the rules.** After context compression or a long session, your coding agent forgets to prefix commands with `docker compose exec`. It runs `pnpm install` on the host. Dependencies leak out of the container. Reproducibility is gone.
+
+2. **It picks the wrong tool.** Your project uses pnpm, but the AI reaches for npm or yarn. Now you have a `package-lock.json` sitting next to your `pnpm-lock.yaml`.
+
+3. **Docker boilerplate is fragile.** Manually wiring `turbo prune` into multi-stage Dockerfiles, keeping `compose.yml` volumes in sync, making sure `node_modules` and pnpm store never leak onto the host — one mistake and your "Docker-first" setup is Docker-in-name-only.
+
+We fixed these one at a time. Command guards that block `npm`/`yarn` and redirect `pnpm` through Docker. A manifest that generates Dockerfiles, compose configs, and CI workflows so the boilerplate can't drift. Named volumes that structurally prevent dependency leakage.
+
+The result is airis — not a replacement for Turborepo or NX (we use Turborepo ourselves and `turbo prune` internally), but **the layer that keeps Docker-first actually working** when your AI pair-programmer has a short memory.
+
+```
+┌─────────────────────────────────────────────┐
+│  Your Build Tool (Turborepo / NX / Bazel)   │  ← task orchestration, caching
+├─────────────────────────────────────────────┤
+│  airis                                      │  ← config generation, Docker wiring,
+│                                             │     filesystem boundaries, CI/CD
+├─────────────────────────────────────────────┤
+│  Docker / Compose                           │  ← containers, volumes, networking
+└─────────────────────────────────────────────┘
+```
+
 ## The AIRIS Stack
 
-AIRIS is a development stack designed for LLM-assisted coding. Each component works independently. Together, they make LLM pair-programming reproducible across teams.
+The gap between human-era tooling and AI-native development isn't just one tool wide. When you code with AI, every layer — workspace config, tool access, memory — needs structure the AI can rely on even after context compression. AIRIS is a suite that fills these gaps. Each component extends what already exists instead of replacing it.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -30,10 +57,12 @@ AIRIS is a development stack designed for LLM-assisted coding. Each component wo
 
 | Component | What it does |
 |-----------|-------------|
-| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` generates everything. |
+| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → Dockerfile, compose.yml, CI workflows. Command guards keep AI inside Docker. |
 | **[airis-agent](https://github.com/agiletec-inc/airis-agent)** | LLM intelligence layer for editors. |
-| **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy with 90% token reduction. |
-| **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory that persists across conversations. |
+| **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy — 60+ tools through 3 meta-endpoints. 90% token reduction so the AI keeps more context for your code. |
+| **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory. What the AI learned yesterday is still there today. |
+
+Every component follows the same principle: **extend your existing tools, don't replace them.** airis wraps Turborepo. airis-mcp-gateway proxies your MCP servers. mindbase plugs into any editor. Nothing asks you to throw away what already works.
 
 ---
 
@@ -266,8 +295,10 @@ my-monorepo/
 ## Documentation
 
 - [manifest.toml Reference](docs/CONFIG.md)
+- [Manifest Specification](docs/manifest.md)
 - [Commands Guide](docs/commands.md)
 - [Init Architecture](docs/airis-init-architecture.md)
+- [Deployment Guide](docs/DEPLOYMENT.md)
 - [Changelog](CHANGELOG.md)
 
 ## Contributing

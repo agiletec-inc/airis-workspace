@@ -192,9 +192,8 @@ pub fn run(action: ManifestAction) -> Result<()> {
 mod tests {
     use super::*;
 
-    // Helper to run tests with serialization since set_current_dir is not thread-safe
-    use std::sync::Mutex;
-    static DIR_LOCK: Mutex<()> = Mutex::new(());
+    // All tests that use set_current_dir share a single global lock
+    use crate::test_lock::DIR_LOCK;
 
     #[test]
     fn test_workspace_truth_serialization() {
