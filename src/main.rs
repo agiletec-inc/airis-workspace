@@ -5,6 +5,7 @@ mod dag;
 mod docker_build;
 mod executor;
 mod generators;
+mod import_scanner;
 mod manifest;
 mod ownership;
 mod pnpm;

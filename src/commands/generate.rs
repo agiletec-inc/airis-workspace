@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use crate::version_resolver::resolve_version;
 use crate::commands::discover::discover_from_workspaces;
-use crate::generators::package_json::generate_project_package_json;
 use crate::manifest::{CatalogEntry, InjectValue, Manifest, ProjectDefinition, MANIFEST_FILE};
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
@@ -172,8 +171,11 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         // Generate individual app package.json files (auto-discovery + explicit)
         {
             println!();
-            println!("{}", "📦 Syncing app package.json files...".bright_blue());
+            println!("{}", "📦 Generating app package.json files (full-gen mode)...".bright_blue());
             let workspace_root = env::current_dir().context("Failed to get current directory")?;
+
+            // Workspace scope for import scanner (e.g., "@agiletec")
+            let workspace_scope = manifest.workspace.scope.as_deref().unwrap_or("@workspace");
 
             // Collect workspace patterns from both v1 and v2 locations
             let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
@@ -203,18 +205,32 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                         ..Default::default()
                     };
                     auto_app.resolve(&manifest.workspace);
-                    generate_project_package_json(&auto_app, &workspace_root, &resolved_catalog)?;
+
+                    // Full-gen: scan imports + convention scripts
+                    let resolved_data = resolve_package_data(
+                        &auto_app, &workspace_root, workspace_scope,
+                        &resolved_catalog, &manifest.preset, &manifest.dep_group,
+                    )?;
+                    crate::generators::package_json::generate_full_package_json(
+                        &auto_app, &workspace_root, &resolved_catalog, &resolved_data,
+                    )?;
                     app_count += 1;
                 }
             }
 
             // Generate for explicitly defined apps
             for app in &manifest.app {
-                generate_project_package_json(app, &workspace_root, &resolved_catalog)?;
+                let resolved_data = resolve_package_data(
+                    app, &workspace_root, workspace_scope,
+                    &resolved_catalog, &manifest.preset, &manifest.dep_group,
+                )?;
+                crate::generators::package_json::generate_full_package_json(
+                    app, &workspace_root, &resolved_catalog, &resolved_data,
+                )?;
                 app_count += 1;
             }
 
-            generated_files.push(format!("{} app package.json files", app_count));
+            generated_files.push(format!("{} app package.json files (full-gen)", app_count));
         }
 
         // Generate production Dockerfiles for services with [app.deploy] enabled
@@ -351,6 +367,12 @@ fn resolve_catalog_versions(
                 let policy_str = policy.as_str();
                 let version = resolve_version(package, policy_str)?;
                 println!("  ✓ {} {} → {}", package, policy_str, version);
+                version
+            }
+            CatalogEntry::Empty(_) => {
+                // Empty table {} = latest
+                let version = resolve_version(package, "latest")?;
+                println!("  ✓ {} (default) → {}", package, version);
                 version
             }
             CatalogEntry::Version(version) => {
@@ -1030,4 +1052,91 @@ fn detect_ts_major(
 
     // Default: assume TS5 (safe, no ignoreDeprecations)
     5
+}
+
+/// Resolve package data for full-gen mode.
+///
+/// Combines: convention scripts + preset + dep_group + import scan → final deps/scripts
+fn resolve_package_data(
+    app: &ProjectDefinition,
+    workspace_root: &Path,
+    workspace_scope: &str,
+    resolved_catalog: &IndexMap<String, String>,
+    presets: &IndexMap<String, crate::manifest::PresetSection>,
+    dep_groups: &IndexMap<String, IndexMap<String, String>>,
+) -> Result<crate::generators::package_json::ResolvedPackageData> {
+    let mut final_deps = IndexMap::new();
+    let mut final_dev_deps = IndexMap::new();
+    let mut final_scripts = IndexMap::new();
+
+    // 1. Convention defaults from framework
+    let framework = app.framework.as_deref().unwrap_or("node");
+    let conventions = crate::conventions::framework_defaults(framework);
+    for (k, v) in conventions.default_scripts {
+        final_scripts.insert(k.to_string(), v.to_string());
+    }
+
+    // 2. Preset resolution (includes dep_groups from preset)
+    if app.preset.is_some() || !app.dep_groups.is_empty() {
+        let resolved = crate::preset::resolve_app_presets(app, presets, dep_groups)?;
+        for (k, v) in &resolved.deps {
+            final_deps.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &resolved.dev_deps {
+            final_dev_deps.insert(k.clone(), v.clone());
+        }
+        for (k, v) in &resolved.scripts {
+            final_scripts.insert(k.clone(), v.clone());
+        }
+    }
+
+    // 3. Import scan (auto-detect deps from source code)
+    if let Some(ref app_path) = app.path {
+        let full_path = workspace_root.join(app_path);
+        if full_path.exists() {
+            match crate::import_scanner::scan_imports(&full_path, workspace_scope) {
+                Ok(scanned) => {
+                    // External deps: use catalog version if available
+                    for pkg in &scanned.external {
+                        if !final_deps.contains_key(pkg) {
+                            let version = if resolved_catalog.contains_key(pkg) {
+                                "catalog".to_string()
+                            } else {
+                                // Not in catalog — skip (will cause a warning)
+                                continue;
+                            };
+                            final_deps.insert(pkg.clone(), version);
+                        }
+                    }
+                    // Workspace deps
+                    for pkg in &scanned.workspace {
+                        if !final_deps.contains_key(pkg) {
+                            final_deps.insert(pkg.clone(), "workspace:*".to_string());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("  ⚠ Import scan failed for {}: {}", app_path, e);
+                }
+            }
+        }
+    }
+
+    // 4. Explicit deps from [[app]] override everything
+    for (k, v) in &app.deps {
+        final_deps.insert(k.clone(), v.clone());
+    }
+    for (k, v) in &app.dev_deps {
+        final_dev_deps.insert(k.clone(), v.clone());
+    }
+    // Explicit scripts from [[app]] override convention + preset
+    for (k, v) in &app.scripts {
+        final_scripts.insert(k.clone(), v.clone());
+    }
+
+    Ok(crate::generators::package_json::ResolvedPackageData {
+        deps: final_deps,
+        dev_deps: final_dev_deps,
+        scripts: final_scripts,
+    })
 }

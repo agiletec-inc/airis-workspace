@@ -728,6 +728,56 @@ impl TemplateEngine {
                     svc.volumes.clone()
                 };
 
+                // Resolve env_groups: expand group references into env map
+                let mut resolved_env = indexmap::IndexMap::new();
+                for group_name in &svc.env_groups {
+                    if let Some(group) = manifest.env_group.get(group_name) {
+                        for (k, v) in group {
+                            resolved_env.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                // Explicit env overrides env_group values
+                for (k, v) in &svc.env {
+                    resolved_env.insert(k.clone(), v.clone());
+                }
+
+                // Auto-generate watch entries if service extends app-base and has no explicit watch
+                let watch = if svc.watch.is_empty() && svc.extends.is_some() {
+                    // Try to find matching app path from [[app]] definitions
+                    let app_path = manifest.app.iter()
+                        .find(|a| {
+                            // Match by name: service name often matches app name
+                            // e.g., service "corporate" → app "corporate"
+                            // or service "airis-voice-gateway" → app "airis-voice-gateway"
+                            a.name == *name
+                        })
+                        .and_then(|a| a.path.clone());
+
+                    if let Some(ref path) = app_path {
+                        vec![
+                            json!({
+                                "path": format!("./{}", path),
+                                "action": "sync",
+                                "target": format!("{}/{}", workdir, path),
+                                "initial_sync": true,
+                                "ignore": ["node_modules/", ".next/", "dist/"]
+                            }),
+                            json!({
+                                "path": "./libs",
+                                "action": "sync",
+                                "target": format!("{}/libs", workdir),
+                                "initial_sync": true,
+                                "ignore": ["node_modules/", "dist/"]
+                            }),
+                        ]
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    svc.watch.iter().map(|w| json!(w)).collect()
+                };
+
                 // Extract internal port: explicit port > ports mapping > default 3000
                 let internal_port = svc.port.unwrap_or_else(|| {
                     svc.ports.first()
@@ -743,7 +793,7 @@ impl TemplateEngine {
                     "ports": svc.ports,
                     "command": svc.command,
                     "volumes": merged_volumes,
-                    "env": svc.env,
+                    "env": resolved_env,
                     "profiles": svc.profiles,
                     "depends_on": svc.depends_on,
                     "restart": svc.restart,
@@ -752,12 +802,14 @@ impl TemplateEngine {
                     "working_dir": svc.working_dir,
                     "extra_hosts": svc.extra_hosts,
                     "deploy": svc.deploy,
-                    "watch": svc.watch,
+                    "watch": watch,
                     "extends": svc.extends,
                     "devices": svc.devices,
                     "runtime": svc.runtime,
                     "gpu": svc.gpu,
                     "health_path": svc.health_path,
+                    "mem_limit": svc.mem_limit,
+                    "cpus": svc.cpus,
                     "network_mode": svc.network_mode,
                     "labels": svc.labels,
                     "networks": svc.networks,

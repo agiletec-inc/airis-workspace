@@ -2,10 +2,7 @@
 //!
 //! Presets provide reusable deps/scripts/deploy defaults for [[app]] definitions.
 //! Profile variables (`{profile.domain}`) are resolved at `airis gen` time.
-//!
-//! NOTE: Not yet wired into the main codepath — will be activated when
-//! `airis gen` supports preset-based app generation.
-#![allow(dead_code)]
+//! dep_group provides reusable dependency groupings (e.g., shadcn radix-ui components).
 
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
@@ -29,9 +26,14 @@ pub struct ResolvedApp {
 /// Resolve presets for a single app.
 /// Merges preset deps/scripts/deploy with app-level overrides.
 /// Multiple presets are applied left-to-right (later presets override earlier ones).
+///
+/// Merge order (later wins):
+///   1. Preset dep_groups → preset deps → preset scripts
+///   2. App dep_groups → app deps → app scripts
 pub fn resolve_app_presets(
     app: &ProjectDefinition,
     presets: &IndexMap<String, PresetSection>,
+    dep_groups: &IndexMap<String, IndexMap<String, String>>,
 ) -> Result<ResolvedApp> {
     let mut merged_deps = IndexMap::new();
     let mut merged_dev_deps = IndexMap::new();
@@ -50,7 +52,11 @@ pub fn resolve_app_presets(
                 )
             })?;
 
-            // Merge deps (preset values, app overrides later)
+            // Expand preset dep_groups first
+            expand_dep_groups(&preset.dep_groups, dep_groups, &mut merged_deps)?;
+            expand_dep_groups(&preset.dev_dep_groups, dep_groups, &mut merged_dev_deps)?;
+
+            // Merge preset direct deps (override dep_group values)
             for (k, v) in &preset.deps {
                 merged_deps.insert(k.clone(), v.clone());
             }
@@ -83,6 +89,10 @@ pub fn resolve_app_presets(
         }
     }
 
+    // Expand app-level dep_groups
+    expand_dep_groups(&app.dep_groups, dep_groups, &mut merged_deps)?;
+    expand_dep_groups(&app.dev_dep_groups, dep_groups, &mut merged_dev_deps)?;
+
     // App values override preset values
     for (k, v) in &app.deps {
         merged_deps.insert(k.clone(), v.clone());
@@ -113,13 +123,31 @@ pub fn resolve_app_presets(
     })
 }
 
+/// Expand dep_group references into a deps map.
+fn expand_dep_groups(
+    group_names: &[String],
+    dep_groups: &IndexMap<String, IndexMap<String, String>>,
+    target: &mut IndexMap<String, String>,
+) -> Result<()> {
+    for name in group_names {
+        let group = dep_groups.get(name).with_context(|| {
+            format!("dep_group '{}' is not defined in [dep_group.*]", name)
+        })?;
+        for (k, v) in group {
+            target.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(())
+}
+
 /// Resolve all apps' presets.
 pub fn resolve_all_presets(
     apps: &[ProjectDefinition],
     presets: &IndexMap<String, PresetSection>,
+    dep_groups: &IndexMap<String, IndexMap<String, String>>,
 ) -> Result<Vec<ResolvedApp>> {
     apps.iter()
-        .map(|app| resolve_app_presets(app, presets))
+        .map(|app| resolve_app_presets(app, presets, dep_groups))
         .collect()
 }
 
@@ -214,6 +242,8 @@ mod tests {
             cpus: None,
             service: None,
             tsconfig: None,
+            dep_groups: vec![],
+            dev_dep_groups: vec![],
         }
     }
 
@@ -241,6 +271,9 @@ mod tests {
                     port: Some(3000),
                     health_path: Some("/api/health".to_string()),
                 }),
+                dep_groups: vec![],
+                dev_dep_groups: vec![],
+                scope: None,
             },
         );
 
@@ -251,7 +284,7 @@ mod tests {
         app.deps
             .insert("stripe".to_string(), "catalog".to_string());
 
-        let resolved = resolve_app_presets(&app, &presets).unwrap();
+        let resolved = resolve_app_presets(&app, &presets, &IndexMap::new()).unwrap();
 
         // Preset deps + app deps merged
         assert_eq!(resolved.deps.len(), 3); // react, next, stripe
@@ -280,6 +313,9 @@ mod tests {
                 deps: IndexMap::new(),
                 dev_deps: IndexMap::new(),
                 deploy: None,
+                dep_groups: vec![],
+                dev_dep_groups: vec![],
+                scope: None,
             },
         );
 
@@ -290,7 +326,7 @@ mod tests {
             "tsc -p tsconfig.json --noEmit".to_string(),
         );
 
-        let resolved = resolve_app_presets(&app, &presets).unwrap();
+        let resolved = resolve_app_presets(&app, &presets, &IndexMap::new()).unwrap();
 
         // App script overrides preset
         assert_eq!(
@@ -314,6 +350,9 @@ mod tests {
                 deps: base_deps,
                 dev_deps: IndexMap::new(),
                 deploy: None,
+                dep_groups: vec![],
+                dev_dep_groups: vec![],
+                scope: None,
             },
         );
 
@@ -328,6 +367,9 @@ mod tests {
                 deps: ui_deps,
                 dev_deps: IndexMap::new(),
                 deploy: None,
+                dep_groups: vec![],
+                dev_dep_groups: vec![],
+                scope: None,
             },
         );
 
@@ -337,7 +379,7 @@ mod tests {
             "shadcn".to_string(),
         ]));
 
-        let resolved = resolve_app_presets(&app, &presets).unwrap();
+        let resolved = resolve_app_presets(&app, &presets, &IndexMap::new()).unwrap();
 
         // Both presets' deps merged
         assert_eq!(resolved.deps.len(), 2);
@@ -351,7 +393,7 @@ mod tests {
         let mut app = empty_project("test");
         app.preset = Some(PresetRef::Single("nonexistent".to_string()));
 
-        let result = resolve_app_presets(&app, &presets);
+        let result = resolve_app_presets(&app, &presets, &IndexMap::new());
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -381,5 +423,74 @@ mod tests {
             resolve_profile_vars("$SUPABASE_URL", &profile),
             "$SUPABASE_URL"
         );
+    }
+
+    #[test]
+    fn test_dep_groups_expansion() {
+        let presets = IndexMap::new();
+        let mut dep_groups = IndexMap::new();
+
+        let mut shadcn = IndexMap::new();
+        shadcn.insert("@radix-ui/react-dialog".to_string(), "catalog".to_string());
+        shadcn.insert("@radix-ui/react-slot".to_string(), "catalog".to_string());
+        shadcn.insert("clsx".to_string(), "catalog".to_string());
+        dep_groups.insert("shadcn".to_string(), shadcn);
+
+        let mut app = empty_project("corporate");
+        app.dep_groups = vec!["shadcn".to_string()];
+        app.deps.insert("stripe".to_string(), "catalog".to_string());
+
+        let resolved = resolve_app_presets(&app, &presets, &dep_groups).unwrap();
+
+        // dep_group deps + app direct deps
+        assert_eq!(resolved.deps.len(), 4);
+        assert!(resolved.deps.contains_key("@radix-ui/react-dialog"));
+        assert!(resolved.deps.contains_key("clsx"));
+        assert!(resolved.deps.contains_key("stripe"));
+    }
+
+    #[test]
+    fn test_preset_dep_groups() {
+        let mut presets = IndexMap::new();
+        let mut dep_groups = IndexMap::new();
+
+        let mut nextjs_base = IndexMap::new();
+        nextjs_base.insert("next".to_string(), "catalog".to_string());
+        nextjs_base.insert("react".to_string(), "catalog".to_string());
+        dep_groups.insert("nextjs-base".to_string(), nextjs_base);
+
+        presets.insert("nextjs-app".to_string(), PresetSection {
+            framework: Some("nextjs".to_string()),
+            private: Some(true),
+            scripts: IndexMap::new(),
+            deps: IndexMap::new(),
+            dev_deps: IndexMap::new(),
+            dep_groups: vec!["nextjs-base".to_string()],
+            dev_dep_groups: vec![],
+            scope: None,
+            deploy: None,
+        });
+
+        let mut app = empty_project("myapp");
+        app.preset = Some(crate::manifest::PresetRef::Single("nextjs-app".to_string()));
+
+        let resolved = resolve_app_presets(&app, &presets, &dep_groups).unwrap();
+
+        assert!(resolved.deps.contains_key("next"));
+        assert!(resolved.deps.contains_key("react"));
+        assert_eq!(resolved.framework.as_deref(), Some("nextjs"));
+    }
+
+    #[test]
+    fn test_missing_dep_group_errors() {
+        let presets = IndexMap::new();
+        let dep_groups = IndexMap::new();
+
+        let mut app = empty_project("test");
+        app.dep_groups = vec!["nonexistent".to_string()];
+
+        let result = resolve_app_presets(&app, &presets, &dep_groups);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not defined in [dep_group.*]"));
     }
 }

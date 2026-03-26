@@ -14,6 +14,8 @@ pub struct FrameworkDefaults {
     pub start_script: &'static str,
     /// Extra env vars needed for Docker dev (e.g., file-watcher polling)
     pub docker_env: &'static [(&'static str, &'static str)],
+    /// Convention scripts for package.json (e.g., dev, build, start, lint, typecheck)
+    pub default_scripts: &'static [(&'static str, &'static str)],
 }
 
 /// Lookup framework defaults. Pure lookup table, no IO.
@@ -29,6 +31,13 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             docker_env: &[
                 ("WATCHPACK_POLLING", "true"),
             ],
+            default_scripts: &[
+                ("dev", "next dev"),
+                ("build", "NODE_ENV=production next build"),
+                ("start", "next start"),
+                ("lint", "biome check ."),
+                ("typecheck", "tsc --noEmit"),
+            ],
         },
         "react-vite" | "vite" => FrameworkDefaults {
             port: 5173,
@@ -40,6 +49,11 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             docker_env: &[
                 ("CHOKIDAR_USEPOLLING", "true"),
             ],
+            default_scripts: &[
+                ("dev", "vite"),
+                ("build", "vite build"),
+                ("typecheck", "tsc --noEmit"),
+            ],
         },
         "hono" => FrameworkDefaults {
             port: 3000,
@@ -49,6 +63,13 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "tsup",
             start_script: "node dist/index.js",
             docker_env: &[],
+            default_scripts: &[
+                ("dev", "tsx watch src/index.ts"),
+                ("build", "tsup"),
+                ("start", "node dist/index.js"),
+                ("lint", "biome check ."),
+                ("typecheck", "tsc --noEmit"),
+            ],
         },
         "node" => FrameworkDefaults {
             port: 3000,
@@ -58,6 +79,11 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "tsup",
             start_script: "node dist/index.js",
             docker_env: &[],
+            default_scripts: &[
+                ("build", "tsup"),
+                ("dev", "tsup --watch"),
+                ("typecheck", "tsc --noEmit"),
+            ],
         },
         "cloudflare-worker" => FrameworkDefaults {
             port: 8787,
@@ -67,6 +93,11 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "wrangler deploy --dry-run",
             start_script: "wrangler dev",
             docker_env: &[],
+            default_scripts: &[
+                ("dev", "wrangler dev"),
+                ("deploy", "wrangler deploy"),
+                ("deploy:staging", "wrangler deploy --env staging"),
+            ],
         },
         "rust" => FrameworkDefaults {
             port: 3000,
@@ -76,6 +107,10 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "cargo build --release",
             start_script: "./target/release/app",
             docker_env: &[],
+            default_scripts: &[
+                ("dev", "cargo watch -x run"),
+                ("build", "cargo build --release"),
+            ],
         },
         "python" => FrameworkDefaults {
             port: 8000,
@@ -85,6 +120,10 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "echo 'no build step'",
             start_script: "uvicorn main:app",
             docker_env: &[],
+            default_scripts: &[
+                ("dev", "uvicorn main:app --reload"),
+                ("start", "uvicorn main:app"),
+            ],
         },
         // Unknown framework: sensible defaults
         _ => FrameworkDefaults {
@@ -95,6 +134,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             build_script: "echo 'no build script defined'",
             start_script: "node dist/index.js",
             docker_env: &[],
+            default_scripts: &[],
         },
     }
 }

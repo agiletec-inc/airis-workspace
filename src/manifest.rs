@@ -97,6 +97,13 @@ pub struct Manifest {
     #[serde(default)]
     pub typescript: TypescriptSection,
 
+    /// Reusable dependency groups (e.g., shadcn radix-ui components)
+    #[serde(default)]
+    pub dep_group: IndexMap<String, IndexMap<String, String>>,
+    /// Reusable environment variable groups (e.g., supabase-full, supabase-backend)
+    #[serde(default)]
+    pub env_group: IndexMap<String, IndexMap<String, String>>,
+
     // ── v2 fields (ignored when version = 1) ──
 
     /// Environment profiles: local, stg, prd, etc.
@@ -478,6 +485,8 @@ impl Manifest {
             inject: IndexMap::new(),
             typescript: TypescriptSection::default(),
             profile: IndexMap::new(),
+            dep_group: IndexMap::new(),
+            env_group: IndexMap::new(),
             preset: IndexMap::new(),
             external: IndexMap::new(),
             root: None,
@@ -767,6 +776,15 @@ pub struct ServiceConfig {
     /// Networks this service joins (e.g., ["default", "proxy"])
     #[serde(default)]
     pub networks: Vec<String>,
+    /// References to env_group names for DRY env configuration
+    #[serde(default)]
+    pub env_groups: Vec<String>,
+    /// Memory limit for Docker container (e.g., "2g", "4g")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_limit: Option<String>,
+    /// CPU limit for Docker container
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -851,7 +869,8 @@ pub struct PackagesSection {
 
 /// Catalog entry can be:
 /// - "latest" → resolve to latest npm version
-/// - "lts" → resolve to LTS version
+/// - "lts" → resolve to LTS version (treated same as latest for npm packages)
+/// - {} → empty table, treated as "latest" (shorthand for just registering a key)
 /// - "^5.0.0" → specific semver (used as-is)
 /// - { follow = "react" } → follow another package's version
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -859,6 +878,7 @@ pub struct PackagesSection {
 pub enum CatalogEntry {
     Follow(FollowConfig),
     Policy(VersionPolicy),
+    Empty(EmptyTable),
     Version(String),
 }
 
@@ -867,9 +887,13 @@ pub struct FollowConfig {
     pub follow: String,
 }
 
+/// Empty table `{}` — treated as "latest"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmptyTable {}
+
 impl Default for CatalogEntry {
     fn default() -> Self {
-        CatalogEntry::Version("*".to_string())
+        CatalogEntry::Policy(VersionPolicy::Latest)
     }
 }
 
@@ -1269,6 +1293,12 @@ pub struct ProjectDefinition {
     pub deps: IndexMap<String, String>,
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+    /// References to dep_group names for DRY dependency grouping
+    #[serde(default)]
+    pub dep_groups: Vec<String>,
+    /// References to dep_group names for DRY devDependency grouping
+    #[serde(default)]
+    pub dev_dep_groups: Vec<String>,
     /// Kubernetes: container port
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
@@ -1842,6 +1872,15 @@ pub struct PresetSection {
     /// Default devDependencies
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+    /// References to dep_group names for DRY dependency grouping
+    #[serde(default)]
+    pub dep_groups: Vec<String>,
+    /// References to dep_group names for DRY devDependency grouping
+    #[serde(default)]
+    pub dev_dep_groups: Vec<String>,
+    /// Default npm scope (e.g., "@agiletec")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Default deploy settings
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deploy: Option<PresetDeployDefaults>,
