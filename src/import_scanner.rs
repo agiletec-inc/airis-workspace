@@ -86,42 +86,73 @@ fn build_import_regex() -> Regex {
 }
 
 /// Extract package names from regex matches and classify them.
+///
+/// Processes content line-by-line to skip comments:
+/// - Line comments (`//`)
+/// - Block comments (`/* ... */`)
+/// - JSDoc lines (`* ...`, `/** ...`)
+///
+/// This prevents false positives from import examples in documentation.
 fn extract_packages(
     content: &str,
     re: &Regex,
     workspace_scope: &str,
     deps: &mut ScannedDeps,
 ) {
-    for caps in re.captures_iter(content) {
-        // The module specifier is in group 1 (from/export) or group 2 (require/dynamic import)
-        let specifier = caps.get(1).or_else(|| caps.get(2));
-        let specifier = match specifier {
-            Some(m) => m.as_str(),
-            None => continue,
-        };
+    let mut in_block_comment = false;
 
-        // Skip relative imports
-        if specifier.starts_with('.')
-            || specifier.starts_with("@/")
-            || specifier.starts_with("~/")
-            || specifier.starts_with('#')
-        {
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Track block comment state
+        if in_block_comment {
+            if trimmed.contains("*/") {
+                in_block_comment = false;
+            }
             continue;
         }
 
-        // Extract package name (handle scoped packages and subpath imports)
-        let package_name = extract_package_name(specifier);
-
-        // Skip Node.js built-in modules
-        if is_node_builtin(package_name) {
+        // Start of block comment
+        if trimmed.starts_with("/*") {
+            if !trimmed.contains("*/") {
+                in_block_comment = true;
+            }
             continue;
         }
 
-        // Classify: workspace vs external
-        if package_name.starts_with(workspace_scope) {
-            deps.workspace.insert(package_name.to_string());
-        } else {
-            deps.external.insert(package_name.to_string());
+        // Skip line comments and JSDoc continuation lines
+        if trimmed.starts_with("//") || trimmed.starts_with('*') {
+            continue;
+        }
+
+        // Apply import regex to non-comment lines only
+        for caps in re.captures_iter(line) {
+            let specifier = caps.get(1).or_else(|| caps.get(2));
+            let specifier = match specifier {
+                Some(m) => m.as_str(),
+                None => continue,
+            };
+
+            // Skip relative imports and path aliases
+            if specifier.starts_with('.')
+                || specifier.starts_with("@/")
+                || specifier.starts_with("~/")
+                || specifier.starts_with('#')
+            {
+                continue;
+            }
+
+            let package_name = extract_package_name(specifier);
+
+            if is_node_builtin(package_name) {
+                continue;
+            }
+
+            if package_name.starts_with(workspace_scope) {
+                deps.workspace.insert(package_name.to_string());
+            } else {
+                deps.external.insert(package_name.to_string());
+            }
         }
     }
 }
@@ -408,6 +439,102 @@ const c = require("express")
         assert!(
             deps.workspace.contains("@agiletec/logger"),
             "should detect '@agiletec/logger'"
+        );
+    }
+
+    #[test]
+    fn test_skip_line_comments() {
+        let content = r#"
+// import { foo } from 'should-not-detect'
+import { bar } from 'real-package'
+"#;
+        let deps = scan_content(content, "@agiletec");
+        assert!(!deps.external.contains("should-not-detect"));
+        assert!(deps.external.contains("real-package"));
+    }
+
+    #[test]
+    fn test_skip_block_comments() {
+        let content = r#"
+/*
+import { foo } from 'should-not-detect'
+import { bar } from 'also-not-detect'
+*/
+import { baz } from 'real-package'
+"#;
+        let deps = scan_content(content, "@agiletec");
+        assert!(!deps.external.contains("should-not-detect"));
+        assert!(!deps.external.contains("also-not-detect"));
+        assert!(deps.external.contains("real-package"));
+    }
+
+    #[test]
+    fn test_skip_jsdoc_imports() {
+        let content = r#"
+/**
+ * Usage example:
+ *   import { getPricingCached } from '@agiletec/pricing/server'
+ *   import { usePricing } from '@agiletec/pricing/client'
+ *   import { fetchPricing } from '@agiletec/pricing'
+ */
+export function fetchPricing() {}
+"#;
+        let deps = scan_content(content, "@agiletec");
+        // JSDoc imports should NOT be detected
+        assert!(!deps.workspace.contains("@agiletec/pricing"));
+        // No external deps either
+        assert!(deps.external.is_empty());
+    }
+
+    #[test]
+    fn test_skip_jsdoc_continuation_lines() {
+        let content = r#"
+/**
+ * @example
+ * import { createNotificationRouter } from '@agiletec/notification'
+ */
+import { logger } from '@agiletec/logger'
+"#;
+        let deps = scan_content(content, "@agiletec");
+        assert!(!deps.workspace.contains("@agiletec/notification"));
+        assert!(deps.workspace.contains("@agiletec/logger"));
+    }
+
+    #[test]
+    fn test_inline_block_comment_on_same_line() {
+        let content = r#"
+/* import { foo } from 'not-real' */
+import { bar } from 'real-package'
+"#;
+        let deps = scan_content(content, "@agiletec");
+        assert!(!deps.external.contains("not-real"));
+        assert!(deps.external.contains("real-package"));
+    }
+
+    #[test]
+    fn test_real_agiletec_pricing_no_self_ref() {
+        let app_path = Path::new("/Users/kazuki/github/agiletec-inc/agiletec/libs/pricing");
+        if !app_path.exists() {
+            return;
+        }
+        let deps = scan_imports(app_path, "@agiletec").unwrap();
+        // pricing should NOT contain itself as a dependency
+        assert!(
+            !deps.workspace.contains("@agiletec/pricing"),
+            "pricing should not self-reference (detected from JSDoc comments)"
+        );
+    }
+
+    #[test]
+    fn test_real_agiletec_notification_no_self_ref() {
+        let app_path = Path::new("/Users/kazuki/github/agiletec-inc/agiletec/libs/notification");
+        if !app_path.exists() {
+            return;
+        }
+        let deps = scan_imports(app_path, "@agiletec").unwrap();
+        assert!(
+            !deps.workspace.contains("@agiletec/notification"),
+            "notification should not self-reference"
         );
     }
 }
