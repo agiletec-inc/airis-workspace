@@ -1357,9 +1357,6 @@ services:
 {{#each ports}}
       - "{{this}}"
 {{/each}}
-{{else if port}}
-    ports:
-      - "{{port}}:{{port}}"
 {{/if}}
 {{#if extra_hosts}}
 {{#unless extends}}
