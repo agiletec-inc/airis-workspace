@@ -152,7 +152,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
     // Node.js workspace files (only when [workspace] package_manager is set)
     if has_workspace {
-        let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+        let mut resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
         generate_docker_compose(manifest, &engine, force)?;
@@ -209,7 +209,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     // Full-gen: scan imports + convention scripts
                     let resolved_data = resolve_package_data(
                         &auto_app, &workspace_root, workspace_scope,
-                        &resolved_catalog, &manifest.preset, &manifest.dep_group,
+                        &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
                     )?;
                     crate::generators::package_json::generate_full_package_json(
                         &auto_app, &workspace_root, &resolved_catalog, &resolved_data,
@@ -222,7 +222,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             for app in &manifest.app {
                 let resolved_data = resolve_package_data(
                     app, &workspace_root, workspace_scope,
-                    &resolved_catalog, &manifest.preset, &manifest.dep_group,
+                    &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
                 )?;
                 crate::generators::package_json::generate_full_package_json(
                     app, &workspace_root, &resolved_catalog, &resolved_data,
@@ -349,7 +349,11 @@ fn generate_pnpm_workspace(
     Ok(())
 }
 
-/// Resolve catalog version policies to actual version numbers
+/// Resolve catalog version policies to actual version numbers.
+///
+/// Supports wildcard patterns like `@radix-ui/react-* = "latest"`.
+/// Wildcard entries are stored as patterns and resolved on-demand
+/// when a concrete package name matches via `resolve_wildcard_version`.
 fn resolve_catalog_versions(
     catalog: &IndexMap<String, CatalogEntry>,
 ) -> Result<IndexMap<String, String>> {
@@ -362,6 +366,18 @@ fn resolve_catalog_versions(
     let mut resolved: IndexMap<String, String> = IndexMap::new();
 
     for (package, entry) in catalog {
+        // Skip wildcard patterns — they are resolved on-demand
+        if package.contains('*') {
+            let policy_str = match entry {
+                CatalogEntry::Policy(p) => p.as_str().to_string(),
+                CatalogEntry::Empty(_) => "latest".to_string(),
+                CatalogEntry::Version(v) => v.clone(),
+                _ => "latest".to_string(),
+            };
+            println!("  ✓ {} (wildcard pattern, policy: {})", package, policy_str);
+            continue;
+        }
+
         let version = match entry {
             CatalogEntry::Policy(policy) => {
                 let policy_str = policy.as_str();
@@ -1061,7 +1077,8 @@ fn resolve_package_data(
     app: &ProjectDefinition,
     workspace_root: &Path,
     workspace_scope: &str,
-    resolved_catalog: &IndexMap<String, String>,
+    resolved_catalog: &mut IndexMap<String, String>,
+    catalog_raw: &IndexMap<String, CatalogEntry>,
     presets: &IndexMap<String, crate::manifest::PresetSection>,
     dep_groups: &IndexMap<String, IndexMap<String, String>>,
 ) -> Result<crate::generators::package_json::ResolvedPackageData> {
@@ -1090,22 +1107,38 @@ fn resolve_package_data(
         }
     }
 
+    // Collect wildcard patterns from catalog for matching
+    let wildcard_patterns: Vec<(&str, &CatalogEntry)> = catalog_raw
+        .iter()
+        .filter(|(k, _)| k.contains('*'))
+        .map(|(k, v)| (k.as_str(), v))
+        .collect();
+
     // 3. Import scan (auto-detect deps from source code)
     if let Some(ref app_path) = app.path {
         let full_path = workspace_root.join(app_path);
         if full_path.exists() {
             match crate::import_scanner::scan_imports(&full_path, workspace_scope) {
                 Ok(scanned) => {
-                    // External deps: use catalog version if available
+                    // External deps: use catalog version if available, or match wildcard
                     for pkg in &scanned.external {
                         if !final_deps.contains_key(pkg) {
-                            let version = if resolved_catalog.contains_key(pkg) {
-                                "catalog".to_string()
-                            } else {
-                                // Not in catalog — skip (will cause a warning)
-                                continue;
-                            };
-                            final_deps.insert(pkg.clone(), version);
+                            if resolved_catalog.contains_key(pkg) {
+                                final_deps.insert(pkg.clone(), "catalog".to_string());
+                            } else if matches_wildcard_catalog(pkg, &wildcard_patterns) {
+                                // Wildcard match: resolve version from npm and add to catalog
+                                match resolve_version(pkg, "latest") {
+                                    Ok(version) => {
+                                        println!("  ✓ {} (wildcard) → {}", pkg, version);
+                                        resolved_catalog.insert(pkg.clone(), version);
+                                        final_deps.insert(pkg.clone(), "catalog".to_string());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("  ⚠ Failed to resolve {}: {}", pkg, e);
+                                    }
+                                }
+                            }
+                            // Not in catalog and no wildcard match → skip
                         }
                     }
                     // Workspace deps
@@ -1139,4 +1172,28 @@ fn resolve_package_data(
         dev_deps: final_dev_deps,
         scripts: final_scripts,
     })
+}
+
+/// Check if a package name matches any wildcard pattern in the catalog.
+/// Supports simple glob patterns like `@radix-ui/react-*`.
+fn matches_wildcard_catalog(
+    package: &str,
+    wildcards: &[(&str, &CatalogEntry)],
+) -> bool {
+    for (pattern, _) in wildcards {
+        if wildcard_matches(pattern, package) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Simple wildcard matching: `*` matches any sequence of characters.
+/// Only supports `*` at the end of a pattern (prefix match).
+fn wildcard_matches(pattern: &str, name: &str) -> bool {
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        name.starts_with(prefix)
+    } else {
+        pattern == name
+    }
 }

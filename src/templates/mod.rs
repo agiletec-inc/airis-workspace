@@ -742,8 +742,9 @@ impl TemplateEngine {
                     resolved_env.insert(k.clone(), v.clone());
                 }
 
-                // Auto-generate watch entries if service extends app-base and has no explicit watch
-                let watch = if svc.watch.is_empty() && svc.extends.is_some() {
+                // Auto-generate watch entries if service extends app-base, has no explicit watch,
+                // and has no custom volumes (custom volumes = non-standard setup, skip auto-watch)
+                let watch = if svc.watch.is_empty() && svc.extends.is_some() && svc.volumes.is_empty() {
                     // Try to find matching app path from [[app]] definitions
                     let app_path = manifest.app.iter()
                         .find(|a| {
