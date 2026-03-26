@@ -1141,8 +1141,17 @@ fn resolve_package_data(
                             // Not in catalog and no wildcard match → skip
                         }
                     }
-                    // Workspace deps
+                    // Workspace deps (skip self-reference)
+                    let self_pkg_name = if let Some(ref scope) = app.scope {
+                        let scope = scope.trim_start_matches('@');
+                        format!("@{}/{}", scope, app.name)
+                    } else {
+                        format!("{}/{}", workspace_scope, app.name)
+                    };
                     for pkg in &scanned.workspace {
+                        if pkg == &self_pkg_name {
+                            continue; // Skip self-reference
+                        }
                         if !final_deps.contains_key(pkg) {
                             final_deps.insert(pkg.clone(), "workspace:*".to_string());
                         }
