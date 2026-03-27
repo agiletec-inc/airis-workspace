@@ -66,8 +66,8 @@ pub fn run(dry_run: bool) -> Result<()> {
         match glob(&glob_pattern) {
             Ok(paths) => {
                 for entry in paths.flatten() {
-                    // Skip if path is too deep (more than 3 levels)
-                    if entry.components().count() > 4 {
+                    // Skip if path is too deep (more than 6 levels)
+                    if entry.components().count() > 7 {
                         continue;
                     }
 
