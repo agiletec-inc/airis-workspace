@@ -66,6 +66,7 @@ pub fn scan_imports(app_path: &Path, workspace_scope: &str) -> Result<ScannedDep
 }
 
 /// Scan a single file's content for imports (useful for testing).
+#[allow(dead_code)]
 pub fn scan_content(content: &str, workspace_scope: &str) -> ScannedDeps {
     let mut deps = ScannedDeps::default();
     extract_packages(content, &IMPORT_RE, workspace_scope, &mut deps);

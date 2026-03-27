@@ -14,6 +14,7 @@ use crate::manifest::{
 /// Resolved app with preset deps/scripts merged in.
 /// App values always override preset values.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct ResolvedApp {
     pub deps: IndexMap<String, String>,
     pub dev_deps: IndexMap<String, String>,
@@ -141,6 +142,7 @@ fn expand_dep_groups(
 }
 
 /// Resolve all apps' presets.
+#[allow(dead_code)]
 pub fn resolve_all_presets(
     apps: &[ProjectDefinition],
     presets: &IndexMap<String, PresetSection>,
@@ -154,6 +156,7 @@ pub fn resolve_all_presets(
 /// Resolve `{profile.*}` placeholders in a string.
 /// E.g., "{profile.domain}" → "stg.agiletec.net"
 /// `$VAR` patterns are left as-is (runtime variables).
+#[allow(dead_code)]
 pub fn resolve_profile_vars(template: &str, profile: &ProfileSection) -> String {
     template
         .replace("{profile.domain}", &profile.domain)
@@ -162,6 +165,7 @@ pub fn resolve_profile_vars(template: &str, profile: &ProfileSection) -> String 
 
 /// Resolve a profile with inheritance.
 /// If profile has `inherits`, merge parent first, then child overrides.
+#[allow(dead_code)]
 pub fn resolve_profile<'a>(
     name: &str,
     profiles: &'a IndexMap<String, ProfileSection>,

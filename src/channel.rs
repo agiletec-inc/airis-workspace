@@ -103,6 +103,7 @@ pub struct Toolchain {
 
 /// Current LTS and stable versions (updated periodically)
 /// These are the default values; can be overridden via manifest.toml [toolchain]
+#[allow(dead_code)]
 pub(crate) mod defaults {
     // Node.js LTS
     pub const NODE_LTS_VERSION: &str = "24";

@@ -5,6 +5,7 @@
 
 /// Framework-specific default values.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct FrameworkDefaults {
     pub port: u16,
     pub health_path: &'static str,

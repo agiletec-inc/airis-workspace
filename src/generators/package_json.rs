@@ -8,6 +8,7 @@ use crate::manifest::ProjectDefinition;
 
 /// Fields managed by airis in per-app package.json (hybrid mode).
 /// All other fields (dependencies, scripts, exports, etc.) are user-managed.
+#[allow(dead_code)]
 const MANAGED_FIELDS: &[&str] = &["name", "version", "private", "type"];
 
 /// All fields managed in full-gen mode.
@@ -22,6 +23,7 @@ const FULL_GEN_FIELDS: &[&str] = &[
 /// Hybrid mode: airis manages only name/version/private/type.
 /// Dependencies, scripts, exports, and all other fields stay in the
 /// user's package.json and are never overwritten.
+#[allow(dead_code)]
 pub fn generate_project_package_json(
     project: &ProjectDefinition,
     workspace_root: &Path,
