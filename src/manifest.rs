@@ -434,7 +434,7 @@ impl Manifest {
                 package_manager: "pnpm@10.22.0".to_string(),
                 node: None,
                 service: String::new(),
-                image: "node:22-alpine".to_string(),
+                image: crate::channel::defaults::NODE_LTS_IMAGE.to_string(),
                 workdir: "/app".to_string(),
                 workspaces: vec![],
                 volumes: vec![format!("{}-node-modules:/app/node_modules", name)],
@@ -446,7 +446,7 @@ impl Manifest {
             apps: IndexMap::new(),
             libs: IndexMap::new(),
             docker: DockerSection {
-                base_image: "node:22-alpine".to_string(),
+                base_image: crate::channel::defaults::NODE_LTS_IMAGE.to_string(),
                 workdir: "/app".to_string(),
                 workspace: Some(DockerWorkspaceSection {
                     service: "workspace".to_string(),
@@ -646,7 +646,7 @@ fn default_package_manager() -> String {
 }
 
 fn default_workspace_image() -> String {
-    "node:22-alpine".to_string()
+    crate::channel::defaults::NODE_LTS_IMAGE.to_string()
 }
 
 fn default_workspace_workdir() -> String {
@@ -1417,12 +1417,18 @@ pub struct AppDeployConfig {
     /// Deploy job timeout in minutes. Default: 15 (docker), 10 (worker).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u8>,
-    /// Health check retry count. Default: 6
+    /// Health check retry count. Default: 3 (Dockerfile), 6 (CI)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health_retries: Option<u8>,
     /// Health check retry interval in seconds. Default: 10
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health_retry_interval: Option<u8>,
+    /// Docker HEALTHCHECK --timeout value (e.g., "10s"). Default: "10s"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_timeout: Option<String>,
+    /// Docker HEALTHCHECK --start-period value (e.g., "30s"). Default: "30s"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_start_period: Option<String>,
     /// Cloudflare Workers domain suffix (e.g., "myorg.workers.dev").
     /// Required when deploy_target = "worker".
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1645,6 +1651,9 @@ pub struct CiSection {
     /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
     #[serde(default)]
     pub actions: ActionsVersions,
+    /// CI validate job timeout in minutes. Default: 5
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validate_timeout: Option<u8>,
     /// CI check job timeouts. Key = turbo task name, Value = timeout minutes.
     /// Default: {"lint": 10, "typecheck": 10, "test": 15}
     #[serde(default = "default_ci_jobs")]
@@ -1667,6 +1676,7 @@ impl Default for CiSection {
             pnpm_store_path: None,
             worker_runner: None,
             actions: ActionsVersions::default(),
+            validate_timeout: None,
             jobs: default_ci_jobs(),
         }
     }

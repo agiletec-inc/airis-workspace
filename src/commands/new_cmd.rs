@@ -214,14 +214,15 @@ health.get('/', (c) => {
     fs::write(project_dir.join("src/routes/health.ts"), health_ts)?;
 
     // Dockerfile
-    let dockerfile = r#"FROM node:22-alpine AS builder
+    let node_image = crate::channel::defaults::NODE_LTS_IMAGE;
+    let dockerfile = format!(r#"FROM {node_image} AS builder
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm build
 
-FROM node:22-alpine
+FROM {node_image}
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
@@ -229,7 +230,7 @@ COPY --from=builder /app/node_modules ./node_modules
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
-"#.to_string();
+"#);
     fs::write(project_dir.join("Dockerfile"), dockerfile)?;
 
     // .gitignore
@@ -627,22 +628,23 @@ async fn main() -> anyhow::Result<()> {{
     fs::write(project_dir.join("src/main.rs"), main_rs)?;
 
     // Dockerfile
+    let rust_image = crate::channel::defaults::RUST_IMAGE;
+    let alpine_image = crate::channel::defaults::ALPINE_IMAGE;
+    let bin_name = name.replace('-', "_");
     let dockerfile = format!(
-        r#"FROM rust:1.82-alpine AS builder
-RUN apk add --no-cache musl-dev
+        r#"FROM {rust_image} AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends musl-tools && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
 RUN cargo build --release
 
-FROM alpine:3.19
+FROM {alpine_image}
 WORKDIR /app
-COPY --from=builder /app/target/release/{} /app/
+COPY --from=builder /app/target/release/{bin_name} /app/
 ENV RUST_LOG=info
 EXPOSE 3000
-CMD ["./{}"]
-"#,
-        name.replace('-', "_"),
-        name.replace('-', "_")
+CMD ["./{bin_name}"]
+"#
     );
     fs::write(project_dir.join("Dockerfile"), dockerfile)?;
 
@@ -721,7 +723,8 @@ async def health():
     fs::write(project_dir.join("app/__init__.py"), "")?;
 
     // Dockerfile
-    let dockerfile = r#"FROM python:3.12-slim
+    let python_image = crate::channel::defaults::PYTHON_IMAGE;
+    let dockerfile = format!(r#"FROM {python_image}
 
 WORKDIR /app
 
@@ -735,7 +738,7 @@ COPY . .
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-"#;
+"#);
     fs::write(project_dir.join("Dockerfile"), dockerfile)?;
 
     // .gitignore

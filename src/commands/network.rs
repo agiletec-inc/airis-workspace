@@ -174,18 +174,25 @@ pub fn setup() -> Result<()> {
         .with_context(|| "Failed to load manifest.toml")?;
 
     let project_name = &manifest.workspace.name;
-    let proxy_network = std::env::var("EXTERNAL_PROXY_NETWORK").unwrap_or_else(|_| "coolify".to_string());
+    // Resolve proxy network: manifest > env var > skip
+    let proxy_network = manifest.orchestration.networks.as_ref()
+        .and_then(|n| n.proxy.clone())
+        .or_else(|| std::env::var("EXTERNAL_PROXY_NETWORK").ok());
 
     println!("🚀 Setting up development environment...");
     println!();
 
-    // 1. Create proxy network (coolify or custom)
+    // 1. Create proxy network (from manifest or env var, skip if not configured)
     println!("{}", "Creating proxy network...".bright_blue());
-    if network_exists(&proxy_network)? {
-        println!("  {} {} (already exists)", "✓".green(), proxy_network);
+    if let Some(ref proxy) = proxy_network {
+        if network_exists(proxy)? {
+            println!("  {} {} (already exists)", "✓".green(), proxy);
+        } else {
+            create_network(proxy)?;
+            println!("  {} {} (created)", "✓".green(), proxy);
+        }
     } else {
-        create_network(&proxy_network)?;
-        println!("  {} {} (created)", "✓".green(), proxy_network);
+        println!("  {} skipped (no proxy network configured in manifest or EXTERNAL_PROXY_NETWORK)", "⏭️".dimmed());
     }
 
     // 2. Create project networks
@@ -210,9 +217,10 @@ pub fn setup() -> Result<()> {
         println!();
         println!("{}", "Starting Traefik...".bright_blue());
 
+        let proxy_env = proxy_network.as_deref().unwrap_or("bridge");
         let cmd = format!(
             "EXTERNAL_PROXY_NETWORK={} docker compose -f traefik/docker-compose.yml up -d",
-            proxy_network
+            proxy_env
         );
 
         let status = Command::new("sh")

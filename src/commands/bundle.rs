@@ -404,7 +404,8 @@ fn generate_k8s_manifests(bundle_dir: &Path, project: &str, image_ref: &str) -> 
     });
 
     // Get K8s configuration with defaults
-    let port = app_config.and_then(|c| c.port).unwrap_or(3000);
+    let port = app_config.and_then(|c| c.port)
+        .unwrap_or(crate::conventions::framework_defaults("node").port);
     let replicas = app_config.and_then(|c| c.replicas).unwrap_or(1);
     let resources = app_config
         .and_then(|c| c.resources.clone())

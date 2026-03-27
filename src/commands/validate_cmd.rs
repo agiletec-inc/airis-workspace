@@ -244,7 +244,13 @@ fn validate_networks_impl(quiet: bool) -> Result<()> {
     }
 
     let mut failures = 0;
-    let proxy_network = std::env::var("EXTERNAL_PROXY_NETWORK").unwrap_or_else(|_| "coolify".to_string());
+    // Resolve proxy network from manifest > env var
+    let manifest_proxy = crate::manifest::Manifest::load(std::path::Path::new(crate::manifest::MANIFEST_FILE))
+        .ok()
+        .and_then(|m| m.orchestration.networks.as_ref().and_then(|n| n.proxy.clone()));
+    let proxy_network = manifest_proxy
+        .or_else(|| std::env::var("EXTERNAL_PROXY_NETWORK").ok())
+        .unwrap_or_default();
 
     for entry in fs::read_dir(apps_dir)? {
         let entry = entry?;

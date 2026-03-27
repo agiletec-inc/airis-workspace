@@ -9,6 +9,12 @@ use std::process::{Command, Stdio};
 
 use crate::manifest::Manifest;
 
+// Internal timing constants for health probes
+const TCP_CONNECT_TIMEOUT_MS: u64 = 200;
+const TCP_READ_TIMEOUT_MS: u64 = 300;
+const DB_HEALTH_RETRIES: u32 = 30;
+const DB_HEALTH_SLEEP_SECS: u64 = 2;
+
 /// Extract package manager command from manifest (e.g., "pnpm@10.22.0" -> "pnpm")
 #[cfg(test)]
 fn get_package_manager(manifest: &Manifest) -> &str {
@@ -580,13 +586,13 @@ fn is_service_reachable(url: &str) -> bool {
     };
 
     // Connect with timeout
-    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(TCP_CONNECT_TIMEOUT_MS)) {
         Ok(s) => s,
         Err(_) => return false,
     };
 
     // Set read timeout
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(300)));
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(TCP_READ_TIMEOUT_MS)));
 
     // Send minimal HTTP request with correct Host header
     let request = format!(
@@ -887,12 +893,12 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         println!("   {} Waiting for Supabase DB to be healthy...", "⏳".dimmed());
         let compose_file = supabase_files.first().map(|s| s.as_str()).unwrap_or("supabase/docker-compose.yml");
         let health_check = format!("docker compose -f {} exec -T db pg_isready -U postgres -h localhost", compose_file);
-        let mut retries = 30;
+        let mut retries = DB_HEALTH_RETRIES;
         while retries > 0 {
             if exec_command(&health_check)? {
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            std::thread::sleep(std::time::Duration::from_secs(DB_HEALTH_SLEEP_SECS));
             retries -= 1;
         }
         if retries == 0 {

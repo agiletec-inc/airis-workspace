@@ -213,12 +213,18 @@ fn fetch_latest_version() -> Result<String> {
 
 /// Fetch release information from GitHub
 fn fetch_release(version: &str) -> Result<Release> {
+    // Extract "owner/repo" from Cargo.toml [package].repository
+    let repo_slug = env!("CARGO_PKG_REPOSITORY")
+        .trim_end_matches('/')
+        .strip_prefix("https://github.com/")
+        .unwrap_or("agiletec-inc/airis-monorepo");
+
     let url = if version == "latest" {
-        "https://api.github.com/repos/agiletec-inc/airis-monorepo/releases/latest".to_string()
+        format!("https://api.github.com/repos/{}/releases/latest", repo_slug)
     } else {
         format!(
-            "https://api.github.com/repos/agiletec-inc/airis-monorepo/releases/tags/v{}",
-            version
+            "https://api.github.com/repos/{}/releases/tags/v{}",
+            repo_slug, version
         )
     };
 

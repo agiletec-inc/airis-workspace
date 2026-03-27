@@ -7,7 +7,7 @@
 //!
 //! ```ignore
 //! let toolchain = resolve_channel("lts")?;
-//! // => Toolchain { image: "node:22-alpine", digest: "sha256:...", family: Node }
+//! // => Toolchain { image: "node:24-alpine", digest: "sha256:...", family: Node }
 //! ```
 
 use anyhow::{bail, Result};
@@ -103,9 +103,8 @@ pub struct Toolchain {
 
 /// Current LTS and stable versions (updated periodically)
 /// These are the default values; can be overridden via manifest.toml [toolchain]
-#[allow(dead_code)]
-mod defaults {
-    // Node.js LTS - Using Node 24 as default (aligns with .node-version)
+pub(crate) mod defaults {
+    // Node.js LTS
     pub const NODE_LTS_VERSION: &str = "24";
     pub const NODE_LTS_IMAGE: &str = "node:24-alpine";
 
@@ -113,9 +112,9 @@ mod defaults {
     pub const NODE_CURRENT_VERSION: &str = "24";
     pub const NODE_CURRENT_IMAGE: &str = "node:24-alpine";
 
-    // Edge runtime (generic WASM runtime image)
+    // Edge runtime
     pub const EDGE_VERSION: &str = "2025.01";
-    pub const EDGE_IMAGE: &str = "denoland/deno:alpine"; // Edge uses Deno as base
+    pub const EDGE_IMAGE: &str = "denoland/deno:alpine";
 
     // Bun
     pub const BUN_VERSION: &str = "1.1";
@@ -132,6 +131,10 @@ mod defaults {
     // Python
     pub const PYTHON_VERSION: &str = "3.12";
     pub const PYTHON_IMAGE: &str = "python:3.12-slim";
+
+    // Alpine (for minimal runtime stages)
+    pub const ALPINE_VERSION: &str = "3.21";
+    pub const ALPINE_IMAGE: &str = "alpine:3.21";
 }
 
 /// Fetch Docker image digest using docker CLI

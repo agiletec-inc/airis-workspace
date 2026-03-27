@@ -60,7 +60,7 @@ pub fn run() -> Result<()> {
             }
         }
         None => {
-            println!("{}  workspace container (agiletec-workspace) not running", "FAIL".red());
+            println!("{}  workspace container not running", "FAIL".red());
             failures += 1;
         }
     }
