@@ -125,9 +125,9 @@ mod defaults {
     pub const DENO_VERSION: &str = "2.0";
     pub const DENO_IMAGE: &str = "denoland/deno:alpine";
 
-    // Rust
-    pub const RUST_VERSION: &str = "1.83";
-    pub const RUST_IMAGE: &str = "rust:1.83-slim";
+    // Rust (must be >= 1.88 for edition 2024 support)
+    pub const RUST_VERSION: &str = "1.88";
+    pub const RUST_IMAGE: &str = "rust:1.88-slim";
 
     // Python
     pub const PYTHON_VERSION: &str = "3.12";

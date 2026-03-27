@@ -1,9 +1,11 @@
 mod channel;
 mod commands;
+mod conventions;
 mod dag;
 mod docker_build;
 mod executor;
 mod generators;
+mod import_scanner;
 mod manifest;
 mod ownership;
 mod pnpm;
@@ -11,6 +13,8 @@ mod preset;
 mod remote_cache;
 mod safe_fs;
 mod templates;
+#[cfg(test)]
+mod test_lock;
 mod version_resolver;
 
 use anyhow::Result;
@@ -88,21 +92,20 @@ fn convert_package_to_path(package_name: &str) -> String {
 
 #[derive(Parser)]
 #[command(name = "airis")]
-#[command(about = "Docker-first monorepo workspace manager")]
+#[command(about = "The Docker-first monorepo manager for the vibe coding era")]
 #[command(long_about = "\
-Docker-first monorepo workspace manager.
+The Docker-first monorepo manager for the vibe coding era.
 
-airis generates package.json, docker-compose.yml, pnpm-workspace.yaml, and CI \
-workflows from a single manifest.toml. It guards your host from AI agents running \
-package managers directly.
+One manifest file. Every config generated. Your AI pair-programmer stays inside \
+the container where it belongs.
 
-DESIGN: airis is project-agnostic. It wraps whatever commands YOU define in \
-manifest.toml [commands]. Environment management (Doppler, .env, Infisical), \
-deploy targets (Vercel, Railway, Fly.io), and build tools (Turborepo, NX) are \
-all your choice — airis doesn't impose any of them.
+airis generates Dockerfile, compose.yml, package.json, pnpm-workspace.yaml, and \
+CI/CD workflows from a single manifest.toml. Command guards keep AI agents from \
+running package managers on the host or picking the wrong tool.
 
-IMPORTANT: manifest.toml is optional. Without it, each app works standalone \
-with `docker compose up`. airis adds convenience, not dependency.")]
+DESIGN: airis extends your existing stack — it doesn't replace it. Turborepo, NX, \
+Doppler, Vercel, Railway — all your choice. airis handles the Docker layer that \
+those tools leave to you.")]
 #[command(after_help = "\
 QUICK REFERENCE:
   airis init --write        Create manifest.toml from project discovery

@@ -6,32 +6,26 @@ use std::path::Path;
 
 use crate::manifest::ProjectDefinition;
 
-/// Convert toml::Value to serde_json::Value
-fn toml_to_json(value: &toml::Value) -> serde_json::Value {
-    match value {
-        toml::Value::String(s) => json!(s),
-        toml::Value::Integer(i) => json!(i),
-        toml::Value::Float(f) => json!(f),
-        toml::Value::Boolean(b) => json!(b),
-        toml::Value::Datetime(d) => json!(d.to_string()),
-        toml::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(toml_to_json).collect())
-        }
-        toml::Value::Table(table) => {
-            let mut map = serde_json::Map::new();
-            for (k, v) in table {
-                map.insert(k.clone(), toml_to_json(v));
-            }
-            serde_json::Value::Object(map)
-        }
-    }
-}
+/// Fields managed by airis in per-app package.json (hybrid mode).
+/// All other fields (dependencies, scripts, exports, etc.) are user-managed.
+const MANAGED_FIELDS: &[&str] = &["name", "version", "private", "type"];
 
-/// Generate package.json for a project from manifest definition
+/// All fields managed in full-gen mode.
+const FULL_GEN_FIELDS: &[&str] = &[
+    "name", "version", "private", "type", "description", "main", "types",
+    "bin", "exports", "scripts", "dependencies", "devDependencies",
+    "peerDependencies", "peerDependenciesMeta", "files",
+];
+
+/// Generate or update package.json for a project (hybrid mode).
+///
+/// Hybrid mode: airis manages only name/version/private/type.
+/// Dependencies, scripts, exports, and all other fields stay in the
+/// user's package.json and are never overwritten.
 pub fn generate_project_package_json(
     project: &ProjectDefinition,
     workspace_root: &Path,
-    resolved_catalog: &IndexMap<String, String>,
+    _resolved_catalog: &IndexMap<String, String>,
 ) -> Result<()> {
     let project_path = project
         .path
@@ -39,11 +33,6 @@ pub fn generate_project_package_json(
         .ok_or_else(|| anyhow::anyhow!("Project '{}' has no path defined", project.name))?;
 
     let package_json_path = workspace_root.join(project_path).join("package.json");
-
-    // Build dependencies with resolved catalog versions
-    let dependencies = resolve_deps_from_catalog(&project.deps, resolved_catalog);
-    let dev_dependencies = resolve_deps_from_catalog(&project.dev_deps, resolved_catalog);
-    let peer_dependencies = resolve_deps_from_catalog(&project.peer_deps, resolved_catalog);
 
     // Generate package name: use explicit scope if provided, otherwise @workspace
     let package_name = if let Some(scope) = &project.scope {
@@ -57,62 +46,215 @@ pub fn generate_project_package_json(
     let private = project.private.unwrap_or(true);
     let module_type = project.module_type.as_deref().unwrap_or("module");
 
-    let mut package_json = json!({
-        "name": package_name,
-        "version": version,
-        "private": private,
-        "type": module_type,
-        "scripts": project.scripts,
-        "dependencies": dependencies,
-        "devDependencies": dev_dependencies,
-        "_generated": {
-            "by": "airis init",
-            "from": "manifest.toml",
-            "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
-        }
-    });
-
-    // Add optional fields if present
-    if let Some(description) = &project.description {
-        package_json["description"] = json!(description);
-    }
-    if let Some(main) = &project.main {
-        package_json["main"] = json!(main);
-    }
-    if let Some(types) = &project.types {
-        package_json["types"] = json!(types);
-    }
-    if let Some(exports) = &project.exports {
-        package_json["exports"] = toml_to_json(exports);
-    }
-    if !project.bin.is_empty() {
-        package_json["bin"] = json!(project.bin);
-    }
-    if !project.files.is_empty() {
-        package_json["files"] = json!(project.files);
-    }
-    if !project.tags.is_empty() {
-        package_json["tags"] = json!(project.tags);
-        package_json["turbo"] = json!({ "tags": project.tags });
-    }
-    if !peer_dependencies.is_empty() {
-        package_json["peerDependencies"] = json!(peer_dependencies);
-    }
-    if let Some(peer_deps_meta) = &project.peer_deps_meta {
-        package_json["peerDependenciesMeta"] = toml_to_json(peer_deps_meta);
-    }
-
     // Ensure directory exists
     if let Some(parent) = package_json_path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory {:?}", parent))?;
     }
 
-    // Write package.json
+    let package_json = if package_json_path.exists() {
+        // Hybrid: read existing, update only managed fields
+        let existing = fs::read_to_string(&package_json_path)
+            .with_context(|| format!("Failed to read {:?}", package_json_path))?;
+        let mut json: serde_json::Value = serde_json::from_str(&existing)
+            .with_context(|| format!("Failed to parse {:?}", package_json_path))?;
+        let obj = json.as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("package.json is not a JSON object: {:?}", package_json_path))?;
+
+        obj.insert("name".to_string(), json!(package_name));
+        obj.insert("version".to_string(), json!(version));
+        obj.insert("private".to_string(), json!(private));
+        obj.insert("type".to_string(), json!(module_type));
+
+        // Update generation marker
+        obj.insert("_generated".to_string(), json!({
+            "by": "airis gen",
+            "managed_fields": MANAGED_FIELDS,
+            "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
+        }));
+
+        json
+    } else {
+        // New file: create minimal package.json
+        json!({
+            "name": package_name,
+            "version": version,
+            "private": private,
+            "type": module_type,
+            "_generated": {
+                "by": "airis gen",
+                "managed_fields": MANAGED_FIELDS,
+                "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
+            }
+        })
+    };
+
     let content = serde_json::to_string_pretty(&package_json)
         .context("Failed to serialize package.json")?;
 
-    fs::write(&package_json_path, content)
+    fs::write(&package_json_path, format!("{content}\n"))
+        .with_context(|| format!("Failed to write {:?}", package_json_path))?;
+
+    println!("  ✓ Synced {}", package_json_path.display());
+
+    Ok(())
+}
+
+/// Resolved dependencies and scripts for full-gen mode.
+pub struct ResolvedPackageData {
+    /// Resolved dependencies (package name → version string)
+    pub deps: IndexMap<String, String>,
+    /// Resolved devDependencies (usually empty — devDeps at root only)
+    pub dev_deps: IndexMap<String, String>,
+    /// Resolved scripts
+    pub scripts: IndexMap<String, String>,
+}
+
+/// Generate package.json in full-gen mode.
+///
+/// Unlike hybrid mode, this writes ALL fields including dependencies, scripts,
+/// exports, main, bin, etc. The package.json is fully managed by airis gen.
+pub fn generate_full_package_json(
+    project: &ProjectDefinition,
+    workspace_root: &Path,
+    resolved_catalog: &IndexMap<String, String>,
+    resolved_data: &ResolvedPackageData,
+) -> Result<()> {
+    let project_path = project
+        .path
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Project '{}' has no path defined", project.name))?;
+
+    let package_json_path = workspace_root.join(project_path).join("package.json");
+
+    let package_name = if let Some(scope) = &project.scope {
+        let scope = scope.trim_start_matches('@');
+        format!("@{}/{}", scope, project.name)
+    } else {
+        format!("@workspace/{}", project.name)
+    };
+
+    let version = project.version.as_deref().unwrap_or("0.1.0");
+    let private = project.private.unwrap_or(true);
+    let module_type = project.module_type.as_deref().unwrap_or("module");
+
+    if let Some(parent) = package_json_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {:?}", parent))?;
+    }
+
+    // Build the package.json from scratch (full-gen owns all fields)
+    let mut obj = serde_json::Map::new();
+
+    obj.insert("name".to_string(), json!(package_name));
+    obj.insert("version".to_string(), json!(version));
+    obj.insert("private".to_string(), json!(private));
+    obj.insert("type".to_string(), json!(module_type));
+
+    // description
+    if let Some(ref desc) = project.description {
+        obj.insert("description".to_string(), json!(desc));
+    }
+
+    // main
+    if let Some(ref main) = project.main {
+        obj.insert("main".to_string(), json!(main));
+    }
+
+    // types
+    if let Some(ref types) = project.types {
+        obj.insert("types".to_string(), json!(types));
+    }
+
+    // bin
+    if !project.bin.is_empty() {
+        let bin_map: serde_json::Map<String, serde_json::Value> = project
+            .bin
+            .iter()
+            .map(|(k, v)| (k.clone(), json!(v)))
+            .collect();
+        obj.insert("bin".to_string(), serde_json::Value::Object(bin_map));
+    }
+
+    // exports (free-form TOML value → JSON)
+    if let Some(ref exports) = project.exports {
+        let exports_json = toml_value_to_json(exports);
+        obj.insert("exports".to_string(), exports_json);
+    }
+
+    // files
+    if !project.files.is_empty() {
+        obj.insert(
+            "files".to_string(),
+            json!(project.files),
+        );
+    }
+
+    // scripts
+    if !resolved_data.scripts.is_empty() {
+        let scripts_map: serde_json::Map<String, serde_json::Value> = resolved_data
+            .scripts
+            .iter()
+            .map(|(k, v)| (k.clone(), json!(v)))
+            .collect();
+        obj.insert("scripts".to_string(), serde_json::Value::Object(scripts_map));
+    }
+
+    // dependencies — resolve "catalog" references to actual versions
+    if !resolved_data.deps.is_empty() {
+        let deps_map: serde_json::Map<String, serde_json::Value> = resolved_data
+            .deps
+            .iter()
+            .map(|(k, v)| {
+                let version = resolve_dep_version(k, v, resolved_catalog);
+                (k.clone(), json!(version))
+            })
+            .collect();
+        obj.insert("dependencies".to_string(), serde_json::Value::Object(deps_map));
+    }
+
+    // devDependencies
+    if !resolved_data.dev_deps.is_empty() {
+        let dev_deps_map: serde_json::Map<String, serde_json::Value> = resolved_data
+            .dev_deps
+            .iter()
+            .map(|(k, v)| {
+                let version = resolve_dep_version(k, v, resolved_catalog);
+                (k.clone(), json!(version))
+            })
+            .collect();
+        obj.insert("devDependencies".to_string(), serde_json::Value::Object(dev_deps_map));
+    }
+
+    // peerDependencies
+    if !project.peer_deps.is_empty() {
+        let peer_map: serde_json::Map<String, serde_json::Value> = project
+            .peer_deps
+            .iter()
+            .map(|(k, v)| (k.clone(), json!(v)))
+            .collect();
+        obj.insert("peerDependencies".to_string(), serde_json::Value::Object(peer_map));
+    }
+
+    // peerDependenciesMeta
+    if let Some(ref meta) = project.peer_deps_meta {
+        let meta_json = toml_value_to_json(meta);
+        obj.insert("peerDependenciesMeta".to_string(), meta_json);
+    }
+
+    // Generation marker
+    obj.insert("_generated".to_string(), json!({
+        "by": "airis gen",
+        "mode": "full",
+        "managed_fields": FULL_GEN_FIELDS,
+        "warning": "This file is fully generated by airis gen. Do not edit manually."
+    }));
+
+    let package_json = serde_json::Value::Object(obj);
+    let content = serde_json::to_string_pretty(&package_json)
+        .context("Failed to serialize package.json")?;
+
+    fs::write(&package_json_path, format!("{content}\n"))
         .with_context(|| format!("Failed to write {:?}", package_json_path))?;
 
     println!("  ✓ Generated {}", package_json_path.display());
@@ -120,27 +262,41 @@ pub fn generate_project_package_json(
     Ok(())
 }
 
-/// Resolve dependencies from catalog
-/// "react" = "catalog" -> "react": "^19.2.0" (from resolved_catalog)
-/// "vite" = "^5.0.0" -> "vite": "^5.0.0" (unchanged)
-fn resolve_deps_from_catalog(
-    deps: &IndexMap<String, String>,
-    resolved_catalog: &IndexMap<String, String>,
-) -> IndexMap<String, String> {
-    deps.iter()
-        .map(|(name, version)| {
-            let resolved_version = if version == "catalog" || version == "catalog:" {
-                // Look up in resolved catalog (supports both "catalog" and "catalog:" pnpm syntax)
-                resolved_catalog
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| version.clone())
-            } else {
-                version.clone()
-            };
-            (name.clone(), resolved_version)
-        })
-        .collect()
+/// Resolve a dependency version string.
+/// - "workspace:*" → kept as-is
+/// - "catalog" → looked up in resolved_catalog
+/// - anything else → kept as-is (explicit version)
+fn resolve_dep_version(
+    package: &str,
+    version: &str,
+    catalog: &IndexMap<String, String>,
+) -> String {
+    if version == "catalog" {
+        catalog.get(package).cloned().unwrap_or_else(|| version.to_string())
+    } else {
+        version.to_string()
+    }
+}
+
+/// Convert a TOML value to a serde_json Value.
+fn toml_value_to_json(val: &toml::Value) -> serde_json::Value {
+    match val {
+        toml::Value::String(s) => json!(s),
+        toml::Value::Integer(i) => json!(i),
+        toml::Value::Float(f) => json!(f),
+        toml::Value::Boolean(b) => json!(b),
+        toml::Value::Datetime(d) => json!(d.to_string()),
+        toml::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(toml_value_to_json).collect())
+        }
+        toml::Value::Table(t) => {
+            let obj: serde_json::Map<String, serde_json::Value> = t
+                .iter()
+                .map(|(k, v)| (k.clone(), toml_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(obj)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -180,55 +336,21 @@ mod tests {
             mem_limit: None,
             cpus: None,
             service: None,
+            tsconfig: None,
+            dep_groups: vec![],
+            dev_dep_groups: vec![],
         }
     }
 
     #[test]
-    fn test_resolve_deps_from_catalog() {
-        let mut deps = IndexMap::new();
-        deps.insert("react".to_string(), "catalog".to_string());
-        deps.insert("vite".to_string(), "^5.0.0".to_string());
+    fn test_new_package_json_created_with_managed_fields_only() {
+        let tmp_dir = std::env::temp_dir().join("airis_test_hybrid_new");
+        let project_dir = tmp_dir.join("apps/test-app");
+        // Ensure clean state
+        let _ = std::fs::remove_dir_all(&tmp_dir);
 
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.2.0".to_string());
-
-        let result = resolve_deps_from_catalog(&deps, &catalog);
-
-        assert_eq!(result.get("react").unwrap(), "^19.2.0");
-        assert_eq!(result.get("vite").unwrap(), "^5.0.0");
-    }
-
-    #[test]
-    fn test_resolve_deps_catalog_colon_syntax() {
-        let mut deps = IndexMap::new();
-        deps.insert("zod".to_string(), "catalog:".to_string());
-        deps.insert("commander".to_string(), "^13.1.0".to_string());
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("zod".to_string(), "^3.23.0".to_string());
-
-        let result = resolve_deps_from_catalog(&deps, &catalog);
-
-        assert_eq!(result.get("zod").unwrap(), "^3.23.0");
-        assert_eq!(result.get("commander").unwrap(), "^13.1.0");
-    }
-
-    #[test]
-    fn test_generate_project_package_json_with_scope_and_bin() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_pkg_json");
-        let project_dir = tmp_dir.join("products/test-app");
-        std::fs::create_dir_all(&project_dir).unwrap();
-
-        let mut bin = IndexMap::new();
-        bin.insert("akm".to_string(), "dist/cli.js".to_string());
-
-        let mut project = default_project("test-app", "products/test-app");
-        project.kind = Some("app".to_string());
+        let mut project = default_project("test-app", "apps/test-app");
         project.scope = Some("@myorg".to_string());
-        project.description = Some("A test CLI tool".to_string());
-        project.bin = bin;
-        project.main = Some("dist/index.js".to_string());
-        project.framework = Some("node".to_string());
 
         let catalog = IndexMap::new();
         generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
@@ -236,20 +358,73 @@ mod tests {
         let content = std::fs::read_to_string(project_dir.join("package.json")).unwrap();
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
 
+        // Managed fields are set
         assert_eq!(json["name"], "@myorg/test-app");
-        assert_eq!(json["description"], "A test CLI tool");
-        assert_eq!(json["main"], "dist/index.js");
-        assert_eq!(json["bin"]["akm"], "dist/cli.js");
+        assert_eq!(json["version"], "0.1.0");
+        assert_eq!(json["private"], true);
+        assert_eq!(json["type"], "module");
 
-        // Cleanup
+        // No deps/scripts/exports — user adds these themselves
+        assert!(json.get("dependencies").is_none());
+        assert!(json.get("devDependencies").is_none());
+        assert!(json.get("scripts").is_none());
+
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
-    fn test_generate_project_package_json_default_scope() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_pkg_json_default");
-        let project_dir = tmp_dir.join("libs/my-lib");
+    fn test_existing_package_json_preserves_user_fields() {
+        let tmp_dir = std::env::temp_dir().join("airis_test_hybrid_merge");
+        let project_dir = tmp_dir.join("apps/my-app");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
         std::fs::create_dir_all(&project_dir).unwrap();
+
+        // Write a user-managed package.json with deps, scripts, etc.
+        let user_pkg = json!({
+            "name": "@old/my-app",
+            "version": "0.0.1",
+            "scripts": { "dev": "next dev", "build": "next build" },
+            "dependencies": { "react": "^19.0.0", "next": "^15.0.0" },
+            "devDependencies": { "typescript": "^5.0.0" },
+            "exports": { ".": "./dist/index.js" },
+            "description": "My cool app"
+        });
+        std::fs::write(
+            project_dir.join("package.json"),
+            serde_json::to_string_pretty(&user_pkg).unwrap(),
+        ).unwrap();
+
+        let mut project = default_project("my-app", "apps/my-app");
+        project.scope = Some("@agiletec".to_string());
+        project.version = Some("1.0.0".to_string());
+
+        let catalog = IndexMap::new();
+        generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
+
+        let content = std::fs::read_to_string(project_dir.join("package.json")).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+
+        // Managed fields are updated
+        assert_eq!(json["name"], "@agiletec/my-app");
+        assert_eq!(json["version"], "1.0.0");
+
+        // User fields are preserved
+        assert_eq!(json["scripts"]["dev"], "next dev");
+        assert_eq!(json["scripts"]["build"], "next build");
+        assert_eq!(json["dependencies"]["react"], "^19.0.0");
+        assert_eq!(json["dependencies"]["next"], "^15.0.0");
+        assert_eq!(json["devDependencies"]["typescript"], "^5.0.0");
+        assert_eq!(json["exports"]["."], "./dist/index.js");
+        assert_eq!(json["description"], "My cool app");
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_default_scope_is_workspace() {
+        let tmp_dir = std::env::temp_dir().join("airis_test_hybrid_default_scope");
+        let project_dir = tmp_dir.join("libs/my-lib");
+        let _ = std::fs::remove_dir_all(&tmp_dir);
 
         let project = default_project("my-lib", "libs/my-lib");
 
@@ -260,115 +435,20 @@ mod tests {
         let json: serde_json::Value = serde_json::from_str(&content).unwrap();
 
         assert_eq!(json["name"], "@workspace/my-lib");
-        assert!(json.get("description").is_none());
-        assert!(json.get("main").is_none());
-        assert!(json.get("bin").is_none());
-
-        // Cleanup
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-    }
-
-    #[test]
-    fn test_exports_simple() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_exports_simple");
-        let project_dir = tmp_dir.join("libs/simple");
-        std::fs::create_dir_all(&project_dir).unwrap();
-
-        let mut project = default_project("simple", "libs/simple");
-        // Single entry point: exports = { "." = "./dist/index.js" }
-        let mut table = toml::map::Map::new();
-        table.insert(".".to_string(), toml::Value::String("./dist/index.js".to_string()));
-        project.exports = Some(toml::Value::Table(table));
-
-        let catalog = IndexMap::new();
-        generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
-
-        let content = std::fs::read_to_string(project_dir.join("package.json")).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        assert_eq!(json["exports"]["."], "./dist/index.js");
-
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-    }
-
-    #[test]
-    fn test_exports_subpath() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_exports_subpath");
-        let project_dir = tmp_dir.join("libs/pricing");
-        std::fs::create_dir_all(&project_dir).unwrap();
-
-        let mut project = default_project("pricing", "libs/pricing");
-        // Subpath exports: { "." = { import = "./dist/index.js", types = "./dist/index.d.ts" }, "./utils" = "./dist/utils.js" }
-        let mut root_entry = toml::map::Map::new();
-        root_entry.insert("import".to_string(), toml::Value::String("./dist/index.js".to_string()));
-        root_entry.insert("types".to_string(), toml::Value::String("./dist/index.d.ts".to_string()));
-
-        let mut table = toml::map::Map::new();
-        table.insert(".".to_string(), toml::Value::Table(root_entry));
-        table.insert("./utils".to_string(), toml::Value::String("./dist/utils.js".to_string()));
-        project.exports = Some(toml::Value::Table(table));
-
-        let catalog = IndexMap::new();
-        generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
-
-        let content = std::fs::read_to_string(project_dir.join("package.json")).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        assert_eq!(json["exports"]["."]["import"], "./dist/index.js");
-        assert_eq!(json["exports"]["."]["types"], "./dist/index.d.ts");
-        assert_eq!(json["exports"]["./utils"], "./dist/utils.js");
-
-        let _ = std::fs::remove_dir_all(&tmp_dir);
-    }
-
-    #[test]
-    fn test_peer_deps_and_tags() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_peer_tags");
-        let project_dir = tmp_dir.join("libs/ui");
-        std::fs::create_dir_all(&project_dir).unwrap();
-
-        let mut project = default_project("ui", "libs/ui");
-        project.peer_deps.insert("react".to_string(), "catalog".to_string());
-        project.peer_deps.insert("react-dom".to_string(), "catalog".to_string());
-        project.tags = vec!["shared".to_string(), "ui".to_string()];
-
-        // peer_deps_meta: { react = { optional = true } }
-        let mut react_meta = toml::map::Map::new();
-        react_meta.insert("optional".to_string(), toml::Value::Boolean(true));
-        let mut meta = toml::map::Map::new();
-        meta.insert("react".to_string(), toml::Value::Table(react_meta));
-        project.peer_deps_meta = Some(toml::Value::Table(meta));
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.0.0".to_string());
-        catalog.insert("react-dom".to_string(), "^19.0.0".to_string());
-
-        generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
-
-        let content = std::fs::read_to_string(project_dir.join("package.json")).unwrap();
-        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
-
-        assert_eq!(json["peerDependencies"]["react"], "^19.0.0");
-        assert_eq!(json["peerDependencies"]["react-dom"], "^19.0.0");
-        assert_eq!(json["tags"], json!(["shared", "ui"]));
-        assert_eq!(json["turbo"]["tags"], json!(["shared", "ui"]));
-        assert_eq!(json["peerDependenciesMeta"]["react"]["optional"], true);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]
     fn test_custom_version_and_type() {
-        let tmp_dir = std::env::temp_dir().join("airis_test_custom_ver");
+        let tmp_dir = std::env::temp_dir().join("airis_test_hybrid_custom");
         let project_dir = tmp_dir.join("libs/legacy");
-        std::fs::create_dir_all(&project_dir).unwrap();
+        let _ = std::fs::remove_dir_all(&tmp_dir);
 
         let mut project = default_project("legacy", "libs/legacy");
         project.version = Some("2.1.0".to_string());
         project.private = Some(false);
         project.module_type = Some("commonjs".to_string());
-        project.types = Some("dist/index.d.ts".to_string());
-        project.files = vec!["dist".to_string(), "README.md".to_string()];
 
         let catalog = IndexMap::new();
         generate_project_package_json(&project, &tmp_dir, &catalog).unwrap();
@@ -379,8 +459,6 @@ mod tests {
         assert_eq!(json["version"], "2.1.0");
         assert_eq!(json["private"], false);
         assert_eq!(json["type"], "commonjs");
-        assert_eq!(json["types"], "dist/index.d.ts");
-        assert_eq!(json["files"], json!(["dist", "README.md"]));
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

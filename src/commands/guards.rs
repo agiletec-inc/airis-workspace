@@ -931,10 +931,7 @@ mod tests {
 
     #[test]
     fn test_full_install_with_tempdir() {
-        use std::sync::Mutex;
-        static DIR_LOCK: Mutex<()> = Mutex::new(());
-
-        let _guard = DIR_LOCK.lock().unwrap();
+        let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
         let original_dir = std::env::current_dir().unwrap();
         let dir = tempfile::tempdir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();

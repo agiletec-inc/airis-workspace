@@ -406,6 +406,7 @@ fn resolve_catalog_versions(
                 let policy_str = policy.as_str();
                 resolve_version(package, policy_str)?
             }
+            CatalogEntry::Empty(_) => resolve_version(package, "latest")?,
             CatalogEntry::Version(version) => version.clone(),
             CatalogEntry::Follow(follow_config) => {
                 let target = &follow_config.follow;

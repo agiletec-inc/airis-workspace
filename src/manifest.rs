@@ -5,6 +5,10 @@ use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 /// Workspace mode (docker-first, hybrid, strict)
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
@@ -37,7 +41,7 @@ pub struct Manifest {
     #[serde(default)]
     pub workspaces: WorkspacesSection,
     #[serde(default)]
-    pub dev: DevSection,
+    pub dev: HooksSection,
     #[serde(default)]
     pub apps: IndexMap<String, AppConfig>,
     #[serde(default)]
@@ -59,6 +63,9 @@ pub struct Manifest {
     pub app: Vec<ProjectDefinition>,
     #[serde(default)]
     pub orchestration: OrchestrationSection,
+    /// Pre-command hooks (e.g., auto-install before test/build)
+    #[serde(default)]
+    pub hooks: PreCommandHooks,
     /// User-defined commands (airis run <task>)
     #[serde(default)]
     pub commands: IndexMap<String, String>,
@@ -86,6 +93,16 @@ pub struct Manifest {
     /// Value injection into user-owned files via `# airis:inject <key>` markers
     #[serde(default)]
     pub inject: IndexMap<String, InjectValue>,
+    /// TypeScript configuration for tsconfig generation
+    #[serde(default)]
+    pub typescript: TypescriptSection,
+
+    /// Reusable dependency groups (e.g., shadcn radix-ui components)
+    #[serde(default)]
+    pub dep_group: IndexMap<String, IndexMap<String, String>>,
+    /// Reusable environment variable groups (e.g., supabase-full, supabase-backend)
+    #[serde(default)]
+    pub env_group: IndexMap<String, IndexMap<String, String>>,
 
     // ── v2 fields (ignored when version = 1) ──
 
@@ -111,12 +128,37 @@ impl Manifest {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
 
-        let manifest: Manifest =
+        let mut manifest: Manifest =
             toml::from_str(&content).with_context(|| "Failed to parse manifest.toml")?;
 
         manifest.validate()?;
+        manifest.resolve_conventions();
+
+        // Post-resolve validation
+        for (i, app) in manifest.app.iter().enumerate() {
+            if app.name.is_empty() {
+                bail!(
+                    "[[app]] entry #{} has empty name and no path to derive from",
+                    i + 1
+                );
+            }
+        }
 
         Ok(manifest)
+    }
+
+    /// Apply convention-based defaults to all [[app]] entries.
+    fn resolve_conventions(&mut self) {
+        let workspace = self.workspace.clone();
+        for app in &mut self.app {
+            app.resolve(&workspace);
+        }
+    }
+
+    /// Returns true if this manifest defines a Node.js workspace.
+    /// Determined by whether package_manager is explicitly set in [workspace].
+    pub fn has_workspace(&self) -> bool {
+        !self.workspace.package_manager.is_empty()
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
@@ -202,16 +244,6 @@ impl Manifest {
             }
         }
         "22".to_string()
-    }
-
-    /// Get the effective workspaces list.
-    /// v2: [workspace].workspaces, v1: [packages].workspaces
-    pub fn effective_workspaces(&self) -> &[String] {
-        if !self.workspace.workspaces.is_empty() {
-            &self.workspace.workspaces
-        } else {
-            &self.packages.workspaces
-        }
     }
 
     /// Get deploy profiles from [profile] section.
@@ -410,7 +442,7 @@ impl Manifest {
             },
             catalog: IndexMap::new(),
             workspaces: WorkspacesSection::default(),
-            dev: DevSection::default(),
+            dev: HooksSection::default(),
             apps: IndexMap::new(),
             libs: IndexMap::new(),
             docker: DockerSection {
@@ -439,6 +471,7 @@ impl Manifest {
                 cmds.insert("ps".to_string(), "docker compose ps".to_string());
                 cmds
             },
+            hooks: PreCommandHooks::default(),
             remap,
             versioning: VersioningSection {
                 strategy: VersioningStrategy::Manual,
@@ -450,7 +483,10 @@ impl Manifest {
             runtimes: RuntimesSection::default(),
             env: EnvSection::default(),
             inject: IndexMap::new(),
+            typescript: TypescriptSection::default(),
             profile: IndexMap::new(),
+            dep_group: IndexMap::new(),
+            env_group: IndexMap::new(),
             preset: IndexMap::new(),
             external: IndexMap::new(),
             root: None,
@@ -553,7 +589,6 @@ fn default_clean_dirs() -> Vec<String> {
         ".turbo".to_string(),
         ".swc".to_string(),
         ".cache".to_string(),
-        "pnpm-lock.yaml".to_string(),
     ]
 }
 
@@ -607,7 +642,7 @@ fn default_workspace_name() -> String {
 }
 
 fn default_package_manager() -> String {
-    "pnpm@10.22.0".to_string()
+    String::new()
 }
 
 fn default_workspace_image() -> String {
@@ -619,7 +654,7 @@ fn default_workspace_workdir() -> String {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct DevSection {
+pub struct HooksSection {
     /// Glob pattern for auto-discovering app docker-compose files
     /// Default: "apps/*/docker-compose.yml"
     #[serde(default = "default_apps_pattern")]
@@ -632,14 +667,14 @@ pub struct DevSection {
     pub traefik: Option<String>,
     /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub urls: Option<DevUrls>,
+    pub urls: Option<ServiceUrls>,
     /// Commands to run after `airis up` (e.g., DB migration)
     #[serde(default)]
     pub post_up: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct DevUrls {
+pub struct ServiceUrls {
     /// Infrastructure URLs (e.g., Supabase Studio, Traefik Dashboard)
     #[serde(default)]
     pub infra: Vec<UrlEntry>,
@@ -656,9 +691,9 @@ pub struct UrlEntry {
     pub url: String,
 }
 
-impl Default for DevSection {
+impl Default for HooksSection {
     fn default() -> Self {
-        DevSection {
+        HooksSection {
             apps_pattern: default_apps_pattern(),
             supabase: None,
             traefik: None,
@@ -740,6 +775,15 @@ pub struct ServiceConfig {
     /// Networks this service joins (e.g., ["default", "proxy"])
     #[serde(default)]
     pub networks: Vec<String>,
+    /// References to env_group names for DRY env configuration
+    #[serde(default)]
+    pub env_groups: Vec<String>,
+    /// Memory limit for Docker container (e.g., "2g", "4g")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_limit: Option<String>,
+    /// CPU limit for Docker container
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cpus: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -787,6 +831,29 @@ pub struct RuleConfig {
     pub commands: Vec<String>,
 }
 
+/// Pre-command hooks configuration.
+/// Runs a command before each `airis run <task>` invocation.
+/// Cache key avoids re-running when dependencies haven't changed.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PreCommandHooks {
+    /// Shell command to run before each airis command (e.g., "pnpm install")
+    #[serde(default)]
+    pub pre_command: Option<String>,
+    /// Commands that skip the pre_command hook (e.g., ["up", "down", "ps"])
+    #[serde(default)]
+    pub skip: Vec<String>,
+    /// Cache config: only run hook when key file changes
+    #[serde(default)]
+    pub cache: Option<HookCache>,
+}
+
+/// Cache configuration for pre-command hooks.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HookCache {
+    /// File whose SHA256 hash determines whether to run the hook
+    pub key: String,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct PackagesSection {
     #[serde(default)]
@@ -801,7 +868,8 @@ pub struct PackagesSection {
 
 /// Catalog entry can be:
 /// - "latest" → resolve to latest npm version
-/// - "lts" → resolve to LTS version
+/// - "lts" → resolve to LTS version (treated same as latest for npm packages)
+/// - {} → empty table, treated as "latest" (shorthand for just registering a key)
 /// - "^5.0.0" → specific semver (used as-is)
 /// - { follow = "react" } → follow another package's version
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -809,6 +877,7 @@ pub struct PackagesSection {
 pub enum CatalogEntry {
     Follow(FollowConfig),
     Policy(VersionPolicy),
+    Empty(EmptyTable),
     Version(String),
 }
 
@@ -817,9 +886,13 @@ pub struct FollowConfig {
     pub follow: String,
 }
 
+/// Empty table `{}` — treated as "latest"
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmptyTable {}
+
 impl Default for CatalogEntry {
     fn default() -> Self {
-        CatalogEntry::Version("*".to_string())
+        CatalogEntry::Policy(VersionPolicy::Latest)
     }
 }
 
@@ -1037,6 +1110,97 @@ pub struct EnvValidation {
     pub example: Option<String>,
 }
 
+/// TypeScript configuration for tsconfig generation by `airis gen`.
+///
+/// Controls generation of `tsconfig.base.json` (shared compilerOptions),
+/// `tsconfig.json` (IDE paths), and per-package tsconfig.json files.
+///
+/// All fields are optional — smart defaults are derived from the Node version
+/// and package framework. Users can override any field in manifest.toml:
+///
+/// ```toml
+/// [typescript]
+/// target = "ES2024"
+/// lib = ["ES2024"]
+/// types = ["node"]
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TypescriptSection {
+    /// Override TS major version (auto-detected from catalog if omitted)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
+    /// ES target (e.g. "ES2024"). Default: auto-detected from Node version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// Module system (e.g. "ESNext"). Default: "ESNext".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module: Option<String>,
+    /// Module resolution strategy. Default: "bundler".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub module_resolution: Option<String>,
+    /// Lib entries (e.g. ["ES2024"]). Default: [target].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lib: Option<Vec<String>>,
+    /// Type packages to auto-include (e.g. ["node"]). Default: ["node"].
+    /// TS6 changed the default from "all @types" to "none", so this is required.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub types: Option<Vec<String>>,
+    /// Extra compilerOptions merged into tsconfig.base.json
+    #[serde(default)]
+    pub compiler_options: IndexMap<String, toml::Value>,
+    /// Extra path aliases merged into root tsconfig.json (IDE)
+    #[serde(default)]
+    pub paths: IndexMap<String, String>,
+    /// Disable tsconfig generation (default: false)
+    #[serde(default)]
+    pub skip: bool,
+    /// Generate per-package tsconfig.json files (default: true)
+    #[serde(default = "default_true")]
+    pub generate_per_package: bool,
+}
+
+impl Default for TypescriptSection {
+    fn default() -> Self {
+        Self {
+            version: None,
+            target: None,
+            module: None,
+            module_resolution: None,
+            lib: None,
+            types: None,
+            compiler_options: IndexMap::new(),
+            paths: IndexMap::new(),
+            skip: false,
+            generate_per_package: true,
+        }
+    }
+}
+
+/// Per-package tsconfig overrides in [[app]] definitions.
+///
+/// ```toml
+/// [[app]]
+/// name = "dashboard"
+/// framework = "nextjs"
+/// [app.tsconfig]
+/// lib = ["ES2024", "DOM"]
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PackageTsconfigOverride {
+    /// Override lib entries for this package
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lib: Option<Vec<String>>,
+    /// Override type packages for this package
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub types: Option<Vec<String>>,
+    /// JSX transform mode (e.g. "preserve", "react-jsx")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jsx: Option<String>,
+    /// Additional compilerOptions for this package
+    #[serde(default)]
+    pub compiler_options: IndexMap<String, toml::Value>,
+}
+
 /// Runtime configuration for Docker builds
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RuntimeConfig {
@@ -1069,8 +1233,9 @@ pub struct K8sResources {
     pub limits: Option<ResourceSpec>,
 }
 
-/// Project definition for full package.json generation
-#[derive(Debug, Deserialize, Serialize, Clone)]
+/// Project definition for package.json management.
+/// In hybrid mode, airis manages only name/version/private/type.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1127,6 +1292,12 @@ pub struct ProjectDefinition {
     pub deps: IndexMap<String, String>,
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+    /// References to dep_group names for DRY dependency grouping
+    #[serde(default)]
+    pub dep_groups: Vec<String>,
+    /// References to dep_group names for DRY devDependency grouping
+    #[serde(default)]
+    pub dev_dep_groups: Vec<String>,
     /// Kubernetes: container port
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
@@ -1156,10 +1327,13 @@ pub struct ProjectDefinition {
     pub mem_limit: Option<String>,
     /// CPU limit for Docker container
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cpus: Option<u16>,
+    pub cpus: Option<f32>,
     /// Inline service config (env, profile-specific overrides)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<ServiceInlineConfig>,
+    /// Per-package tsconfig overrides
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tsconfig: Option<PackageTsconfigOverride>,
 }
 
 /// Preset reference: single string or array of strings
@@ -1171,6 +1345,7 @@ pub enum PresetRef {
 }
 
 impl PresetRef {
+    #[allow(dead_code)] // Used by preset.rs (v2 feature, not yet in main codepath)
     pub fn as_list(&self) -> Vec<&str> {
         match self {
             PresetRef::Single(s) => vec![s.as_str()],
@@ -1215,9 +1390,9 @@ pub struct AppDeployConfig {
     /// Entrypoint for CMD (e.g., "products/airis/agent/dist/index.js")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub entrypoint: Option<String>,
-    /// Health check path (e.g., "/healthz")
-    #[serde(default = "default_health_path")]
-    pub health_path: String,
+    /// Health check path (e.g., "/healthz"). Derived from framework if not set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_path: Option<String>,
     /// Health check interval (e.g., "30s")
     #[serde(default = "default_health_interval")]
     pub health_interval: String,
@@ -1239,9 +1414,66 @@ pub struct AppDeployConfig {
     /// Runtime environment variables for deploy compose
     #[serde(default)]
     pub env: Vec<String>,
+    /// Deploy job timeout in minutes. Default: 15 (docker), 10 (worker).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u8>,
+    /// Health check retry count. Default: 6
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_retries: Option<u8>,
+    /// Health check retry interval in seconds. Default: 10
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub health_retry_interval: Option<u8>,
+    /// Cloudflare Workers domain suffix (e.g., "myorg.workers.dev").
+    /// Required when deploy_target = "worker".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workers_domain: Option<String>,
 }
 
 impl ProjectDefinition {
+    /// Fill convention-based defaults into empty/None fields.
+    /// Explicit manifest values always win.
+    pub fn resolve(&mut self, workspace: &WorkspaceSection) {
+        let framework = self.framework.as_deref().unwrap_or("node");
+        let defaults = crate::conventions::framework_defaults(framework);
+
+        // name: derive from path
+        if self.name.is_empty() {
+            if let Some(ref path) = self.path {
+                self.name = crate::conventions::name_from_path(path).to_string();
+            }
+        }
+
+        // scope: derive from workspace
+        if self.scope.is_none() {
+            self.scope = workspace.scope.clone();
+        }
+
+        // port: derive from framework
+        if self.port.is_none() {
+            self.port = Some(defaults.port);
+        }
+
+        // deploy defaults from framework
+        if let Some(ref mut deploy) = self.deploy {
+            if deploy.variant.is_none() {
+                deploy.variant = Some(
+                    match framework {
+                        "nextjs" => "nextjs",
+                        "cloudflare-worker" => "worker",
+                        _ => "node",
+                    }
+                    .to_string(),
+                );
+            }
+            if deploy.port.is_none() {
+                deploy.port = Some(defaults.port);
+            }
+            if deploy.health_path.is_none() {
+                deploy.health_path = Some(defaults.health_path.to_string());
+            }
+        }
+    }
+
     /// Check if this app deploys via Cloudflare Workers (not Docker).
     pub fn is_worker_deploy(&self) -> bool {
         self.deploy
@@ -1252,10 +1484,6 @@ impl ProjectDefinition {
             })
             .unwrap_or(false)
     }
-}
-
-fn default_health_path() -> String {
-    "/health".to_string()
 }
 
 fn default_health_interval() -> String {
@@ -1414,6 +1642,13 @@ pub struct CiSection {
     /// Runner label for Cloudflare Workers deploy jobs. Default: "ubuntu-latest"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_runner: Option<String>,
+    /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
+    #[serde(default)]
+    pub actions: ActionsVersions,
+    /// CI check job timeouts. Key = turbo task name, Value = timeout minutes.
+    /// Default: {"lint": 10, "typecheck": 10, "test": 15}
+    #[serde(default = "default_ci_jobs")]
+    pub jobs: IndexMap<String, u8>,
 }
 
 impl Default for CiSection {
@@ -1431,15 +1666,56 @@ impl Default for CiSection {
             cache: true,
             pnpm_store_path: None,
             worker_runner: None,
+            actions: ActionsVersions::default(),
+            jobs: default_ci_jobs(),
+        }
+    }
+}
+
+fn default_ci_jobs() -> IndexMap<String, u8> {
+    let mut m = IndexMap::new();
+    m.insert("lint".into(), 10);
+    m.insert("typecheck".into(), 10);
+    m.insert("test".into(), 15);
+    m
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ActionsVersions {
+    /// actions/checkout version. Default: "v6"
+    #[serde(default = "default_v6")]
+    pub checkout: String,
+    /// pnpm/action-setup version. Default: "v5"
+    #[serde(default = "default_v5")]
+    pub pnpm: String,
+    /// actions/setup-node version. Default: "v6"
+    #[serde(default = "default_v6")]
+    pub setup_node: String,
+    /// actions/cache version. Default: "v5"
+    #[serde(default = "default_v5")]
+    pub cache: String,
+    /// dopplerhq/cli-action version. Default: "v3"
+    #[serde(default = "default_v3")]
+    pub doppler: String,
+}
+
+fn default_v6() -> String { "v6".to_string() }
+fn default_v5() -> String { "v5".to_string() }
+fn default_v3() -> String { "v3".to_string() }
+
+impl Default for ActionsVersions {
+    fn default() -> Self {
+        ActionsVersions {
+            checkout: default_v6(),
+            pnpm: default_v5(),
+            setup_node: default_v6(),
+            cache: default_v5(),
+            doppler: default_v3(),
         }
     }
 }
 
 fn default_ci_enabled() -> bool {
-    true
-}
-
-fn default_true() -> bool {
     true
 }
 
@@ -1500,6 +1776,25 @@ pub struct ProfileSection {
     /// Inherit from another profile (override only what differs)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
+    /// Profile role: "production" | "staging" | "local".
+    /// Overrides name-based inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+}
+
+impl ProfileSection {
+    /// Resolve the effective role of this profile.
+    /// Explicit `role` field takes priority; otherwise inferred from profile name.
+    pub fn effective_role(&self, name: &str) -> &str {
+        if let Some(ref role) = self.role {
+            return role.as_str();
+        }
+        match name {
+            "prd" | "prod" | "production" => "production",
+            "local" | "dev" | "development" => "local",
+            _ => "staging",
+        }
+    }
 }
 
 fn default_node_env_dev() -> String {
@@ -1515,6 +1810,7 @@ impl Default for ProfileSection {
             node_env: default_node_env_dev(),
             compose_profiles: vec![],
             inherits: None,
+            role: None,
         }
     }
 }
@@ -1536,11 +1832,6 @@ impl Default for EnvSource {
 }
 
 impl EnvSource {
-    /// Check if this is a Doppler source
-    pub fn is_doppler(&self) -> bool {
-        matches!(self, EnvSource::Doppler { .. })
-    }
-
     /// Get Doppler config if available
     pub fn doppler_config(&self) -> Option<&DopplerConfig> {
         match self {
@@ -1580,6 +1871,15 @@ pub struct PresetSection {
     /// Default devDependencies
     #[serde(default)]
     pub dev_deps: IndexMap<String, String>,
+    /// References to dep_group names for DRY dependency grouping
+    #[serde(default)]
+    pub dep_groups: Vec<String>,
+    /// References to dep_group names for DRY devDependency grouping
+    #[serde(default)]
+    pub dev_dep_groups: Vec<String>,
+    /// Default npm scope (e.g., "@agiletec")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     /// Default deploy settings
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deploy: Option<PresetDeployDefaults>,
@@ -1991,5 +2291,98 @@ pnpm = "docker compose exec workspace pnpm"
         assert!(msg.contains("Duplicate port"), "got: {msg}");
         assert!(msg.contains("missing"), "got: {msg}");
         assert!(msg.contains("Guard conflict"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_resolve_name_from_path() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            path: Some("apps/corporate".to_string()),
+            framework: Some("nextjs".to_string()),
+            ..Default::default()
+        };
+        assert!(app.name.is_empty());
+        app.resolve(&ws);
+        assert_eq!(app.name, "corporate");
+    }
+
+    #[test]
+    fn test_resolve_scope_from_workspace() {
+        let mut ws = WorkspaceSection::default();
+        ws.scope = Some("@myorg".to_string());
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            ..Default::default()
+        };
+        assert!(app.scope.is_none());
+        app.resolve(&ws);
+        assert_eq!(app.scope.as_deref(), Some("@myorg"));
+    }
+
+    #[test]
+    fn test_resolve_scope_not_overridden() {
+        let mut ws = WorkspaceSection::default();
+        ws.scope = Some("@myorg".to_string());
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            scope: Some("@custom".to_string()),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        assert_eq!(app.scope.as_deref(), Some("@custom"));
+    }
+
+    #[test]
+    fn test_resolve_port_from_framework() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            ..Default::default()
+        };
+        assert!(app.port.is_none());
+        app.resolve(&ws);
+        assert_eq!(app.port, Some(3000));
+    }
+
+    #[test]
+    fn test_resolve_deploy_defaults_from_framework() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            deploy: Some(AppDeployConfig {
+                enabled: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        let deploy = app.deploy.as_ref().unwrap();
+        assert_eq!(deploy.variant.as_deref(), Some("nextjs"));
+        assert_eq!(deploy.port, Some(3000));
+        assert_eq!(deploy.health_path.as_deref(), Some("/api/health"));
+    }
+
+    #[test]
+    fn test_resolve_deploy_explicit_not_overridden() {
+        let ws = WorkspaceSection::default();
+        let mut app = ProjectDefinition {
+            name: "my-app".to_string(),
+            framework: Some("nextjs".to_string()),
+            deploy: Some(AppDeployConfig {
+                enabled: true,
+                port: Some(8080),
+                health_path: Some("/custom-health".to_string()),
+                variant: Some("node".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.resolve(&ws);
+        let deploy = app.deploy.as_ref().unwrap();
+        assert_eq!(deploy.variant.as_deref(), Some("node"));
+        assert_eq!(deploy.port, Some(8080));
+        assert_eq!(deploy.health_path.as_deref(), Some("/custom-health"));
     }
 }

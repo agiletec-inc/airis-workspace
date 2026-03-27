@@ -61,6 +61,109 @@ impl std::fmt::Display for ComposeLocation {
     }
 }
 
+/// Lightweight project info discovered from workspace patterns.
+/// Used by `airis gen` to auto-discover apps/libs without explicit [[app]] entries.
+#[derive(Debug, Clone)]
+pub struct DiscoveredProject {
+    pub name: String,
+    pub path: String,
+    pub framework: Framework,
+}
+
+/// Discover projects from workspace glob patterns (e.g., "apps/*", "libs/*", "products/**").
+///
+/// Scans directories matching the patterns, detects framework from package.json/Cargo.toml.
+/// Excludes negated patterns (starting with "!") and non-project directories.
+pub fn discover_from_workspaces(
+    patterns: &[String],
+    workspace_root: &Path,
+) -> Result<Vec<DiscoveredProject>> {
+    let mut projects = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+
+    // Separate include and exclude patterns
+    let exclude_patterns: Vec<&str> = patterns
+        .iter()
+        .filter(|p| p.starts_with('!'))
+        .map(|p| p.trim_start_matches('!'))
+        .collect();
+
+    for pattern in patterns {
+        if pattern.starts_with('!') {
+            continue;
+        }
+
+        // Resolve glob pattern
+        let full_pattern = workspace_root.join(pattern);
+        let full_pattern_str = full_pattern.to_string_lossy();
+
+        let entries = match glob::glob(&full_pattern_str) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            if !entry.is_dir() {
+                continue;
+            }
+
+            // Get relative path
+            let rel_path = entry
+                .strip_prefix(workspace_root)
+                .unwrap_or(&entry)
+                .to_string_lossy()
+                .to_string();
+
+            // Check exclusion patterns
+            if exclude_patterns.iter().any(|ex| {
+                glob::Pattern::new(ex).is_ok_and(|p| p.matches(&rel_path))
+            }) {
+                continue;
+            }
+
+            // Skip build artifacts and dependency directories
+            if rel_path.contains("node_modules")
+                || rel_path.contains(".next")
+                || rel_path.contains(".pnpm")
+                || rel_path.contains("dist/")
+                || rel_path.contains("build/")
+                || rel_path.contains(".turbo")
+            {
+                continue;
+            }
+
+            // Skip if already seen (overlapping patterns)
+            if !seen_paths.insert(rel_path.clone()) {
+                continue;
+            }
+
+            // Must have package.json or Cargo.toml to be a project
+            if !entry.join("package.json").exists() && !entry.join("Cargo.toml").exists() {
+                continue;
+            }
+
+            let name = entry
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            let framework = detect_framework(&entry);
+
+            projects.push(DiscoveredProject {
+                name,
+                path: rel_path,
+                framework,
+            });
+        }
+    }
+
+    // Sort by path for consistent output
+    projects.sort_by(|a, b| a.path.cmp(&b.path));
+
+    Ok(projects)
+}
+
 /// Detected application
 #[derive(Debug, Clone)]
 pub struct DetectedApp {
@@ -782,5 +885,82 @@ mod tests {
         assert_eq!(info.deps.get("react"), Some(&"^18.0.0".to_string()));
         // workspace: references should be skipped
         assert!(!info.deps.contains_key("@workspace/ui"));
+    }
+
+    #[test]
+    fn test_discover_from_workspaces_basic() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Create apps/corporate with Next.js
+        let app_dir = root.join("apps/corporate");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::write(
+            app_dir.join("package.json"),
+            r#"{"name": "corporate", "dependencies": {"next": "15.0.0"}}"#,
+        ).unwrap();
+
+        // Create libs/ui with plain Node
+        let lib_dir = root.join("libs/ui");
+        fs::create_dir_all(&lib_dir).unwrap();
+        fs::write(
+            lib_dir.join("package.json"),
+            r#"{"name": "ui", "dependencies": {"react": "19.0.0"}}"#,
+        ).unwrap();
+
+        // Create a non-project directory (no package.json)
+        fs::create_dir_all(root.join("apps/empty")).unwrap();
+
+        let patterns = vec!["apps/*".to_string(), "libs/*".to_string()];
+        let discovered = discover_from_workspaces(&patterns, root).unwrap();
+
+        assert_eq!(discovered.len(), 2);
+        assert_eq!(discovered[0].name, "corporate");
+        assert_eq!(discovered[0].path, "apps/corporate");
+        assert_eq!(discovered[0].framework, Framework::NextJs);
+        assert_eq!(discovered[1].name, "ui");
+        assert_eq!(discovered[1].path, "libs/ui");
+    }
+
+    #[test]
+    fn test_discover_from_workspaces_excludes_negated() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let app_dir = root.join("apps/web");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::write(app_dir.join("package.json"), r#"{"name": "web"}"#).unwrap();
+
+        let next_dir = root.join("apps/web/.next");
+        fs::create_dir_all(&next_dir).unwrap();
+        fs::write(next_dir.join("package.json"), r#"{"name": "junk"}"#).unwrap();
+
+        let patterns = vec!["apps/**".to_string(), "!**/.next".to_string()];
+        let discovered = discover_from_workspaces(&patterns, root).unwrap();
+
+        // .next should be excluded
+        assert!(discovered.iter().all(|p| !p.path.contains(".next")));
+        assert!(discovered.iter().any(|p| p.name == "web"));
+    }
+
+    #[test]
+    fn test_discover_from_workspaces_nested_products() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Create products/airis/voice-gateway
+        let vg_dir = root.join("products/airis/voice-gateway");
+        fs::create_dir_all(&vg_dir).unwrap();
+        fs::write(
+            vg_dir.join("package.json"),
+            r#"{"name": "voice-gateway", "dependencies": {"hono": "4.0.0"}}"#,
+        ).unwrap();
+
+        let patterns = vec!["products/**".to_string()];
+        let discovered = discover_from_workspaces(&patterns, root).unwrap();
+
+        assert!(discovered.iter().any(|p| p.name == "voice-gateway"));
+        let vg = discovered.iter().find(|p| p.name == "voice-gateway").unwrap();
+        assert_eq!(vg.framework, Framework::Hono);
     }
 }

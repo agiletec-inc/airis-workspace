@@ -84,40 +84,41 @@ fn get_changed_files(base: &str, head: &str) -> Result<Vec<String>> {
     Ok(files)
 }
 
-/// Build dependency graph from package.json files
+/// Build dependency graph from package.json files.
+/// Scans workspace directories from manifest.toml, falling back to conventional dirs.
 fn build_dependency_graph() -> Result<HashMap<String, Vec<String>>> {
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
 
-    // Scan apps/ and libs/ directories
-    for dir in &["apps", "libs", "packages"] {
+    // Try to load workspace paths from manifest, fall back to conventional dirs
+    let scan_dirs = match crate::manifest::Manifest::load(Path::new(crate::manifest::MANIFEST_FILE)) {
+        Ok(manifest) => manifest.all_workspace_paths(),
+        Err(_) => vec!["apps".to_string(), "libs".to_string(), "packages".to_string()],
+    };
+
+    for dir in &scan_dirs {
         let dir_path = Path::new(dir);
         if !dir_path.exists() {
             continue;
         }
 
+        // Check if this path itself has a package.json (exact workspace member)
+        let pkg_json = dir_path.join("package.json");
+        if pkg_json.exists()
+            && let Ok((name, deps)) = parse_package_json(&pkg_json) {
+                graph.insert(name, deps);
+        }
+
+        // Also scan immediate children (for glob patterns like "apps/*")
         if let Ok(entries) = fs::read_dir(dir_path) {
             for entry in entries.flatten() {
-                let pkg_json = entry.path().join("package.json");
-                if pkg_json.exists()
-                    && let Ok((name, deps)) = parse_package_json(&pkg_json) {
+                let child_pkg_json = entry.path().join("package.json");
+                if child_pkg_json.exists()
+                    && let Ok((name, deps)) = parse_package_json(&child_pkg_json) {
                         graph.insert(name, deps);
                     }
             }
         }
     }
-
-    // Also check nested libs (e.g., libs/supabase/*)
-    let nested_libs = Path::new("libs/supabase");
-    if nested_libs.exists()
-        && let Ok(entries) = fs::read_dir(nested_libs) {
-            for entry in entries.flatten() {
-                let pkg_json = entry.path().join("package.json");
-                if pkg_json.exists()
-                    && let Ok((name, deps)) = parse_package_json(&pkg_json) {
-                        graph.insert(name, deps);
-                    }
-            }
-        }
 
     Ok(graph)
 }

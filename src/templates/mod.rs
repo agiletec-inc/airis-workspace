@@ -2,59 +2,31 @@ use anyhow::{Context, Result};
 use handlebars::Handlebars;
 use indexmap::IndexMap;
 use serde_json::json;
-use crate::version_resolver::resolve_version;
-use crate::manifest::{MANIFEST_FILE, Manifest};
+use crate::version_resolver::resolve_all_action_versions;
+use crate::manifest::{ActionsVersions, MANIFEST_FILE, Manifest};
 
-
-/// Resolve dependency versions by expanding catalog references and version policies
-///
-/// Supports:
-/// - "catalog:" → look up package name in resolved_catalog
-/// - "catalog:key" → look up "key" in resolved_catalog
-/// - "latest" / "lts" → resolve from npm registry
-/// - Specific version (e.g. "^1.0.0") → use as-is
-fn resolve_dependencies(
-    deps: &IndexMap<String, String>,
-    resolved_catalog: &IndexMap<String, String>,
-) -> Result<IndexMap<String, String>> {
-    let mut resolved = IndexMap::new();
-
-    for (package, version_spec) in deps {
-        let resolved_version = if version_spec == "catalog:" {
-            // "catalog:" → use package name as key
-            resolved_catalog
-                .get(package)
-                .cloned()
-                .with_context(|| format!(
-                    "'{}' uses catalog: but is not defined in [packages.catalog]",
-                    package
-                ))?
-        } else if let Some(catalog_key) = version_spec.strip_prefix("catalog:") {
-            // "catalog:key" → look up specific key
-            resolved_catalog
-                .get(catalog_key)
-                .cloned()
-                .with_context(|| format!(
-                    "'{}' references catalog key '{}' which is not defined in [packages.catalog]",
-                    package, catalog_key
-                ))?
-        } else if version_spec == "latest" || version_spec == "lts" {
-            // Resolve from npm registry
-            resolve_version(package, version_spec)
-                .with_context(|| format!(
-                    "Failed to resolve {} for '{}' from npm registry",
-                    version_spec, package
-                ))?
-        } else {
-            // Use as-is (specific version)
-            version_spec.clone()
-        };
-
-        resolved.insert(package.clone(), resolved_version);
-    }
-
-    Ok(resolved)
+/// Resolved GitHub Actions versions with full action references (e.g., "actions/checkout@v6")
+struct ResolvedActions {
+    checkout: String,
+    pnpm: String,
+    setup_node: String,
+    cache: String,
+    doppler: String,
 }
+
+impl ResolvedActions {
+    fn from_manifest(actions: &ActionsVersions) -> Result<Self> {
+        let resolved = resolve_all_action_versions(actions)?;
+        Ok(ResolvedActions {
+            checkout: format!("actions/checkout@{}", resolved.checkout),
+            pnpm: format!("pnpm/action-setup@{}", resolved.pnpm),
+            setup_node: format!("actions/setup-node@{}", resolved.setup_node),
+            cache: format!("actions/cache@{}", resolved.cache),
+            doppler: format!("dopplerhq/cli-action@{}", resolved.doppler),
+        })
+    }
+}
+
 
 pub struct TemplateEngine {
     hbs: Handlebars<'static>,
@@ -86,19 +58,17 @@ impl TemplateEngine {
             .context("deploy config is required for service Dockerfile generation")?;
 
         let framework = app.framework.as_deref().unwrap_or("node");
+        let conventions = crate::conventions::framework_defaults(framework);
         let variant = deploy.variant.as_deref().unwrap_or(match framework {
             "nextjs" => "nextjs",
             _ => "node",
         });
         let path = app.path.as_deref().unwrap_or(&app.name);
-        let scope = app.scope.as_deref().unwrap_or("@agiletec");
-        let port = deploy.port.unwrap_or(3000);
+        let scope = app.scope.as_deref().unwrap_or("@workspace");
+        let port = deploy.port.unwrap_or(conventions.port);
 
         let entrypoint = deploy.entrypoint.clone().unwrap_or_else(|| {
-            match variant {
-                "nextjs" => format!("{}/server.js", path),
-                _ => format!("{}/dist/index.js", path),
-            }
+            format!("{}/{}", path, conventions.entrypoint)
         });
 
         // Pre-compute build arg lines to avoid Handlebars brace escaping issues
@@ -120,7 +90,7 @@ impl TemplateEngine {
             "pnpm_version": pnpm_version,
             "port": port,
             "entrypoint": entrypoint,
-            "health_path": deploy.health_path,
+            "health_path": deploy.health_path.as_deref().unwrap_or("/health"),
             "health_interval": deploy.health_interval,
             "build_args_lines": build_args_lines,
             "extra_apk": deploy.extra_apk,
@@ -131,73 +101,53 @@ impl TemplateEngine {
             .context("Failed to render service Dockerfile")
     }
 
+    /// Render root package.json in hybrid mode.
+    ///
+    /// Managed fields: name, version, private, type, packageManager, workspaces.
+    /// All other fields (dependencies, scripts, engines, pnpm config) are user-managed.
     pub fn render_package_json(
         &self,
         manifest: &Manifest,
-        resolved_catalog: &IndexMap<String, String>,
+        _resolved_catalog: &IndexMap<String, String>,
     ) -> Result<String> {
-        let root = &manifest.packages.root;
+        let managed_fields = ["name", "version", "private", "type", "packageManager", "workspaces"];
 
-        // Build package.json directly with serde_json to avoid Handlebars escaping issues
-        let mut package_json = serde_json::json!({
-            "name": manifest.workspace.name,
-            "version": "0.0.0",
-            "private": true,
-            "type": "module",
-        });
+        // Read existing package.json if it exists
+        let package_json_path = std::path::Path::new("package.json");
+        let mut package_json = if package_json_path.exists() {
+            let existing = std::fs::read_to_string(package_json_path)
+                .context("Failed to read existing root package.json")?;
+            serde_json::from_str::<serde_json::Value>(&existing)
+                .context("Failed to parse existing root package.json")?
+        } else {
+            serde_json::json!({})
+        };
 
-        let obj = package_json.as_object_mut().unwrap();
+        let obj = package_json.as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("Root package.json is not a JSON object"))?;
 
-        // Add engines if present
-        if !root.engines.is_empty() {
-            obj.insert("engines".to_string(), serde_json::to_value(&root.engines)?);
-        }
-
-        // Add packageManager
+        // Update only managed fields
+        obj.insert("name".to_string(), serde_json::json!(manifest.workspace.name));
+        obj.insert("version".to_string(), serde_json::json!("0.0.0"));
+        obj.insert("private".to_string(), serde_json::json!(true));
+        obj.insert("type".to_string(), serde_json::json!("module"));
         obj.insert("packageManager".to_string(), serde_json::json!(manifest.workspace.package_manager));
 
-        // Add workspaces if this is a monorepo with packages
-        // This replaces pnpm-workspace.yaml and works with pnpm/npm/yarn/bun
         if !manifest.packages.workspaces.is_empty() {
             obj.insert("workspaces".to_string(), serde_json::to_value(&manifest.packages.workspaces)?);
         }
 
-        // Resolve and add dependencies
-        let dependencies = resolve_dependencies(&root.dependencies, resolved_catalog)?;
-        obj.insert("dependencies".to_string(), serde_json::to_value(&dependencies)?);
-
-        // Resolve and add devDependencies
-        let dev_dependencies = resolve_dependencies(&root.dev_dependencies, resolved_catalog)?;
-        obj.insert("devDependencies".to_string(), serde_json::to_value(&dev_dependencies)?);
-
-        // Resolve and add optionalDependencies if present
-        if !root.optional_dependencies.is_empty() {
-            let optional_dependencies = resolve_dependencies(&root.optional_dependencies, resolved_catalog)?;
-            obj.insert("optionalDependencies".to_string(), serde_json::to_value(&optional_dependencies)?);
-        }
-
-        // Add pnpm config if present
-        if !root.pnpm.overrides.is_empty()
-            || !root.pnpm.peer_dependency_rules.ignore_missing.is_empty()
-            || !root.pnpm.only_built_dependencies.is_empty()
-            || !root.pnpm.allowed_scripts.is_empty()
-        {
-            obj.insert("pnpm".to_string(), serde_json::to_value(&root.pnpm)?);
-        }
-
-        // Add scripts
-        obj.insert("scripts".to_string(), serde_json::to_value(&root.scripts)?);
-
-        // Add generation metadata
+        // Update generation marker
         obj.insert("_generated".to_string(), serde_json::json!({
-            "by": "airis init",
-            "from": "manifest.toml",
-            "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
+            "by": "airis gen",
+            "managed_fields": managed_fields,
+            "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
         }));
 
         // Serialize to pretty JSON
-        serde_json::to_string_pretty(&package_json)
-            .context("Failed to serialize package.json")
+        let content = serde_json::to_string_pretty(&package_json)
+            .context("Failed to serialize package.json")?;
+        Ok(format!("{content}\n"))
     }
 
     pub fn render_pnpm_workspace(
@@ -301,10 +251,17 @@ impl TemplateEngine {
 
     /// Generate .github/workflows/ci.yml from manifest v2
     pub fn render_ci_workflow(&self, manifest: &Manifest) -> Result<String> {
-        use crate::preset::resolve_profile;
+        // Infrastructure-only: no Node.js workspace
+        if !manifest.has_workspace() {
+            return self.render_infra_ci_workflow(manifest);
+        }
 
-        let node_version = manifest.node_version();
         let ci = &manifest.ci;
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let pnpm_action = &a.pnpm;
+        let setup_node = &a.setup_node;
+        let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let affected_flag = if ci.affected { " --affected" } else { "" };
 
@@ -322,19 +279,19 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            "      - name: Cache pnpm store\n        uses: actions/cache@v4\n        with:\n          path: ~/.pnpm-store\n          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}\n          restore-keys: ${{ runner.os }}-pnpm-".to_string()
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", a.cache)
         };
 
         // Determine CI branch and PR target from profiles
         let deploy_profiles = manifest.deploy_profiles();
         let ci_branch = deploy_profiles
             .iter()
-            .find(|(name, _)| *name != "prd" && *name != "local")
+            .find(|(name, p)| p.effective_role(name) == "staging")
             .map(|(_, p)| p.branch.as_deref().unwrap_or("stg"))
             .unwrap_or(&ci.auto_merge.from);
         let pr_target = deploy_profiles
             .iter()
-            .find(|(name, _)| *name == "prd")
+            .find(|(name, p)| p.effective_role(name) == "production")
             .map(|(_, p)| p.branch.as_deref().unwrap_or("main"))
             .unwrap_or(&ci.auto_merge.to);
 
@@ -347,25 +304,56 @@ impl TemplateEngine {
         // Build CI job (same structure for lint, typecheck, test)
         let build_job = |task: &str, timeout: u8| -> String {
             format!(
-                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 2\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}",
-                task, runner_yaml, timeout, node_version, pnpm_store_step, task, affected_flag
+                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: {}\n        with:\n          fetch-depth: 2\n      - uses: {}\n      - uses: {}\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}",
+                task, runner_yaml, timeout, checkout, pnpm_action, setup_node, node_version, pnpm_store_step, task, affected_flag
             )
         };
 
+        let job_blocks: Vec<String> = ci.jobs.iter()
+            .map(|(task, timeout)| build_job(task, *timeout))
+            .collect();
+
         Ok(format!(
-            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: CI\n\non:\n  push:\n    branches: [{}]\n  pull_request:\n    branches: [{}]\n{}\njobs:\n{}\n\n{}\n\n{}\n",
+            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: CI\n\non:\n  push:\n    branches: [{}]\n  pull_request:\n    branches: [{}]\n{}\njobs:\n{}\n",
             ci_branch,
             pr_target,
             concurrency,
-            build_job("lint", 10),
-            build_job("typecheck", 10),
-            build_job("test", 15),
+            job_blocks.join("\n\n"),
+        ))
+    }
+
+    /// Generate CI workflow for infrastructure-only repos (no Node.js)
+    fn render_infra_ci_workflow(&self, manifest: &Manifest) -> Result<String> {
+        let ci = &manifest.ci;
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
+        let runner_yaml = if runner.contains(',') {
+            format!("[{}]", runner)
+        } else {
+            runner.to_string()
+        };
+
+        let deploy_profiles = manifest.deploy_profiles();
+        let pr_target = deploy_profiles
+            .iter()
+            .find(|(name, p)| p.effective_role(name) == "production")
+            .map(|(_, p)| p.branch.as_deref().unwrap_or("main"))
+            .unwrap_or("main");
+
+        Ok(format!(
+            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: CI\n\non:\n  pull_request:\n    branches: [{pr_target}]\n\njobs:\n  validate:\n    runs-on: {runner_yaml}\n    timeout-minutes: 5\n    steps:\n      - uses: {checkout}\n      - name: Validate compose\n        run: docker compose config --quiet\n"
         ))
     }
 
     /// Generate .github/workflows/deploy.yml from manifest v2
     pub fn render_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
         let ci = &manifest.ci;
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let pnpm_action = &a.pnpm;
+        let setup_node = &a.setup_node;
+        let doppler_action = &a.doppler;
         let node_version = manifest.node_version();
         let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
         let worker_runner = ci.worker_runner.as_deref().unwrap_or("ubuntu-latest");
@@ -384,10 +372,10 @@ impl TemplateEngine {
             .collect();
         let branches_yaml = branches.join(", ");
 
-        // Determine main branch (prd profile)
+        // Determine main branch (production profile)
         let main_branch = deploy_profiles
             .iter()
-            .find(|(name, _)| *name == "prd")
+            .find(|(name, p)| p.effective_role(name) == "production")
             .and_then(|(_, p)| p.branch.as_deref())
             .unwrap_or("main");
 
@@ -426,6 +414,12 @@ impl TemplateEngine {
             .iter()
             .filter(|a| a.deploy.as_ref().is_some_and(|d| d.enabled) && a.is_worker_deploy())
             .collect();
+
+        // Infrastructure-only: no apps to deploy, just docker compose up
+        if docker_apps.is_empty() && worker_apps.is_empty() {
+            return self.render_infra_deploy_workflow(manifest);
+        }
+
         let all_deploy_apps: Vec<&crate::manifest::ProjectDefinition> = manifest
             .app
             .iter()
@@ -458,7 +452,9 @@ impl TemplateEngine {
         let mut docker_jobs = Vec::new();
         let mut generated_app_names: Vec<String> = Vec::new(); // Track actually generated jobs
         for app in &docker_apps {
-            let deploy = app.deploy.as_ref().unwrap();
+            let Some(deploy) = app.deploy.as_ref() else {
+                continue;
+            };
             let snake = app.name.replace('-', "_");
             let kebab = &app.name;
 
@@ -506,10 +502,15 @@ impl TemplateEngine {
                 host_raw.to_string()
             };
 
+            let timeout = deploy.timeout.unwrap_or(15);
+            let retries = deploy.health_retries.unwrap_or(6);
+            let interval = deploy.health_retry_interval.unwrap_or(10);
+            let retry_seq = (1..=retries).map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
+
             generated_app_names.push(kebab.to_string());
             docker_jobs.push(format!(
-                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: dopplerhq/cli-action@v3\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in 1 2 3 4 5 6; do\n            sleep 10\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after 6 attempts\"; exit 1",
-                health_path = deploy.health_path,
+                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {runner_yaml}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: {timeout}\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          doppler run -c {doppler_config_expr} -- docker compose -f deploy/compose.yml --profile {kebab} up -d --build --force-recreate\n      - name: Health Check\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          DOMAIN=\"{health_domain}\"\n          for i in {retry_seq}; do\n            sleep {interval}\n            curl -sf \"https://$DOMAIN{health_path}\" && echo \"{kebab} health check passed\" && exit 0 || echo \"Attempt $i failed, retrying...\"\n          done\n          echo \"Health check failed after {retries} attempts\"; exit 1",
+                health_path = deploy.health_path.as_deref().unwrap_or("/health"),
             ));
         }
 
@@ -520,7 +521,7 @@ impl TemplateEngine {
                 store_path
             )
         } else {
-            "      - name: Cache pnpm store\n        uses: actions/cache@v4\n        with:\n          path: ~/.pnpm-store\n          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}\n          restore-keys: ${{ runner.os }}-pnpm-".to_string()
+            format!("      - name: Cache pnpm store\n        uses: {}\n        with:\n          path: ~/.pnpm-store\n          key: ${{{{ runner.os }}}}-pnpm-${{{{ hashFiles('pnpm-lock.yaml') }}}}\n          restore-keys: ${{{{ runner.os }}}}-pnpm-", a.cache)
         };
 
         let mut worker_jobs = Vec::new();
@@ -529,9 +530,20 @@ impl TemplateEngine {
             let kebab = &app.name;
             let path = app.path.as_deref().unwrap_or(&app.name);
 
+            let Some(deploy) = app.deploy.as_ref() else {
+                continue;
+            };
+            let timeout = deploy.timeout.unwrap_or(10);
+            let health_path = deploy.health_path.as_deref().unwrap_or("/health");
+            let workers_domain = deploy.workers_domain.as_deref()
+                .ok_or_else(|| anyhow::anyhow!(
+                    "app '{}': deploy_target=worker requires workers_domain (e.g., 'myorg.workers.dev')",
+                    app.name
+                ))?;
+
             generated_app_names.push(kebab.to_string());
             worker_jobs.push(format!(
-                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {worker_runner}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: 10\n    steps:\n      - uses: actions/checkout@v4\n      - uses: dopplerhq/cli-action@v3\n      - uses: pnpm/action-setup@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '{node_version}'\n{pnpm_store_step}\n      - name: Install dependencies\n        run: pnpm install --frozen-lockfile\n      - name: Deploy to Cloudflare Workers\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          cd {path}\n          export CLOUDFLARE_API_TOKEN=$(doppler secrets get CLOUDFLARE_API_TOKEN --plain -c {doppler_config_expr})\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            pnpm wrangler deploy\n          else\n            pnpm wrangler deploy --env staging\n          fi\n      - name: Health Check\n        run: |\n          sleep 5\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            URL=\"https://{kebab}-production.agiletec.workers.dev/healthz\"\n          else\n            URL=\"https://{kebab}.agiletec.workers.dev/healthz\"\n          fi\n          curl -sf \"$URL\" && echo \"{kebab} health check passed\" || {{ echo \"Health check failed\"; exit 1; }}",
+                "  deploy-{kebab}:\n    name: Deploy {kebab}\n    runs-on: {worker_runner}\n    concurrency:\n      group: deploy-{kebab}-${{{{ github.ref }}}}\n      cancel-in-progress: true\n    needs: prepare\n    if: needs.prepare.outputs.{snake} == 'true'\n    timeout-minutes: {timeout}\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - uses: {pnpm_action}\n      - uses: {setup_node}\n        with:\n          node-version: '{node_version}'\n{pnpm_store_step}\n      - name: Install dependencies\n        run: pnpm install --frozen-lockfile\n      - name: Deploy to Cloudflare Workers\n        env:\n          DOPPLER_TOKEN: {doppler_token_expr}\n        run: |\n          cd {path}\n          export CLOUDFLARE_API_TOKEN=$(doppler secrets get CLOUDFLARE_API_TOKEN --plain -c {doppler_config_expr})\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            pnpm wrangler deploy\n          else\n            pnpm wrangler deploy --env staging\n          fi\n      - name: Health Check\n        run: |\n          sleep 5\n          if [ \"{doppler_config_expr}\" = \"prd\" ]; then\n            URL=\"https://{kebab}-production.{workers_domain}{health_path}\"\n          else\n            URL=\"https://{kebab}.{workers_domain}{health_path}\"\n          fi\n          curl -sf \"$URL\" && echo \"{kebab} health check passed\" || {{ echo \"Health check failed\"; exit 1; }}",
             ));
         }
 
@@ -557,13 +569,51 @@ impl TemplateEngine {
             .collect();
 
         Ok(format!(
-            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci], [profile], and [app.deploy] sections instead.\n\nname: Deploy\n\non:\n  push:\n    branches: [{branches_yaml}]\n  workflow_dispatch:\n\njobs:\n  prepare:\n    name: Prepare\n    runs-on: {runner_yaml}\n    outputs:\n{prepare_outputs}\n      doppler_config: ${{{{ steps.env.outputs.doppler_config }}}}\n      branch: ${{{{ steps.env.outputs.branch }}}}\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          fetch-depth: 2\n      - name: Set environment\n        id: env\n        run: |\n          BRANCH=\"${{{{ github.ref_name }}}}\"\n          echo \"branch=$BRANCH\" >> $GITHUB_OUTPUT\n          if [ \"$BRANCH\" = \"{main_branch}\" ]; then\n            echo \"doppler_config=prd\" >> $GITHUB_OUTPUT\n          else\n            echo \"doppler_config=stg\" >> $GITHUB_OUTPUT\n          fi\n      - name: Detect changes\n        id: check\n        run: |\n          if [ \"${{{{ github.event_name }}}}\" = \"workflow_dispatch\" ]; then\n{dispatch_outputs}\n          else\n            BEFORE=\"${{{{ github.event.before }}}}\"\n            AFTER=\"${{{{ github.sha }}}}\"\n            if [ \"$BEFORE\" = \"0000000000000000000000000000000000000000\" ] || ! git cat-file -e \"$BEFORE\" 2>/dev/null; then\n              BEFORE=\"HEAD~1\"\n            fi\n            CHANGED=$(git diff --name-only \"$BEFORE\" \"$AFTER\" 2>/dev/null || echo \"\")\n            echo \"Changed files:\"\n            echo \"$CHANGED\"\n            LIBS_CHANGED=$(echo \"$CHANGED\" | grep -qE '^(libs|deploy)/' && echo true || echo false)\n{change_detections}\n          fi\n\n{all_jobs}\n\n  notify:\n    name: Notify\n    runs-on: ubuntu-latest\n    needs: [{notify_needs}]\n    if: always()\n    steps:\n      - name: Summary\n        run: |\n          echo \"## Deploy Summary\" >> $GITHUB_STEP_SUMMARY\n          echo \"| App | Status |\" >> $GITHUB_STEP_SUMMARY\n          echo \"|-----|--------|\" >> $GITHUB_STEP_SUMMARY\n{notify_rows}\n          echo \"\" >> $GITHUB_STEP_SUMMARY\n          echo \"**Branch:** ${{{{ needs.prepare.outputs.branch }}}}\" >> $GITHUB_STEP_SUMMARY\n          echo \"**Environment:** ${{{{ needs.prepare.outputs.doppler_config }}}}\" >> $GITHUB_STEP_SUMMARY\n",
+            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci], [profile], and [app.deploy] sections instead.\n\nname: Deploy\n\non:\n  push:\n    branches: [{branches_yaml}]\n  workflow_dispatch:\n\njobs:\n  prepare:\n    name: Prepare\n    runs-on: {runner_yaml}\n    outputs:\n{prepare_outputs}\n      doppler_config: ${{{{ steps.env.outputs.doppler_config }}}}\n      branch: ${{{{ steps.env.outputs.branch }}}}\n    steps:\n      - uses: {checkout}\n        with:\n          fetch-depth: 2\n      - name: Set environment\n        id: env\n        run: |\n          BRANCH=\"${{{{ github.ref_name }}}}\"\n          echo \"branch=$BRANCH\" >> $GITHUB_OUTPUT\n          if [ \"$BRANCH\" = \"{main_branch}\" ]; then\n            echo \"doppler_config=prd\" >> $GITHUB_OUTPUT\n          else\n            echo \"doppler_config=stg\" >> $GITHUB_OUTPUT\n          fi\n      - name: Detect changes\n        id: check\n        run: |\n          if [ \"${{{{ github.event_name }}}}\" = \"workflow_dispatch\" ]; then\n{dispatch_outputs}\n          else\n            BEFORE=\"${{{{ github.event.before }}}}\"\n            AFTER=\"${{{{ github.sha }}}}\"\n            if [ \"$BEFORE\" = \"0000000000000000000000000000000000000000\" ] || ! git cat-file -e \"$BEFORE\" 2>/dev/null; then\n              BEFORE=\"HEAD~1\"\n            fi\n            CHANGED=$(git diff --name-only \"$BEFORE\" \"$AFTER\" 2>/dev/null || echo \"\")\n            echo \"Changed files:\"\n            echo \"$CHANGED\"\n            LIBS_CHANGED=$(echo \"$CHANGED\" | grep -qE '^(libs|deploy)/' && echo true || echo false)\n{change_detections}\n          fi\n\n{all_jobs}\n\n  notify:\n    name: Notify\n    runs-on: {runner_yaml}\n    needs: [{notify_needs}]\n    if: always()\n    steps:\n      - name: Summary\n        run: |\n          echo \"## Deploy Summary\" >> $GITHUB_STEP_SUMMARY\n          echo \"| App | Status |\" >> $GITHUB_STEP_SUMMARY\n          echo \"|-----|--------|\" >> $GITHUB_STEP_SUMMARY\n{notify_rows}\n          echo \"\" >> $GITHUB_STEP_SUMMARY\n          echo \"**Branch:** ${{{{ needs.prepare.outputs.branch }}}}\" >> $GITHUB_STEP_SUMMARY\n          echo \"**Environment:** ${{{{ needs.prepare.outputs.doppler_config }}}}\" >> $GITHUB_STEP_SUMMARY\n",
             prepare_outputs = prepare_outputs.join("\n"),
             dispatch_outputs = dispatch_outputs.join("\n"),
             change_detections = change_detections.join("\n"),
             all_jobs = all_jobs.join("\n\n"),
             notify_needs = notify_needs.join(", "),
             notify_rows = notify_rows.join("\n"),
+        ))
+    }
+
+    /// Generate deploy workflow for infrastructure-only repos (no apps)
+    fn render_infra_deploy_workflow(&self, manifest: &Manifest) -> Result<String> {
+        let ci = &manifest.ci;
+        let a = ResolvedActions::from_manifest(&ci.actions)?;
+        let checkout = &a.checkout;
+        let doppler_action = &a.doppler;
+        let runner = ci.runner.as_deref().unwrap_or("ubuntu-latest");
+        let runner_yaml = if runner.contains(',') {
+            format!("[{}]", runner)
+        } else {
+            runner.to_string()
+        };
+
+        let deploy_profiles = manifest.deploy_profiles();
+        let branches: Vec<&str> = deploy_profiles
+            .iter()
+            .filter_map(|(_, p)| p.branch.as_deref())
+            .collect();
+        let branches_yaml = branches.join(", ");
+        let project_id = &manifest.project.id;
+
+        // Doppler token from profile
+        let doppler_secret = deploy_profiles
+            .iter()
+            .find_map(|(_, p)| p.env_source.doppler_config())
+            .map(|d| d.secret.as_str())
+            .unwrap_or("DOPPLER_TOKEN");
+
+        let network_name = manifest.orchestration
+            .networks.as_ref()
+            .and_then(|n| n.proxy.as_deref())
+            .unwrap_or("proxy");
+
+        Ok(format!(
+            "# Auto-generated by airis gen — DO NOT EDIT\n# Change manifest.toml [ci] and [profile] sections instead.\n\nname: Deploy\n\non:\n  push:\n    branches: [{branches_yaml}]\n  workflow_dispatch:\n\nconcurrency:\n  group: deploy-{project_id}\n  cancel-in-progress: false\n\njobs:\n  deploy:\n    runs-on: {runner_yaml}\n    steps:\n      - uses: {checkout}\n      - uses: {doppler_action}\n      - name: Ensure proxy network\n        run: docker network create {network_name} 2>/dev/null || true\n      - name: Deploy\n        env:\n          DOPPLER_TOKEN: ${{{{ secrets.{doppler_secret} }}}}\n        run: doppler run -- docker compose up -d --pull always --remove-orphans\n      - name: Show status\n        run: docker compose ps\n"
         ))
     }
 
@@ -579,10 +629,20 @@ impl TemplateEngine {
 
     fn prepare_dockerfile_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
         let pm_bin = manifest.workspace.package_manager.split('@').next().unwrap_or("pnpm");
+
+        // Collect workspace package.json paths for COPY lines
+        // This enables pnpm install to resolve the full workspace graph
+        let workspace_pkg_copies: Vec<String> = manifest.app.iter()
+            .filter_map(|app| app.path.as_ref())
+            .map(|p| p.to_string())
+            .collect();
+
         Ok(json!({
             "workspace_image": manifest.workspace.image,
             "workdir": manifest.workspace.workdir,
             "pm_bin": pm_bin,
+            "is_pnpm": pm_bin == "pnpm",
+            "workspace_pkg_copies": workspace_pkg_copies,
         }))
     }
 
@@ -672,6 +732,57 @@ impl TemplateEngine {
                     svc.volumes.clone()
                 };
 
+                // Resolve env_groups: expand group references into env map
+                let mut resolved_env = indexmap::IndexMap::new();
+                for group_name in &svc.env_groups {
+                    if let Some(group) = manifest.env_group.get(group_name) {
+                        for (k, v) in group {
+                            resolved_env.insert(k.clone(), v.clone());
+                        }
+                    }
+                }
+                // Explicit env overrides env_group values
+                for (k, v) in &svc.env {
+                    resolved_env.insert(k.clone(), v.clone());
+                }
+
+                // Auto-generate watch entries if service extends app-base, has no explicit watch,
+                // and has no custom volumes (custom volumes = non-standard setup, skip auto-watch)
+                let watch = if svc.watch.is_empty() && svc.extends.is_some() && svc.volumes.is_empty() {
+                    // Try to find matching app path from [[app]] definitions
+                    let app_path = manifest.app.iter()
+                        .find(|a| {
+                            // Match by name: service name often matches app name
+                            // e.g., service "corporate" → app "corporate"
+                            // or service "airis-voice-gateway" → app "airis-voice-gateway"
+                            a.name == *name
+                        })
+                        .and_then(|a| a.path.clone());
+
+                    if let Some(ref path) = app_path {
+                        vec![
+                            json!({
+                                "path": format!("./{}", path),
+                                "action": "sync",
+                                "target": format!("{}/{}", workdir, path),
+                                "initial_sync": true,
+                                "ignore": ["node_modules/", ".next/", "dist/"]
+                            }),
+                            json!({
+                                "path": "./libs",
+                                "action": "sync",
+                                "target": format!("{}/libs", workdir),
+                                "initial_sync": true,
+                                "ignore": ["node_modules/", "dist/"]
+                            }),
+                        ]
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    svc.watch.iter().map(|w| json!(w)).collect()
+                };
+
                 // Extract internal port: explicit port > ports mapping > default 3000
                 let internal_port = svc.port.unwrap_or_else(|| {
                     svc.ports.first()
@@ -687,7 +798,7 @@ impl TemplateEngine {
                     "ports": svc.ports,
                     "command": svc.command,
                     "volumes": merged_volumes,
-                    "env": svc.env,
+                    "env": resolved_env,
                     "profiles": svc.profiles,
                     "depends_on": svc.depends_on,
                     "restart": svc.restart,
@@ -696,12 +807,14 @@ impl TemplateEngine {
                     "working_dir": svc.working_dir,
                     "extra_hosts": svc.extra_hosts,
                     "deploy": svc.deploy,
-                    "watch": svc.watch,
+                    "watch": watch,
                     "extends": svc.extends,
                     "devices": svc.devices,
                     "runtime": svc.runtime,
                     "gpu": svc.gpu,
                     "health_path": svc.health_path,
+                    "mem_limit": svc.mem_limit,
+                    "cpus": svc.cpus,
                     "network_mode": svc.network_mode,
                     "labels": svc.labels,
                     "networks": svc.networks,
@@ -750,6 +863,245 @@ impl TemplateEngine {
     }
 
     // Note: prepare_cargo_toml_data removed - Cargo.toml is source of truth for Rust projects
+
+    /// Render tsconfig.base.json — shared compilerOptions only (no baseUrl/paths).
+    ///
+    /// All values are manifest-driven with smart defaults:
+    /// - target: auto-detected from Node version, or `[typescript].target`
+    /// - lib: defaults to [target], or `[typescript].lib`
+    /// - types: defaults to ["node"] (TS6 requires explicit), or `[typescript].types`
+    /// - module/moduleResolution: or `[typescript].module` / `[typescript].module_resolution`
+    pub fn render_tsconfig_base(&self, manifest: &Manifest) -> Result<String> {
+        let mut compiler_options = serde_json::Map::new();
+        let ts = &manifest.typescript;
+
+        // Derive ES target: manifest override → auto-detect from Node version → fallback
+        let auto_target = crate::conventions::parse_node_version_from_image(&manifest.workspace.image)
+            .map(crate::conventions::node_version_to_es_target)
+            .unwrap_or("ES2023");
+        let target = ts.target.as_deref().unwrap_or(auto_target);
+        let module = ts.module.as_deref().unwrap_or("ESNext");
+        let module_resolution = ts.module_resolution.as_deref().unwrap_or("bundler");
+        let lib: Vec<&str> = ts.lib.as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_else(|| vec![target]);
+        let types: Vec<&str> = ts.types.as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_else(|| vec!["node"]);
+
+        // Build compilerOptions from resolved values
+        compiler_options.insert("target".into(), json!(target));
+        compiler_options.insert("module".into(), json!(module));
+        compiler_options.insert("moduleResolution".into(), json!(module_resolution));
+        compiler_options.insert("lib".into(), json!(lib));
+        compiler_options.insert("types".into(), json!(types));
+        compiler_options.insert("strict".into(), json!(true));
+        compiler_options.insert("esModuleInterop".into(), json!(true));
+        compiler_options.insert("skipLibCheck".into(), json!(true));
+        compiler_options.insert("forceConsistentCasingInFileNames".into(), json!(true));
+        compiler_options.insert("resolveJsonModule".into(), json!(true));
+        compiler_options.insert("isolatedModules".into(), json!(true));
+
+        // Merge extra compilerOptions from [typescript.compiler_options]
+        for (key, value) in &ts.compiler_options {
+            compiler_options.insert(key.clone(), toml_value_to_json(value));
+        }
+
+        let tsconfig = json!({
+            "_generated": "DO NOT EDIT — regenerated by airis gen from manifest.toml [typescript]",
+            "compilerOptions": serde_json::Value::Object(compiler_options),
+        });
+
+        let content = serde_json::to_string_pretty(&tsconfig)
+            .context("Failed to serialize tsconfig.base.json")?;
+        Ok(format!("{content}\n"))
+    }
+
+    /// Render per-package tsconfig.json based on framework and manifest overrides.
+    ///
+    /// Framework-specific defaults:
+    /// - nextjs: lib += ["DOM"], jsx = "preserve"
+    /// - react-vite: lib += ["DOM"], jsx = "react-jsx"
+    /// - node: inherits base as-is
+    pub fn render_package_tsconfig(
+        &self,
+        package: &crate::manifest::ProjectDefinition,
+        manifest: &crate::manifest::Manifest,
+        rel_path_to_root: &str,
+        ts_major: u32,
+    ) -> Result<String> {
+        let ts = &manifest.typescript;
+        let pkg_ts = package.tsconfig.as_ref();
+
+        // Resolve target for lib defaults
+        let auto_target = crate::conventions::parse_node_version_from_image(&manifest.workspace.image)
+            .map(crate::conventions::node_version_to_es_target)
+            .unwrap_or("ES2023");
+        let target = ts.target.as_deref().unwrap_or(auto_target);
+
+        let framework = package.framework.as_deref().unwrap_or("node");
+        let is_browser = matches!(framework, "nextjs" | "react-vite");
+
+        let mut compiler_options = serde_json::Map::new();
+
+        // lib: package override → framework default → base inherits
+        let lib = pkg_ts.and_then(|t| t.lib.as_ref());
+        if let Some(lib_entries) = lib {
+            compiler_options.insert("lib".into(), json!(lib_entries));
+        } else if is_browser {
+            compiler_options.insert("lib".into(), json!([target, "DOM"]));
+        }
+
+        // jsx: package override → framework default
+        let jsx = pkg_ts.and_then(|t| t.jsx.as_deref());
+        if let Some(jsx_val) = jsx {
+            compiler_options.insert("jsx".into(), json!(jsx_val));
+        } else {
+            match framework {
+                "nextjs" => { compiler_options.insert("jsx".into(), json!("preserve")); },
+                "react-vite" => { compiler_options.insert("jsx".into(), json!("react-jsx")); },
+                _ => {},
+            }
+        }
+
+        // types: package override (if explicitly set)
+        if let Some(types_entries) = pkg_ts.and_then(|t| t.types.as_ref()) {
+            compiler_options.insert("types".into(), json!(types_entries));
+        }
+
+        // Next.js specific
+        if framework == "nextjs" {
+            // Next.js uses its own plugin array
+            compiler_options.insert("plugins".into(), json!([{"name": "next"}]));
+        }
+
+        // outDir for buildable libs
+        if package.kind.as_deref() == Some("lib") {
+            compiler_options.insert("outDir".into(), json!("./dist"));
+            compiler_options.insert("declaration".into(), json!(true));
+        }
+
+        // TS6 ignoreDeprecations
+        if ts_major >= 6 {
+            compiler_options.insert("ignoreDeprecations".into(), json!("6.0"));
+        }
+
+        // Merge extra compilerOptions from [app.tsconfig.compiler_options]
+        if let Some(pkg_ts) = pkg_ts {
+            for (key, value) in &pkg_ts.compiler_options {
+                compiler_options.insert(key.clone(), crate::templates::toml_value_to_json(value));
+            }
+        }
+
+        // Build includes
+        let include = match framework {
+            "nextjs" => json!(["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"]),
+            "react-vite" => json!(["src/**/*.ts", "src/**/*.tsx", "vite-env.d.ts"]),
+            _ => json!(["src/**/*.ts", "src/**/*.tsx"]),
+        };
+
+        let exclude = json!(["node_modules", "dist", "coverage", "__tests__"]);
+
+        let mut tsconfig = serde_json::Map::new();
+        tsconfig.insert("_generated".into(), json!("DO NOT EDIT — regenerated by airis gen from manifest.toml"));
+        tsconfig.insert("extends".into(), json!(format!("{rel_path_to_root}tsconfig.base.json")));
+        if !compiler_options.is_empty() {
+            tsconfig.insert("compilerOptions".into(), serde_json::Value::Object(compiler_options));
+        }
+        tsconfig.insert("include".into(), include);
+        tsconfig.insert("exclude".into(), exclude);
+
+        let content = serde_json::to_string_pretty(&serde_json::Value::Object(tsconfig))
+            .context("Failed to serialize package tsconfig.json")?;
+        Ok(format!("{content}\n"))
+    }
+
+    /// Render CSS module type declaration for Next.js apps (TS6 TS2882 fix).
+    pub fn render_css_declaration(&self) -> String {
+        "// # airis:inject — DO NOT EDIT (generated by airis gen)\ndeclare module '*.css' {}\n".to_string()
+    }
+
+    /// Render root tsconfig.json — IDE config with baseUrl + paths + ignoreDeprecations.
+    ///
+    /// `workspace_paths` is a list of (package_name, relative_path) pairs auto-discovered
+    /// from workspace patterns. `ts_major` controls whether `ignoreDeprecations` is added.
+    pub fn render_tsconfig_root(
+        &self,
+        manifest: &Manifest,
+        workspace_paths: &[(String, String)],
+        ts_major: u32,
+    ) -> Result<String> {
+        let mut paths = serde_json::Map::new();
+
+        // Auto-generated paths from workspace discovery
+        for (pkg_name, rel_path) in workspace_paths {
+            paths.insert(
+                pkg_name.clone(),
+                json!([format!("{}/src", rel_path)]),
+            );
+        }
+
+        // Merge user-specified paths from [typescript.paths]
+        for (alias, target) in &manifest.typescript.paths {
+            paths.insert(alias.clone(), json!([target]));
+        }
+
+        let mut compiler_options = serde_json::Map::new();
+        compiler_options.insert("noEmit".to_string(), json!(true));
+        compiler_options.insert("baseUrl".to_string(), json!("."));
+
+        if !paths.is_empty() {
+            compiler_options.insert("paths".to_string(), serde_json::Value::Object(paths));
+        }
+
+        if ts_major >= 6 {
+            compiler_options.insert("ignoreDeprecations".to_string(), json!("6.0"));
+        }
+
+        // Build include patterns from workspace patterns
+        let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
+            &manifest.packages.workspaces
+        } else {
+            &manifest.workspace.workspaces
+        };
+
+        let mut include: Vec<String> = Vec::new();
+        for pattern in workspace_patterns {
+            if pattern.starts_with('!') {
+                continue;
+            }
+            // Convert glob pattern to ts include pattern
+            // "apps/*" → "apps/**/*.ts", "apps/**/*.tsx"
+            // "products/**" → "products/**/*.ts", "products/**/*.tsx"
+            let base = pattern.trim_end_matches('*').trim_end_matches('/');
+            include.push(format!("{}/**/*.ts", base));
+            include.push(format!("{}/**/*.tsx", base));
+        }
+        if include.is_empty() {
+            include.push("**/*.ts".to_string());
+            include.push("**/*.tsx".to_string());
+        }
+
+        let tsconfig = json!({
+            "_generated": "DO NOT EDIT — regenerated by airis gen from manifest.toml [typescript]",
+            "extends": "./tsconfig.base.json",
+            "compilerOptions": serde_json::Value::Object(compiler_options),
+            "include": include,
+            "exclude": [
+                "node_modules",
+                "**/node_modules",
+                "dist",
+                "**/dist",
+                ".next",
+                "**/.next",
+                "coverage",
+            ],
+        });
+
+        let content = serde_json::to_string_pretty(&tsconfig)
+            .context("Failed to serialize tsconfig.json")?;
+        Ok(format!("{content}\n"))
+    }
 }
 
 const NPMRC_TEMPLATE: &str = "\
@@ -907,22 +1259,43 @@ ENV PNPM_STORE_DIR=/pnpm/store
 
 WORKDIR {{workdir}}
 
-COPY --chown=app:app . .
+{{#if is_pnpm}}
+# Step 1: Copy lockfile + workspace manifests (cache-efficient — only changes when deps change)
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
+{{#each workspace_pkg_copies}}
+COPY {{{this}}}/package.json {{{this}}}/package.json
+{{/each}}
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --frozen-lockfile
 
-USER app
-RUN {{pm_bin}} install --frozen-lockfile
+# Step 2: Copy full source (changes on every code edit, but deps are cached above)
+COPY . .
+RUN chown -R app:app {{workdir}}
+{{else}}
+COPY . .
+RUN {{pm_bin}} install
+RUN chown -R app:app {{workdir}}
+{{/if}}
 
-ENTRYPOINT ["tini","--"]
+# Fix named volume permissions at container start (volumes mount as root)
+# setpriv is available in util-linux (included in node:*-bookworm images)
+RUN set -e && \
+    echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
+    echo 'DIRS="node_modules .pnpm .next dist build out .swc .cache .turbo"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'for d in $DIRS; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '  find /app -maxdepth 5 -name "$d" -type d ! -user app -exec chown -R app:app '"'"'{}'"'"' + 2>/dev/null' >> /usr/local/bin/entrypoint.sh && \
+    echo 'done' >> /usr/local/bin/entrypoint.sh && \
+    echo 'exec setpriv --reuid=app --regid=app --init-groups -- "$@"' >> /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["tini","--","entrypoint.sh"]
 "#;
 
 const DOCKER_COMPOSE_TEMPLATE: &str = r#"# ============================================================
-# {{project}} - Local Development
+# {{project}}
 # ============================================================
 # Generated by `airis gen` - DO NOT EDIT MANUALLY
 # Source of truth: manifest.toml
 #
-# airis up = local development only (always hot-reload).
-# Production deploys via GitOps - this file is never used there.
+# Use `airis up` to start. Profiles control which services run.
 # ============================================================
 
 x-app-base: &app-base
@@ -996,9 +1369,6 @@ services:
 {{#each ports}}
       - "{{this}}"
 {{/each}}
-{{else if port}}
-    ports:
-      - "{{port}}:{{port}}"
 {{/if}}
 {{#if extra_hosts}}
 {{#unless extends}}
@@ -1196,6 +1566,27 @@ HEALTHCHECK --interval={{health_interval}} --timeout=10s --start-period=30s --re
 CMD ["node", "{{entrypoint}}"]
 "#;
 
+/// Convert a TOML value to a serde_json value for tsconfig generation.
+fn toml_value_to_json(value: &toml::Value) -> serde_json::Value {
+    match value {
+        toml::Value::String(s) => json!(s),
+        toml::Value::Integer(i) => json!(i),
+        toml::Value::Float(f) => json!(f),
+        toml::Value::Boolean(b) => json!(b),
+        toml::Value::Array(a) => {
+            serde_json::Value::Array(a.iter().map(toml_value_to_json).collect())
+        }
+        toml::Value::Table(t) => {
+            let map: serde_json::Map<String, serde_json::Value> = t
+                .iter()
+                .map(|(k, v)| (k.clone(), toml_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(map)
+        }
+        toml::Value::Datetime(d) => json!(d.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1207,6 +1598,7 @@ mod tests {
 name = "test-project"
 image = "node:22-alpine"
 workdir = "/app"
+package_manager = "pnpm@10.22.0"
 volumes = []
 
 [commands]
@@ -1262,12 +1654,17 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
-        // Dockerfile should contain install step
-        assert!(result.contains("RUN pnpm install --frozen-lockfile"));
+        // Dockerfile should use pnpm install --frozen-lockfile (single step, workspace-aware)
+        assert!(result.contains("pnpm install --frozen-lockfile"));
+        assert!(!result.contains("pnpm fetch"), "fetch+offline pattern replaced by install --frozen-lockfile");
+        // Should use BuildKit cache mount for pnpm store
+        assert!(result.contains("--mount=type=cache,id=pnpm,target=/pnpm/store"));
         // Should NOT contain sleep infinity
         assert!(!result.contains("sleep infinity"));
         // Should contain COPY
-        assert!(result.contains("COPY --chown=app:app . ."));
+        assert!(result.contains("COPY . ."));
+        // Lockfile should be copied before source for cache optimization
+        assert!(result.contains("COPY pnpm-lock.yaml"));
     }
 
     #[test]
@@ -1293,7 +1690,9 @@ workspaces = ["apps/*", "libs/*"]
         let engine = TemplateEngine::new().unwrap();
         let result = engine.render_dockerfile(&manifest).unwrap();
 
-        assert!(result.contains("RUN bun install --frozen-lockfile"));
+        // Non-pnpm uses simple install (no fetch + offline pattern)
+        assert!(result.contains("RUN bun install"));
+        assert!(!result.contains("bun fetch"));
     }
 
     #[test]
@@ -1650,34 +2049,6 @@ workspaces = ["apps/*", "libs/*"]
 
         // Should set COMPOSE_PROJECT_NAME from workspace name
         assert!(result.contains("export COMPOSE_PROJECT_NAME=\"my-awesome-project\""));
-    }
-
-    #[test]
-    fn test_resolve_dependencies_catalog_with_colon() {
-        let mut deps = IndexMap::new();
-        deps.insert("react".to_string(), "catalog:".to_string());
-        deps.insert("typescript".to_string(), "^5.0.0".to_string());
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.2.0".to_string());
-
-        let result = resolve_dependencies(&deps, &catalog).unwrap();
-
-        assert_eq!(result.get("react").unwrap(), "^19.2.0");
-        assert_eq!(result.get("typescript").unwrap(), "^5.0.0");
-    }
-
-    #[test]
-    fn test_resolve_dependencies_catalog_with_key() {
-        let mut deps = IndexMap::new();
-        deps.insert("my-react".to_string(), "catalog:react".to_string());
-
-        let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), "^19.2.0".to_string());
-
-        let result = resolve_dependencies(&deps, &catalog).unwrap();
-
-        assert_eq!(result.get("my-react").unwrap(), "^19.2.0");
     }
 
     #[test]
@@ -2079,6 +2450,335 @@ gpu = {}
         assert_eq!(gpu.driver, "nvidia");
         assert_eq!(gpu.count, "all");
         assert_eq!(gpu.capabilities, vec!["gpu".to_string()]);
+    }
+
+    #[test]
+    fn test_ci_workflow_custom_jobs() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+runner = "self-hosted, linux"
+
+[ci.jobs]
+lint = 10
+typecheck = 10
+test = 20
+e2e = 30
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_ci_workflow(&manifest).unwrap();
+
+        assert!(result.contains("runs-on: [self-hosted, linux]"), "runner should be self-hosted array");
+        assert!(result.contains("  lint:"), "should have lint job");
+        assert!(result.contains("  typecheck:"), "should have typecheck job");
+        assert!(result.contains("  test:"), "should have test job");
+        assert!(result.contains("  e2e:"), "should have e2e job");
+        assert!(result.contains("timeout-minutes: 30"), "e2e should have 30min timeout");
+        assert!(result.contains("timeout-minutes: 20"), "test should have 20min timeout");
+        assert!(result.contains("pnpm turbo run e2e"), "e2e job should run turbo e2e");
+    }
+
+    #[test]
+    fn test_ci_workflow_default_jobs() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_ci_workflow(&manifest).unwrap();
+
+        assert!(result.contains("  lint:"), "should have lint job");
+        assert!(result.contains("  typecheck:"), "should have typecheck job");
+        assert!(result.contains("  test:"), "should have test job");
+        assert!(!result.contains("  e2e:"), "should NOT have e2e job by default");
+    }
+
+    #[test]
+    fn test_profile_effective_role() {
+        use crate::manifest::ProfileSection;
+        let default = ProfileSection::default();
+
+        // Name-based inference
+        assert_eq!(default.effective_role("prd"), "production");
+        assert_eq!(default.effective_role("prod"), "production");
+        assert_eq!(default.effective_role("production"), "production");
+        assert_eq!(default.effective_role("local"), "local");
+        assert_eq!(default.effective_role("dev"), "local");
+        assert_eq!(default.effective_role("stg"), "staging");
+        assert_eq!(default.effective_role("staging"), "staging");
+        assert_eq!(default.effective_role("preview"), "staging");
+
+        // Explicit role overrides name
+        let mut custom = ProfileSection::default();
+        custom.role = Some("production".to_string());
+        assert_eq!(custom.effective_role("stg"), "production");
+    }
+
+    #[test]
+    fn test_profile_role_in_ci_workflow() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+
+[profile.staging]
+branch = "develop"
+domain = "stg.example.com"
+role = "staging"
+
+[profile.live]
+branch = "release"
+domain = "example.com"
+role = "production"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_ci_workflow(&manifest).unwrap();
+
+        assert!(result.contains("branches: [develop]"), "CI should use staging branch 'develop'");
+        assert!(result.contains("branches: [release]"), "PR target should use production branch 'release'");
+    }
+
+    #[test]
+    fn test_notify_job_uses_ci_runner() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+runner = "self-hosted, linux"
+
+[[app]]
+name = "my-app"
+path = "apps/my-app"
+framework = "nextjs"
+
+[app.deploy]
+enabled = true
+port = 3000
+health_path = "/health"
+host = "{profile.domain}"
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+env_source = { doppler = { config = "stg", secret = "DOPPLER_TOKEN_STG" } }
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+env_source = { doppler = { config = "prd", secret = "DOPPLER_TOKEN_PRD" } }
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_deploy_workflow(&manifest).unwrap();
+
+        // Notify job should use the same runner as other jobs
+        let notify_section = result.find("  notify:").expect("should have notify job");
+        let after_notify = &result[notify_section..];
+        assert!(after_notify.contains("runs-on: [self-hosted, linux]"), "notify should use ci.runner, not ubuntu-latest");
+        assert!(!after_notify.contains("runs-on: ubuntu-latest"), "notify should NOT use ubuntu-latest");
+    }
+
+    #[test]
+    fn test_docker_deploy_custom_timeout_and_retries() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+
+[[app]]
+name = "my-api"
+path = "apps/my-api"
+framework = "node"
+
+[app.deploy]
+enabled = true
+port = 3000
+health_path = "/healthz"
+host = "{profile.domain}"
+timeout = 20
+health_retries = 10
+health_retry_interval = 15
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+env_source = { doppler = { config = "stg", secret = "DOPPLER_TOKEN_STG" } }
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+env_source = { doppler = { config = "prd", secret = "DOPPLER_TOKEN_PRD" } }
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_deploy_workflow(&manifest).unwrap();
+
+        let deploy_section = result.find("deploy-my-api:").expect("should have deploy job");
+        let after_deploy = &result[deploy_section..];
+        assert!(after_deploy.contains("timeout-minutes: 20"), "should use custom timeout");
+        assert!(after_deploy.contains("for i in 1 2 3 4 5 6 7 8 9 10;"), "should have 10 retries");
+        assert!(after_deploy.contains("sleep 15"), "should use custom retry interval");
+        assert!(after_deploy.contains("after 10 attempts"), "error message should reflect retry count");
+    }
+
+    #[test]
+    fn test_worker_deploy_custom_domain() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+
+[[app]]
+name = "my-worker"
+path = "apps/my-worker"
+framework = "node"
+
+[app.deploy]
+enabled = true
+deploy_target = "worker"
+health_path = "/health"
+workers_domain = "myorg.workers.dev"
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+env_source = { doppler = { config = "stg", secret = "DOPPLER_TOKEN_STG" } }
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+env_source = { doppler = { config = "prd", secret = "DOPPLER_TOKEN_PRD" } }
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_deploy_workflow(&manifest).unwrap();
+
+        assert!(result.contains("my-worker-production.myorg.workers.dev/health"), "production URL should use workers_domain and health_path");
+        assert!(result.contains("my-worker.myorg.workers.dev/health"), "staging URL should use workers_domain and health_path");
+        assert!(!result.contains("agiletec"), "should NOT contain hardcoded agiletec domain");
+    }
+
+    #[test]
+    fn test_worker_deploy_missing_domain_errors() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[workspace]
+package_manager = "pnpm"
+members = ["apps/*"]
+
+[ci]
+enabled = true
+
+[[app]]
+name = "my-worker"
+path = "apps/my-worker"
+framework = "node"
+
+[app.deploy]
+enabled = true
+deploy_target = "worker"
+health_path = "/health"
+
+[profile.stg]
+branch = "stg"
+domain = "stg.example.com"
+env_source = { doppler = { config = "stg", secret = "DOPPLER_TOKEN_STG" } }
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+env_source = { doppler = { config = "prd", secret = "DOPPLER_TOKEN_PRD" } }
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_deploy_workflow(&manifest);
+        assert!(result.is_err(), "should error when workers_domain is missing for worker deploy");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("workers_domain"), "error should mention workers_domain");
+    }
+
+    #[test]
+    fn test_infra_deploy_custom_network() {
+        let toml_str = r#"
+[project]
+id = "test-project"
+
+[ci]
+enabled = true
+
+[profile.prd]
+branch = "main"
+domain = "example.com"
+env_source = { doppler = { config = "prd", secret = "DOPPLER_TOKEN" } }
+
+[orchestration.networks]
+proxy = "traefik-public"
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).unwrap();
+        let engine = TemplateEngine::new().unwrap();
+        let result = engine.render_deploy_workflow(&manifest).unwrap();
+
+        assert!(result.contains("docker network create traefik-public"), "should use custom network name from orchestration.networks.proxy");
+        assert!(!result.contains("docker network create proxy"), "should NOT use hardcoded 'proxy' network");
     }
 
 }
