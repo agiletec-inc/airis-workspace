@@ -666,10 +666,7 @@ impl TemplateEngine {
             .map(|n| n.default_external)
             .unwrap_or(false);
 
-        // Workspace volumes from manifest (format: "volume-name:/container/path")
-        let workdir = &manifest.workspace.workdir;
-
-        // Build services, merging base volumes when a service uses extends + own volumes
+        // Build services — each service defines its own volumes in manifest
         // YAML merge key (<<: *app-base) is overridden when a service defines its own volumes:
         // so we prepend base volumes to prevent the override from losing them.
         let services: Vec<serde_json::Value> = manifest
