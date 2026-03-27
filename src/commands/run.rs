@@ -133,7 +133,7 @@ fn exec_command(cmd: &str) -> Result<bool> {
 
 /// Smart compose up: reuses existing containers if already running
 /// Based on compose_up.py logic
-fn smart_compose_up(project: Option<&str>, compose_files: &[&str]) -> Result<bool> {
+fn smart_compose_up(project: Option<&str>, compose_files: &[&str], extra_args: &[String]) -> Result<bool> {
     // Validate that all compose files exist first
     for file in compose_files {
         let path = Path::new(file);
@@ -220,9 +220,12 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str]) -> Result<boo
                 }
     }
 
-    // Execute docker compose up -d --remove-orphans
+    // Execute docker compose up -d --remove-orphans (+ extra args)
     let mut up_args = cmd_args.clone();
     up_args.extend(&["up", "-d", "--build", "--remove-orphans"]);
+    for arg in extra_args {
+        up_args.push(arg.as_str());
+    }
 
     let output = Command::new("docker")
         .args(&up_args)
@@ -876,7 +879,7 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
 }
 
 /// Orchestrated startup: supabase -> workspace -> apps
-fn orchestrated_up(manifest: &Manifest) -> Result<()> {
+fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
     ensure_env_file();
     let dev = &manifest.dev;
 
@@ -885,7 +888,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
         println!("{}", "📦 Starting Supabase...".cyan().bold());
         let files: Vec<&str> = supabase_files.iter().map(|s| s.as_str()).collect();
 
-        if !smart_compose_up(None, &files)? {
+        if !smart_compose_up(None, &files, &[])? {
             bail!("❌ Failed to start Supabase");
         }
 
@@ -911,7 +914,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     if let Some(traefik) = &dev.traefik {
         println!("{}", "🔀 Starting Traefik...".cyan().bold());
 
-        if !smart_compose_up(None, &[traefik.as_str()])? {
+        if !smart_compose_up(None, &[traefik.as_str()], &[])? {
             bail!("Traefik failed to start. Check `docker compose -f {} logs`", traefik);
         }
     }
@@ -920,7 +923,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
     if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
-        if !smart_compose_up(None, &[compose_file])? {
+        if !smart_compose_up(None, &[compose_file], extra_args)? {
             bail!("Workspace failed to start. Check `docker compose logs`");
         }
     }
@@ -956,7 +959,7 @@ fn orchestrated_up(manifest: &Manifest) -> Result<()> {
 
             println!("   {} Starting {}...", "→".dimmed(), app_name.bold());
 
-            if smart_compose_up(None, &[compose_path.as_str()])? {
+            if smart_compose_up(None, &[compose_path.as_str()], extra_args)? {
                 println!("   {} {} started", "✅".green(), app_name);
             } else {
                 println!("   {} {} failed to start", "⚠️".yellow(), app_name);
@@ -1293,7 +1296,8 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                     ensure_env_file();
                 }
                 let action = if task == "up" { "up -d --build --remove-orphans" } else { "down" };
-                let cmd = format!("docker compose -f {} {}", compose_file, action);
+                let extra = if extra_args.is_empty() { String::new() } else { format!(" {}", extra_args.join(" ")) };
+                let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
 
                 println!("🚀 Running: {}", cmd.cyan());
 
@@ -1333,7 +1337,7 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     // User-defined [commands] override always takes priority over orchestration
     if !manifest.commands.contains_key(task) && has_orchestration(&manifest) {
         match task {
-            "up" => return orchestrated_up(&manifest),
+            "up" => return orchestrated_up(&manifest, extra_args),
             "down" => return orchestrated_down(&manifest),
             _ => {}
         }

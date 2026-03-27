@@ -234,15 +234,21 @@ enum Commands {
     /// Start Docker services (alias for 'airis run up').
     ///
     /// Executes the 'up' command from manifest.toml [commands].
-    /// This is local development only — production deploys via GitOps.
-    /// If [orchestration.dev] is configured, starts services in order:
-    /// Supabase -> Traefik -> Workspace -> Apps.
-    Up,
+    /// Extra args are forwarded to docker compose (e.g., --no-cache, --force-recreate).
+    Up {
+        /// Extra arguments forwarded to docker compose (e.g., --no-cache, --force-recreate)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Stop Docker services (alias for 'airis run down').
     ///
     /// Executes the 'down' command from manifest.toml [commands].
-    Down,
+    Down {
+        /// Extra arguments forwarded to docker compose (e.g., --volumes, --rmi all)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Enter workspace container shell (alias for 'airis run shell').
     ///
@@ -801,8 +807,8 @@ fn main() -> Result<()> {
             }
         }
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
-        Commands::Up => commands::run::run("up", &[])?,
-        Commands::Down => commands::run::run("down", &[])?,
+        Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
+        Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
         Commands::Shell => commands::run::run("shell", &[])?,
         Commands::Test { coverage_check, min_coverage, extra_args } => {
             if coverage_check {
