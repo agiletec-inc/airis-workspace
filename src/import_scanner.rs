@@ -6,10 +6,19 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use anyhow::{Context, Result};
 use regex::Regex;
 use walkdir::WalkDir;
+
+/// Pre-compiled import regex — compiled once, reused across all calls.
+static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?:^|[\s})])from\s+['"]([^'"]+)['"]|(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)"#
+    )
+    .expect("import regex should compile")
+});
 
 /// Result of scanning a directory for import statements.
 #[derive(Debug, Default)]
@@ -37,8 +46,6 @@ pub fn scan_imports(app_path: &Path, workspace_scope: &str) -> Result<ScannedDep
         .into_iter()
         .filter_entry(|e| !is_ignored_dir(e));
 
-    let import_re = build_import_regex();
-
     for entry in walker {
         let entry = entry.with_context(|| format!("Walking {}", app_path.display()))?;
         let path = entry.path();
@@ -52,7 +59,7 @@ pub fn scan_imports(app_path: &Path, workspace_scope: &str) -> Result<ScannedDep
             Err(_) => continue, // skip unreadable files
         };
 
-        extract_packages(&content, &import_re, workspace_scope, &mut deps);
+        extract_packages(&content, &IMPORT_RE, workspace_scope, &mut deps);
     }
 
     Ok(deps)
@@ -61,28 +68,8 @@ pub fn scan_imports(app_path: &Path, workspace_scope: &str) -> Result<ScannedDep
 /// Scan a single file's content for imports (useful for testing).
 pub fn scan_content(content: &str, workspace_scope: &str) -> ScannedDeps {
     let mut deps = ScannedDeps::default();
-    let import_re = build_import_regex();
-    extract_packages(content, &import_re, workspace_scope, &mut deps);
+    extract_packages(content, &IMPORT_RE, workspace_scope, &mut deps);
     deps
-}
-
-/// Build a regex that matches all import/export/require/dynamic-import patterns.
-///
-/// Captures the module specifier (the string inside quotes) in group 1.
-fn build_import_regex() -> Regex {
-    // Matches:
-    //   import ... from 'pkg'
-    //   import ... from "pkg"
-    //   export ... from 'pkg'
-    //   export ... from "pkg"
-    //   require('pkg')
-    //   require("pkg")
-    //   import('pkg')
-    //   import("pkg")
-    Regex::new(
-        r#"(?:import|export)\s+(?:[\s\S]*?)\s+from\s+['"]([^'"]+)['"]|(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)"#
-    )
-    .expect("import regex should compile")
 }
 
 /// Extract package names from regex matches and classify them.
@@ -535,6 +522,36 @@ import { bar } from 'real-package'
         assert!(
             !deps.workspace.contains("@agiletec/notification"),
             "notification should not self-reference"
+        );
+    }
+
+    #[test]
+    fn test_scan_multiline_imports() {
+        let content = r#"
+import {
+  Controller,
+  type ControllerProps,
+  type FieldPath,
+  FormProvider,
+} from 'react-hook-form'
+
+import { cn } from '../lib/utils'
+"#;
+        let deps = scan_content(content, "@agiletec");
+        assert!(deps.external.contains("react-hook-form"), "should detect multi-line import");
+        assert!(!deps.external.contains("../lib/utils"));
+    }
+
+    #[test]
+    fn test_real_agiletec_ui_has_react_hook_form() {
+        let app_path = Path::new("/Users/kazuki/github/agiletec-inc/agiletec/libs/ui");
+        if !app_path.exists() {
+            return;
+        }
+        let deps = scan_imports(app_path, "@agiletec").unwrap();
+        assert!(
+            deps.external.contains("react-hook-form"),
+            "ui should detect react-hook-form from multi-line import in form.tsx"
         );
     }
 }

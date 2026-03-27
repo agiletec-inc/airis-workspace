@@ -79,6 +79,26 @@ impl ParallelExecutor {
         self.tasks.insert(task_id, task);
     }
 
+    /// Collect all transitive dependents of a given task
+    fn collect_transitive_dependents(&self, task_id: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut queue = vec![task_id.to_string()];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(task_id.to_string());
+
+        while let Some(current) = queue.pop() {
+            if let Some(deps) = self.dependents.get(&current) {
+                for dep in deps {
+                    if visited.insert(dep.clone()) {
+                        result.push(dep.clone());
+                        queue.push(dep.clone());
+                    }
+                }
+            }
+        }
+        result
+    }
+
     /// Execute all tasks in parallel respecting dependencies
     pub async fn execute<F, Fut>(&self, task_fn: F) -> Result<Vec<TaskResult>>
     where
@@ -146,6 +166,7 @@ impl ParallelExecutor {
             let tx = tx.clone();
             let states = Arc::clone(&states);
             let task_fn = task_fn.clone();
+            let captured_id = task.id.clone();
 
             tokio::spawn(async move {
                 let _permit = semaphore.acquire().await.expect("semaphore closed unexpectedly");
@@ -157,7 +178,7 @@ impl ParallelExecutor {
                 }
 
                 let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
-                    task_id: String::new(),
+                    task_id: captured_id,
                     success: false,
                     duration_ms: 0,
                     error: Some(e.to_string()),
@@ -214,9 +235,44 @@ impl ParallelExecutor {
 
                 results.push(result);
 
+                // If failed, mark all transitive dependents as skipped
+                if !success {
+                    let skipped = self.collect_transitive_dependents(&task_id);
+                    let mut states_guard = states.lock().await;
+                    for skip_id in &skipped {
+                        if matches!(states_guard.get(skip_id), Some(TaskState::Pending)) {
+                            states_guard.insert(
+                                skip_id.clone(),
+                                TaskState::Failed(format!("skipped: dependency '{}' failed", task_id)),
+                            );
+                        }
+                    }
+                    drop(states_guard);
+
+                    // Send skip results so the loop can terminate
+                    for skip_id in skipped {
+                        completed_count += 1;
+                        let skip_result = TaskResult {
+                            task_id: skip_id.clone(),
+                            success: false,
+                            duration_ms: 0,
+                            error: Some(format!("skipped: dependency '{}' failed", task_id)),
+                        };
+                        println!(
+                            "{}",
+                            format!(
+                                "  ⏭️ [{}/{}] {} - skipped (dependency failed)",
+                                completed_count, total_tasks, skip_id
+                            )
+                            .yellow()
+                        );
+                        results.push(skip_result);
+                    }
+                    continue;
+                }
+
                 // If successful, check dependents
-                if success
-                    && let Some(deps) = dependents.get(&task_id) {
+                if let Some(deps) = dependents.get(&task_id) {
                         for dep_id in deps {
                             let should_run = {
                                 let states_guard = states.lock().await;
@@ -261,6 +317,7 @@ impl ParallelExecutor {
                                 let tx = tx.clone();
                                 let states = Arc::clone(&states);
                                 let task_fn = task_fn.clone();
+                                let captured_id = task.id.clone();
 
                                 tokio::spawn(async move {
                                     let _permit = semaphore.acquire().await.expect("semaphore closed unexpectedly");
@@ -272,7 +329,7 @@ impl ParallelExecutor {
 
                                     let result =
                                         task_fn(task).await.unwrap_or_else(|e| TaskResult {
-                                            task_id: String::new(),
+                                            task_id: captured_id,
                                             success: false,
                                             duration_ms: 0,
                                             error: Some(e.to_string()),

@@ -121,6 +121,17 @@ pub fn discover_from_workspaces(
                 continue;
             }
 
+            // Skip build artifacts and dependency directories
+            if rel_path.contains("node_modules")
+                || rel_path.contains(".next")
+                || rel_path.contains(".pnpm")
+                || rel_path.contains("dist/")
+                || rel_path.contains("build/")
+                || rel_path.contains(".turbo")
+            {
+                continue;
+            }
+
             // Skip if already seen (overlapping patterns)
             if !seen_paths.insert(rel_path.clone()) {
                 continue;

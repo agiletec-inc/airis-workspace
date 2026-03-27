@@ -452,7 +452,9 @@ impl TemplateEngine {
         let mut docker_jobs = Vec::new();
         let mut generated_app_names: Vec<String> = Vec::new(); // Track actually generated jobs
         for app in &docker_apps {
-            let deploy = app.deploy.as_ref().unwrap();
+            let Some(deploy) = app.deploy.as_ref() else {
+                continue;
+            };
             let snake = app.name.replace('-', "_");
             let kebab = &app.name;
 
@@ -528,7 +530,9 @@ impl TemplateEngine {
             let kebab = &app.name;
             let path = app.path.as_deref().unwrap_or(&app.name);
 
-            let deploy = app.deploy.as_ref().unwrap();
+            let Some(deploy) = app.deploy.as_ref() else {
+                continue;
+            };
             let timeout = deploy.timeout.unwrap_or(10);
             let health_path = deploy.health_path.as_deref().unwrap_or("/health");
             let workers_domain = deploy.workers_domain.as_deref()
@@ -1266,15 +1270,23 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --frozen-lo
 # Step 2: Copy full source (changes on every code edit, but deps are cached above)
 COPY . .
 RUN chown -R app:app {{workdir}}
-USER app
 {{else}}
 COPY . .
 RUN {{pm_bin}} install
 RUN chown -R app:app {{workdir}}
-USER app
 {{/if}}
 
-ENTRYPOINT ["tini","--"]
+# Fix named volume permissions at container start (volumes mount as root)
+# setpriv is available in util-linux (included in node:*-bookworm images)
+RUN set -e && \
+    echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
+    echo 'DIRS="node_modules .pnpm .next dist build out .swc .cache .turbo"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'for d in $DIRS; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '  find /app -maxdepth 5 -name "$d" -type d ! -user app -exec chown -R app:app '"'"'{}'"'"' + 2>/dev/null' >> /usr/local/bin/entrypoint.sh && \
+    echo 'done' >> /usr/local/bin/entrypoint.sh && \
+    echo 'exec setpriv --reuid=app --regid=app --init-groups -- "$@"' >> /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["tini","--","entrypoint.sh"]
 "#;
 
 const DOCKER_COMPOSE_TEMPLATE: &str = r#"# ============================================================

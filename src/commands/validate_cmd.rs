@@ -270,10 +270,13 @@ fn validate_networks_impl(quiet: bool) -> Result<()> {
         // Check for required network configurations using simple string matching
         // A more robust solution would use a YAML parser
 
-        // Check for agiletec_default network
-        if !content.contains("agiletec_default") {
+        // Check for workspace default network (derived from manifest workspace name)
+        let workspace_network = crate::manifest::Manifest::load(std::path::Path::new(crate::manifest::MANIFEST_FILE))
+            .map(|m| format!("{}_default", m.workspace.name))
+            .unwrap_or_else(|_| "default".to_string());
+        if !content.contains(&workspace_network) {
             if !quiet {
-                println!("  {} {}: networks.default should reference 'agiletec_default'", "❌".red(), project);
+                println!("  {} {}: networks.default should reference '{}'", "❌".red(), project, workspace_network);
             }
             failures += 1;
         }

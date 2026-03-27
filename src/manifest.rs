@@ -589,7 +589,6 @@ fn default_clean_dirs() -> Vec<String> {
         ".turbo".to_string(),
         ".swc".to_string(),
         ".cache".to_string(),
-        "pnpm-lock.yaml".to_string(),
     ]
 }
 
@@ -784,7 +783,7 @@ pub struct ServiceConfig {
     pub mem_limit: Option<String>,
     /// CPU limit for Docker container
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cpus: Option<u16>,
+    pub cpus: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -1328,7 +1327,7 @@ pub struct ProjectDefinition {
     pub mem_limit: Option<String>,
     /// CPU limit for Docker container
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cpus: Option<u16>,
+    pub cpus: Option<f32>,
     /// Inline service config (env, profile-specific overrides)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service: Option<ServiceInlineConfig>,
