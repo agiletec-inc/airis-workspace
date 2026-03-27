@@ -1,8 +1,15 @@
 {
   "_generated": {
-    "by": "airis init",
-    "from": "manifest.toml",
-    "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
+    "by": "airis gen",
+    "managed_fields": [
+      "name",
+      "version",
+      "private",
+      "type",
+      "packageManager",
+      "workspaces"
+    ],
+    "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
   },
   "dependencies": {},
   "devDependencies": {},

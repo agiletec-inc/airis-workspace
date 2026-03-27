@@ -2749,6 +2749,9 @@ test = "echo safe"
             network_mode: None,
             labels: vec![],
             networks: vec![],
+            env_groups: vec![],
+            mem_limit: None,
+            cpus: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(3000));
     }
@@ -2779,6 +2782,9 @@ test = "echo safe"
             network_mode: None,
             labels: vec![],
             networks: vec![],
+            env_groups: vec![],
+            mem_limit: None,
+            cpus: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(8080));
     }
@@ -2809,6 +2815,9 @@ test = "echo safe"
             network_mode: None,
             labels: vec![],
             networks: vec![],
+            env_groups: vec![],
+            mem_limit: None,
+            cpus: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), Some(9090));
     }
@@ -2839,6 +2848,9 @@ test = "echo safe"
             network_mode: None,
             labels: vec![],
             networks: vec![],
+            env_groups: vec![],
+            mem_limit: None,
+            cpus: None,
         };
         assert_eq!(extract_host_port_from_service(&svc), None);
     }

@@ -36,9 +36,22 @@ ENV PNPM_STORE_DIR=/pnpm/store
 
 WORKDIR /app
 
-COPY --chown=app:app . .
+# Step 1: Copy lockfile + workspace manifests (cache-efficient — only changes when deps change)
+COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
-USER app
-RUN pnpm install --frozen-lockfile
+# Step 2: Copy full source (changes on every code edit, but deps are cached above)
+COPY . .
+RUN chown -R app:app /app
 
-ENTRYPOINT ["tini","--"]
+# Fix named volume permissions at container start (volumes mount as root)
+# setpriv is available in util-linux (included in node:*-bookworm images)
+RUN set -e && \
+    echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
+    echo 'DIRS="node_modules .pnpm .next dist build out .swc .cache .turbo"' >> /usr/local/bin/entrypoint.sh && \
+    echo 'for d in $DIRS; do' >> /usr/local/bin/entrypoint.sh && \
+    echo '  find /app -maxdepth 5 -name "$d" -type d ! -user app -exec chown -R app:app '"'"'{}'"'"' + 2>/dev/null' >> /usr/local/bin/entrypoint.sh && \
+    echo 'done' >> /usr/local/bin/entrypoint.sh && \
+    echo 'exec setpriv --reuid=app --regid=app --init-groups -- "$@"' >> /usr/local/bin/entrypoint.sh && \
+    chmod +x /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["tini","--","entrypoint.sh"]
