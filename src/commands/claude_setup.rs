@@ -21,9 +21,60 @@ fn hooks_dir() -> Result<PathBuf> {
     Ok(claude_home()?.join("hooks").join(AIRIS_HOOKS_DIR))
 }
 
+/// Get the commands directory path (~/.claude/commands/)
+fn commands_dir() -> Result<PathBuf> {
+    Ok(claude_home()?.join("commands"))
+}
+
 /// Get the settings.json path (~/.claude/settings.json)
 fn settings_path() -> Result<PathBuf> {
     Ok(claude_home()?.join("settings.json"))
+}
+
+// ── Command file content ────────────────────────────────────────────
+
+fn playwright_cli_command() -> &'static str {
+    r#"---
+description: Browser automation via playwright-cli (snapshot → action → verify)
+allowed-tools: Bash, Read
+---
+
+# playwright-cli
+
+Use `playwright-cli` for browser automation. Prefer snapshot-driven refs over CSS selectors.
+
+## Workflow
+1. `playwright-cli open <url>` — open browser
+2. `playwright-cli snapshot` — get element refs
+3. `playwright-cli click <ref>` / `playwright-cli fill <ref> <text>` — interact
+4. `playwright-cli screenshot` — verify result visually
+
+## Core Commands
+| Command | Usage |
+|---------|-------|
+| `open [url]` | Open browser (optionally navigate) |
+| `snapshot` | Capture accessibility tree with refs |
+| `click <ref>` | Click element by ref |
+| `fill <ref> <text>` | Fill input field |
+| `type <text>` | Type into focused element |
+| `select <ref> <val>` | Select dropdown option |
+| `screenshot [ref]` | Screenshot page or element |
+| `hover <ref>` | Hover over element |
+| `press <key>` | Press keyboard key |
+| `goto <url>` | Navigate to URL |
+| `eval <js> [ref]` | Run JS on page/element |
+| `console` | View console messages |
+| `network` | List network requests |
+
+## Auth Persistence
+- `state-save [file]` — save cookies/storage to file
+- `state-load <file>` — restore auth state from file
+
+## Tips
+- Always `snapshot` before interacting — refs change after DOM updates
+- Use `screenshot` to verify visual state, not just DOM
+- For SPAs, wait after navigation: `playwright-cli snapshot` retries internally
+"#
 }
 
 // ── Hook script content ─────────────────────────────────────────────
@@ -179,7 +230,17 @@ pub fn setup_global() -> Result<()> {
     fs::set_permissions(&stop_path, fs::Permissions::from_mode(0o755))?;
     println!("   {} {}", "✓".green(), stop_path.display().to_string().dimmed());
 
-    // 4. Merge hooks into settings.json
+    // 4. Write global command files (~/.claude/commands/)
+    let cmd_dir = commands_dir()?;
+    fs::create_dir_all(&cmd_dir)
+        .with_context(|| format!("Failed to create {}", cmd_dir.display()))?;
+
+    let pw_path = cmd_dir.join("playwright-cli.md");
+    fs::write(&pw_path, playwright_cli_command())
+        .with_context(|| format!("Failed to write {}", pw_path.display()))?;
+    println!("   {} {}", "✓".green(), pw_path.display().to_string().dimmed());
+
+    // 5. Merge hooks into settings.json
     let settings = settings_path()?;
     let mut value = if settings.exists() {
         let content = fs::read_to_string(&settings)
@@ -202,6 +263,7 @@ pub fn setup_global() -> Result<()> {
     println!();
     println!("  {} Docker-First guard blocks host package managers", "•".dimmed());
     println!("  {} Stop hook runs tests when Claude finishes", "•".dimmed());
+    println!("  {} /playwright-cli command for browser automation", "•".dimmed());
 
     Ok(())
 }
@@ -234,12 +296,20 @@ pub fn status() -> Result<()> {
         (false, false)
     };
 
+    // Check command files
+    let cmd_dir = commands_dir()?;
+    let pw_ok = cmd_dir.join("playwright-cli.md").exists();
+
+    println!();
+    println!("  Command files:");
+    print_status("  playwright-cli.md", pw_ok);
+
     println!();
     println!("  settings.json entries:");
     print_status("  PreToolUse (Docker-First guard)", pre_tool_ok);
     print_status("  Stop (test check)", stop_hook_ok);
 
-    let all_ok = guard_ok && stop_ok && pre_tool_ok && stop_hook_ok;
+    let all_ok = guard_ok && stop_ok && pre_tool_ok && stop_hook_ok && pw_ok;
     println!();
     if all_ok {
         println!("{}", "✅ All hooks installed and configured".green());
