@@ -254,7 +254,11 @@ enum Commands {
     ///
     /// Executes the 'shell' command from manifest.toml [commands].
     /// Inside the container, you can run package manager commands directly.
-    Shell,
+    Shell {
+        /// Extra arguments forwarded to the shell command
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// Run tests (alias for 'run test')
     Test {
@@ -327,6 +331,9 @@ enum Commands {
         /// Preview what would be deleted without actually deleting
         #[arg(long)]
         dry_run: bool,
+        /// Extra arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
     },
 
     /// Generate deployment bundle (image.tar, artifact.tar.gz, bundle.json)
@@ -363,7 +370,11 @@ enum Commands {
     },
 
     /// Show Docker container status
-    Ps,
+    Ps {
+        /// Extra arguments forwarded to docker compose ps
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
 
     /// View Docker logs
     Logs {
@@ -810,7 +821,7 @@ fn main() -> Result<()> {
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
         Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
-        Commands::Shell => commands::run::run("shell", &[])?,
+        Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test { coverage_check, min_coverage, extra_args } => {
             if coverage_check {
                 commands::run::run_test_coverage(min_coverage)?;
@@ -1056,14 +1067,20 @@ fn main() -> Result<()> {
                 commands::run::run("build", &[])?;
             }
         }
-        Commands::Clean { dry_run } => commands::clean::run(dry_run)?,
+        Commands::Clean { dry_run, extra_args: _ } => commands::clean::run(dry_run)?,
         Commands::Bundle { project, output, k8s } => {
             commands::bundle::run(&project, output.as_deref(), k8s)?;
         }
         Commands::Lint { extra_args } => commands::run::run("lint", &extra_args)?,
         Commands::Format { extra_args } => commands::run::run("format", &extra_args)?,
         Commands::Typecheck { extra_args } => commands::run::run("typecheck", &extra_args)?,
-        Commands::Ps => commands::run::run_ps()?,
+        Commands::Ps { extra_args } => {
+            if extra_args.is_empty() {
+                commands::run::run_ps()?;
+            } else {
+                commands::run::run("ps", &extra_args)?;
+            }
+        }
         Commands::Logs { service, follow, tail } => {
             commands::run::run_logs(service.as_deref(), follow, tail)?
         }
