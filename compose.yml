@@ -7,29 +7,13 @@
 # Use `airis up` to start. Profiles control which services run.
 # ============================================================
 
-x-app-base: &app-base
-  image: airis-monorepo-base
-  working_dir: /app
-  deploy:
-    replicas: 1
-  volumes:
-    - ./:/app:delegated
-    - workspace-node-modules:/app/node_modules
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
-  environment:
-    DOCKER_ENV: "true"
-    NODE_ENV: development
-    PNPM_HOME: /pnpm
-    PNPM_STORE_DIR: /pnpm/store
-    CHOKIDAR_USEPOLLING: "true"
-    WATCHPACK_POLLING: "true"
-
 services:
   postgres:
+    container_name: airis-monorepo-postgres
     image: postgres:16-alpine
 
   redis:
+    container_name: airis-monorepo-redis
     image: redis:7-alpine
 
 
@@ -42,4 +26,3 @@ networks:
     external: true
 
 volumes:
-  workspace-node-modules:
