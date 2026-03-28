@@ -739,6 +739,11 @@ fn main() -> Result<()> {
         std::process::exit(0);
     });
 
+    dispatch(command)
+}
+
+/// Dispatch a parsed CLI command to the appropriate handler.
+fn dispatch(command: Commands) -> Result<()> {
     match command {
         Commands::Init { snapshot, no_snapshot, setup_npmrc, write, skip_discovery } => {
             commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
