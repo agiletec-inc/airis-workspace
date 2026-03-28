@@ -12,9 +12,41 @@ use crate::manifest::{CatalogEntry, InjectValue, Manifest, ProjectDefinition, MA
 use crate::ownership::{get_ownership, Ownership};
 use crate::templates::TemplateEngine;
 
+/// Legacy compose file names that should be migrated to compose.yml
+const LEGACY_COMPOSE_FILES: &[&str] = &[
+    "docker-compose.yml",
+    "docker-compose.yaml",
+    "compose.yaml",
+];
+
+/// Compose override/variant files that should not exist (use manifest.toml instead)
+const COMPOSE_VARIANTS: &[&str] = &[
+    "compose.override.yml",
+    "compose.override.yaml",
+    "compose.dev.yml",
+    "compose.prod.yml",
+    "compose.test.yml",
+    "docker-compose.override.yml",
+    "docker-compose.override.yaml",
+    "docker-compose.dev.yml",
+    "docker-compose.prod.yml",
+    "docker-compose.test.yml",
+];
+
+/// Check for legacy or variant compose files and return them
+fn detect_legacy_compose_files() -> Vec<String> {
+    let mut found = Vec::new();
+    for name in LEGACY_COMPOSE_FILES.iter().chain(COMPOSE_VARIANTS.iter()) {
+        if Path::new(name).exists() {
+            found.push(name.to_string());
+        }
+    }
+    found
+}
+
 /// CLI entry point for `airis gen`
 /// Regenerates workspace files from existing manifest.toml
-pub fn run(dry_run: bool) -> Result<()> {
+pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if !manifest_path.exists() {
@@ -25,6 +57,30 @@ pub fn run(dry_run: bool) -> Result<()> {
         println!();
         println!("{}", "This analyzes your repository and generates an optimized manifest.".cyan());
         return Ok(());
+    }
+
+    // Check for legacy compose files
+    let legacy_files = detect_legacy_compose_files();
+    if !legacy_files.is_empty() && !force && !migrate && !dry_run {
+        println!("{}", "⛔ Legacy compose files detected:".bright_red());
+        for f in &legacy_files {
+            println!("   {} {}", "•".red(), f);
+        }
+        println!();
+        println!("Only {} is supported. Choose an action:", "compose.yml".bright_cyan());
+        println!("  {} — ignore legacy files and generate compose.yml", "airis gen --force".bright_cyan());
+        println!("  {} — delete legacy files and generate compose.yml", "airis gen --migrate".bright_cyan());
+        anyhow::bail!("Legacy compose files exist. Use --force or --migrate.");
+    }
+
+    // Migrate: delete legacy files
+    if migrate && !legacy_files.is_empty() {
+        println!("{}", "🔄 Migrating compose files...".bright_blue());
+        for f in &legacy_files {
+            fs::remove_file(f)?;
+            println!("   {} Deleted {}", "✗".red(), f);
+        }
+        println!();
     }
 
     println!("{}", "📖 Loading manifest.toml...".bright_blue());

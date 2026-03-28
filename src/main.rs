@@ -452,6 +452,12 @@ enum Commands {
         /// Preview what would be generated (dry-run)
         #[arg(long)]
         dry_run: bool,
+        /// Force generation even if legacy compose files exist
+        #[arg(long)]
+        force: bool,
+        /// Migrate legacy compose files (docker-compose.yml etc.) to compose.yml
+        #[arg(long)]
+        migrate: bool,
     },
 
     /// Generate code and types from various sources
@@ -1121,8 +1127,8 @@ fn main() -> Result<()> {
         Commands::Affected { base, head } => {
             commands::affected::run(&base, &head)?;
         }
-        Commands::Gen { dry_run } => {
-            commands::generate::run(dry_run)?;
+        Commands::Gen { dry_run, force, migrate } => {
+            commands::generate::run(dry_run, force, migrate)?;
         }
         Commands::Generate { action } => match action {
             GenerateCommands::Types {
