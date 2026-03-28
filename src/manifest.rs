@@ -671,6 +671,11 @@ pub struct HooksSection {
     /// Commands to run after `airis up` (e.g., DB migration)
     #[serde(default)]
     pub post_up: Vec<String>,
+    /// Timeout in seconds for service reachability checks after `airis up`.
+    /// Services are polled every 2s until reachable or this timeout expires.
+    /// Default: 30 seconds. Set to 0 to skip waiting.
+    #[serde(default = "default_reachability_timeout")]
+    pub reachability_timeout: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -699,8 +704,13 @@ impl Default for HooksSection {
             traefik: None,
             urls: None,
             post_up: Vec::new(),
+            reachability_timeout: default_reachability_timeout(),
         }
     }
+}
+
+fn default_reachability_timeout() -> u64 {
+    30
 }
 
 fn default_apps_pattern() -> String {

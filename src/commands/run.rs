@@ -14,6 +14,8 @@ const TCP_CONNECT_TIMEOUT_MS: u64 = 200;
 const TCP_READ_TIMEOUT_MS: u64 = 300;
 const DB_HEALTH_RETRIES: u32 = 30;
 const DB_HEALTH_SLEEP_SECS: u64 = 2;
+// Polling interval for service reachability wait loop
+const REACHABILITY_POLL_INTERVAL_SECS: u64 = 2;
 
 /// Extract package manager command from manifest (e.g., "pnpm@latest" -> "pnpm")
 #[cfg(test)]
@@ -419,10 +421,55 @@ fn discover_compose_port_urls(compose_files: &[String]) -> Vec<DiscoveredService
 /// Display URLs discovered from compose file port mappings (no manifest required)
 fn display_compose_urls(compose_files: &[String]) {
     let mut services = discover_compose_port_urls(compose_files);
-    for svc in &mut services {
-        svc.is_reachable = is_service_reachable(&svc.url);
-    }
+    // Use default timeout (30s) when no manifest is available
+    wait_for_services_reachable(&mut services, 30);
     display_url_table(&services);
+}
+
+/// Wait for services to become reachable, polling every REACHABILITY_POLL_INTERVAL_SECS
+/// until all are reachable or timeout_secs expires. If timeout_secs is 0, check once only.
+fn wait_for_services_reachable(services: &mut [DiscoveredService], timeout_secs: u64) {
+    use std::time::{Duration, Instant};
+
+    if services.is_empty() {
+        return;
+    }
+
+    // Initial check for all services
+    for svc in services.iter_mut() {
+        if !svc.is_reachable {
+            svc.is_reachable = is_service_reachable(&svc.url);
+        }
+    }
+
+    // If timeout is 0 or all are already reachable, skip the wait loop
+    if timeout_secs == 0 || services.iter().all(|s| s.is_reachable) {
+        return;
+    }
+
+    let unreachable_count = services.iter().filter(|s| !s.is_reachable).count();
+    println!(
+        "   {} Waiting for {} service(s) to become reachable (timeout: {}s)...",
+        "⏳".dimmed(),
+        unreachable_count,
+        timeout_secs
+    );
+
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+
+    while Instant::now() < deadline {
+        std::thread::sleep(Duration::from_secs(REACHABILITY_POLL_INTERVAL_SECS));
+
+        for svc in services.iter_mut() {
+            if !svc.is_reachable {
+                svc.is_reachable = is_service_reachable(&svc.url);
+            }
+        }
+
+        if services.iter().all(|s| s.is_reachable) {
+            break;
+        }
+    }
 }
 
 /// Display URL table (shared between display_service_urls and run_ps)
@@ -857,12 +904,8 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // Check reachability for services that haven't been checked yet
-    for svc in &mut all_services {
-        if !svc.is_reachable {
-            svc.is_reachable = is_service_reachable(&svc.url);
-        }
-    }
+    // Wait for services to become reachable (with configurable timeout)
+    wait_for_services_reachable(&mut all_services, manifest.dev.reachability_timeout);
 
     display_url_table(&all_services);
     Ok(())
