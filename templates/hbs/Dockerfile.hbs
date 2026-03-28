@@ -14,6 +14,8 @@ RUN apk add --no-cache libc6-compat{{#each extra_apk}} {{this}}{{/each}} \
 # ── pruner ────────────────────────────────────────────────────────
 FROM base AS pruner
 WORKDIR /app
+ENV PNPM_HOME="/pnpm/global"
+ENV PATH="$PNPM_HOME:$PATH"
 RUN pnpm add -g turbo
 COPY . .
 RUN turbo prune {{scope}}/{{name}} --docker

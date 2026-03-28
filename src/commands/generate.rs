@@ -1183,9 +1183,34 @@ fn resolve_package_data(
     if app.preset.is_some() || !app.dep_groups.is_empty() {
         let resolved = crate::preset::resolve_app_presets(app, presets, dep_groups)?;
         for (k, v) in &resolved.deps {
+            // Resolve "catalog" references: if not in resolved_catalog, use default_policy
+            if v == "catalog" && !resolved_catalog.contains_key(k) {
+                let policy = default_policy.unwrap_or("latest");
+                match resolve_version(k, policy) {
+                    Ok(version) => {
+                        println!("  ✓ {} (dep_group, default: {}) → {}", k, policy, version);
+                        resolved_catalog.insert(k.clone(), version);
+                    }
+                    Err(e) => {
+                        eprintln!("  ⚠ Failed to resolve {}: {}", k, e);
+                    }
+                }
+            }
             final_deps.insert(k.clone(), v.clone());
         }
         for (k, v) in &resolved.dev_deps {
+            if v == "catalog" && !resolved_catalog.contains_key(k) {
+                let policy = default_policy.unwrap_or("latest");
+                match resolve_version(k, policy) {
+                    Ok(version) => {
+                        println!("  ✓ {} (dep_group dev, default: {}) → {}", k, policy, version);
+                        resolved_catalog.insert(k.clone(), version);
+                    }
+                    Err(e) => {
+                        eprintln!("  ⚠ Failed to resolve {}: {}", k, e);
+                    }
+                }
+            }
             final_dev_deps.insert(k.clone(), v.clone());
         }
         for (k, v) in &resolved.scripts {
