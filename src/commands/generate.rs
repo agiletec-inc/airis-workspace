@@ -203,7 +203,12 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     let has_workspace = manifest.has_workspace();
     let engine = TemplateEngine::new()?;
     let mut generated_files: Vec<String> = Vec::new();
+    let mut generated_paths: Vec<String> = Vec::new(); // Actual file paths for orphan tracking
     let mut inject_count = 0;
+
+    // Load previous generation registry for orphan detection
+    let registry_path = Path::new(".airis/generated.toml");
+    let previous_paths: Vec<String> = load_generation_registry(registry_path);
 
     // Node.js workspace files (only when [workspace] package_manager is set)
     if has_workspace {
@@ -211,7 +216,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
         generate_docker_compose(manifest, &engine, force)?;
+        generated_paths.push("compose.yml".into());
         generate_package_json(manifest, &engine, &resolved_catalog, force)?;
+        generated_paths.push("package.json".into());
 
         generated_files.extend([
             "package.json (with workspaces)".into(),
@@ -220,6 +227,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         if !manifest.packages.workspaces.is_empty() {
             generate_pnpm_workspace(manifest, &engine, force)?;
+            generated_paths.push("pnpm-workspace.yaml".into());
         }
 
         // Generate individual app package.json files (auto-discovery + explicit)
@@ -269,6 +277,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     crate::generators::package_json::generate_full_package_json(
                         &auto_app, &workspace_root, &resolved_catalog, &resolved_data,
                     )?;
+                    if let Some(ref path) = auto_app.path {
+                        generated_paths.push(format!("{}/package.json", path));
+                    }
                     app_count += 1;
                 }
             }
@@ -283,6 +294,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                 crate::generators::package_json::generate_full_package_json(
                     app, &workspace_root, &resolved_catalog, &resolved_data,
                 )?;
+                if let Some(ref path) = app.path {
+                    generated_paths.push(format!("{}/package.json", path));
+                }
                 app_count += 1;
             }
 
@@ -291,20 +305,27 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         // Generate production Dockerfiles for services with [app.deploy] enabled
         generate_service_dockerfiles(manifest, &engine)?;
-        let deploy_count = manifest.app.iter()
+        let deploy_apps: Vec<_> = manifest.app.iter()
             .filter(|a| a.deploy.as_ref().is_some_and(|d| d.enabled))
-            .count();
-        if deploy_count > 0 {
-            generated_files.push(format!("{} service Dockerfiles (turbo prune)", deploy_count));
+            .collect();
+        if !deploy_apps.is_empty() {
+            for app in &deploy_apps {
+                if let Some(ref path) = app.path {
+                    generated_paths.push(format!("{}/Dockerfile", path));
+                }
+            }
+            generated_files.push(format!("{} service Dockerfiles (turbo prune)", deploy_apps.len()));
         }
 
         // Generate .npmrc for pnpm store isolation
         generate_npmrc(&engine)?;
+        generated_paths.push(".npmrc".into());
         generated_files.push(".npmrc (pnpm store isolation)".into());
 
         // Generate tsconfig files (tsconfig.base.json + tsconfig.json)
         if !manifest.typescript.skip {
             generate_tsconfig(manifest, &engine, &resolved_catalog)?;
+            generated_paths.extend(["tsconfig.base.json".into(), "tsconfig.json".into()]);
             generated_files.push("tsconfig.base.json + tsconfig.json".into());
         }
 
@@ -316,11 +337,16 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         // Generate .envrc for direnv
         generate_envrc(manifest, &engine)?;
+        generated_paths.push(".envrc".into());
         generated_files.push(".envrc".into());
 
         // Generate git hooks
         generate_git_hooks(&engine)?;
         generate_native_hooks()?;
+        generated_paths.extend([
+            ".husky/pre-commit".into(), ".husky/pre-push".into(),
+            "hooks/pre-commit".into(), "hooks/pre-push".into(),
+        ]);
         generated_files.extend([
             ".husky/pre-commit".into(),
             ".husky/pre-push".into(),
@@ -345,13 +371,23 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         println!("{}", "🚀 Generating CI/CD workflows...".bright_blue());
         if !manifest.deploy_profiles().is_empty() {
             generate_ci_workflow(manifest, &engine)?;
+            generated_paths.push(".github/workflows/ci.yml".into());
             generate_deploy_workflow(manifest, &engine)?;
+            generated_paths.push(".github/workflows/deploy.yml".into());
             if manifest.ci.e2e.enabled {
                 generate_e2e_workflow(manifest, &engine)?;
+                generated_paths.push(".github/workflows/e2e-staging.yml".into());
             }
         }
         generate_release_workflow(manifest, &engine)?;
+        generated_paths.push(".github/workflows/release.yml".into());
     }
+
+    // Orphan detection: compare previous vs current generated files
+    detect_orphaned_files(&previous_paths, &generated_paths);
+
+    // Save current generation registry
+    save_generation_registry(registry_path, &generated_paths)?;
 
     // Summary
     println!();
@@ -836,11 +872,28 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         match exec_status {
             Ok(s) if s.success() => Ok(s),
             _ => {
-                // Container not running — use `run --rm` to start a temporary one
-                println!("   {} container not running, starting temporary container...", "↻".yellow());
-                Command::new("docker")
-                    .args(["compose", "run", "--rm", "--no-deps", "-T", svc, "pnpm", "install", "--lockfile-only"])
-                    .status()
+                // Container not running — use doppler + docker compose run to inject env vars
+                println!("   {} container not running, trying with doppler...", "↻".yellow());
+                let doppler_status = Command::new("doppler")
+                    .args(["run", "--", "docker", "compose", "run", "--rm", "--no-deps", "-T", svc, "pnpm", "install", "--lockfile-only"])
+                    .status();
+
+                match doppler_status {
+                    Ok(s) if s.success() => Ok(s),
+                    _ => {
+                        // Doppler not available — use lightweight docker run with base image
+                        println!("   {} doppler unavailable, using docker run...", "↻".yellow());
+                        let pm = &manifest.workspace.package_manager;
+                        let image = &manifest.workspace.image;
+                        Command::new("docker")
+                            .args([
+                                "run", "--rm", "-v", &format!("{}:/app", std::env::current_dir()?.display()),
+                                "-w", "/app", image,
+                                "sh", "-c", &format!("npm install -g {} && pnpm install --lockfile-only", pm),
+                            ])
+                            .status()
+                    }
+                }
             }
         }
     } else {
@@ -1357,5 +1410,61 @@ fn wildcard_matches(pattern: &str, name: &str) -> bool {
         name.starts_with(prefix)
     } else {
         pattern == name
+    }
+}
+
+// =============================================================================
+// Generation registry — tracks generated files for orphan detection
+// =============================================================================
+
+/// Load the list of previously generated files from .airis/generated.toml
+fn load_generation_registry(path: &Path) -> Vec<String> {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    // Simple line-based format: one path per line (skip comments and empty lines)
+    content
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.to_string())
+        .collect()
+}
+
+/// Save the current list of generated files to .airis/generated.toml
+fn save_generation_registry(path: &Path, paths: &[String]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut sorted = paths.to_vec();
+    sorted.sort();
+    sorted.dedup();
+    let content = format!(
+        "# Auto-managed by airis gen — do not edit\n# Lists all files generated from manifest.toml\n{}\n",
+        sorted.join("\n")
+    );
+    fs::write(path, content).context("Failed to write generation registry")?;
+    Ok(())
+}
+
+/// Detect and warn about orphaned files (previously generated but no longer in manifest)
+fn detect_orphaned_files(previous: &[String], current: &[String]) {
+    if previous.is_empty() {
+        return;
+    }
+    let current_set: std::collections::HashSet<&str> = current.iter().map(|s| s.as_str()).collect();
+    let mut orphans: Vec<&str> = Vec::new();
+    for path in previous {
+        if !current_set.contains(path.as_str()) && Path::new(path).exists() {
+            orphans.push(path);
+        }
+    }
+    if !orphans.is_empty() {
+        println!();
+        println!("{}", "⚠ Orphaned files detected (previously generated, no longer in manifest):".yellow());
+        for path in &orphans {
+            println!("   {} {}", "→".yellow(), path);
+        }
+        println!("   {} Remove manually if no longer needed.", "💡".cyan());
     }
 }
