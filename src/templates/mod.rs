@@ -78,11 +78,6 @@ impl TemplateEngine {
             ])
             .collect();
 
-        // Build dev CMD from framework conventions
-        let fw = variant;
-        let dev_script = crate::conventions::framework_defaults(fw).dev_script;
-        let dev_cmd = format!("\"sh\", \"-c\", \"pnpm --filter={}/{} {}\"", scope, app.name, dev_script);
-
         // Build package manager install command from manifest
         // "pnpm@10.33.0" → "npm install -g pnpm@10.33.0"
         // "pnpm" → "npm install -g pnpm"
@@ -109,7 +104,6 @@ impl TemplateEngine {
             "health_timeout": deploy.health_timeout.as_deref().unwrap_or("10s"),
             "health_start_period": deploy.health_start_period.as_deref().unwrap_or("30s"),
             "health_retries": deploy.health_retries.unwrap_or(3),
-            "dev_cmd": dev_cmd,
             "build_args_lines": build_args_lines,
             "extra_apk": deploy.extra_apk,
         });
@@ -470,6 +464,9 @@ impl TemplateEngine {
             let snake = app.name.replace('-', "_");
             let kebab = &app.name;
 
+            // Resolve env_groups + explicit env into a single list for deploy compose
+            let _resolved_env = resolve_deploy_env(deploy, manifest);
+
             // Host rule for health check (v2: host, v1 compat: host_rule)
             let host_raw = deploy
                 .host
@@ -721,22 +718,23 @@ impl TemplateEngine {
                     format!("{}-{}", manifest.workspace.name, name)
                 });
 
-                // Apply build defaults: dockerfile from matching app path, target defaults to "dev"
+                // Apply build defaults: dockerfile from matching app path
                 let build = svc.build.as_ref().map(|b| {
                     let dockerfile = b.dockerfile.clone().unwrap_or_else(|| {
-                        // Look up matching app by service name to derive Dockerfile path
                         manifest.app.iter()
                             .find(|a| a.name == *name)
                             .and_then(|a| a.path.as_ref())
                             .map(|path| format!("{}/Dockerfile", path))
                             .unwrap_or_else(|| format!("{}/Dockerfile", name))
                     });
-                    let target = b.target.clone().unwrap_or_else(|| "dev".to_string());
-                    json!({
+                    let mut build_json = json!({
                         "context": b.context,
                         "dockerfile": dockerfile,
-                        "target": target,
-                    })
+                    });
+                    if let Some(ref target) = b.target {
+                        build_json["target"] = json!(target);
+                    }
+                    build_json
                 });
 
                 json!({
@@ -1207,6 +1205,27 @@ const DOCKER_COMPOSE_TEMPLATE: &str = include_str!("../../templates/hbs/docker-c
 
 const SERVICE_DOCKERFILE_TEMPLATE: &str = include_str!("../../templates/hbs/Dockerfile.hbs");
 
+
+/// Resolve `env_groups` + explicit `env` from an AppDeployConfig into a single env list.
+///
+/// Group entries are expanded first, then explicit entries are appended (allowing overrides).
+/// Each entry is formatted as "KEY: VALUE" for deploy compose environment sections.
+pub fn resolve_deploy_env(
+    deploy: &crate::manifest::AppDeployConfig,
+    manifest: &Manifest,
+) -> Vec<String> {
+    let mut resolved: Vec<String> = Vec::new();
+    for group_name in &deploy.env_groups {
+        if let Some(group) = manifest.env_group.get(group_name) {
+            for (key, value) in group {
+                resolved.push(format!("{key}: {value}"));
+            }
+        }
+    }
+    // Explicit env entries override group entries
+    resolved.extend(deploy.env.iter().cloned());
+    resolved
+}
 
 /// Convert a TOML value to a serde_json value for tsconfig generation.
 fn toml_value_to_json(value: &toml::Value) -> serde_json::Value {
