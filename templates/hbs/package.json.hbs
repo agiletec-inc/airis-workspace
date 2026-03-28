@@ -1,0 +1,82 @@
+{
+  "name": "{{name}}",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+{{#if has_engines}}
+  "engines": {
+{{#each engines}}
+    "{{@key}}": "{{{this}}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+{{/if}}
+  "packageManager": "{{package_manager}}",
+  "dependencies": {
+{{#each dependencies}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+  "devDependencies": {
+{{#each dev_dependencies}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+{{#if has_optional_deps}}
+  "optionalDependencies": {
+{{#each optional_dependencies}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+{{/if}}
+{{#if has_pnpm_config}}
+  "pnpm": {
+{{#if pnpm.overrides}}
+    "overrides": {
+{{#each pnpm.overrides}}
+      "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+    }{{#if pnpm.peerDependencyRules.ignoreMissing}},{{else}}{{#if pnpm.onlyBuiltDependencies}},{{else}}{{#if pnpm.allowedScripts}},{{/if}}{{/if}}{{/if}}
+{{/if}}
+{{#if pnpm.peerDependencyRules.ignoreMissing}}
+    "peerDependencyRules": {
+      "ignoreMissing": [
+{{#each pnpm.peerDependencyRules.ignoreMissing}}
+        "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+      ]{{#if pnpm.peerDependencyRules.allowedVersions}},{{/if}}
+{{#if pnpm.peerDependencyRules.allowedVersions}}
+      "allowedVersions": {
+{{#each pnpm.peerDependencyRules.allowedVersions}}
+        "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+      }
+{{/if}}
+    }{{#if pnpm.onlyBuiltDependencies}},{{else}}{{#if pnpm.allowedScripts}},{{/if}}{{/if}}
+{{/if}}
+{{#if pnpm.onlyBuiltDependencies}}
+    "onlyBuiltDependencies": [
+{{#each pnpm.onlyBuiltDependencies}}
+      "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+    ]{{#if pnpm.allowedScripts}},{{/if}}
+{{/if}}
+{{#if pnpm.allowedScripts}}
+    "allowedScripts": {
+{{#each pnpm.allowedScripts}}
+      "{{@key}}": {{this}}{{#unless @last}},{{/unless}}
+{{/each}}
+    }
+{{/if}}
+  },
+{{/if}}
+  "scripts": {
+{{#each scripts}}
+    "{{@key}}": "{{this}}"{{#unless @last}},{{/unless}}
+{{/each}}
+  },
+  "_generated": {
+    "by": "airis init",
+    "from": "manifest.toml",
+    "warning": "⚠️  DO NOT EDIT - Update manifest.toml then rerun `airis init`"
+  }
+}
