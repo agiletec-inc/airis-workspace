@@ -979,8 +979,9 @@ jobs:
         // Build CI job (same structure for lint, typecheck, test)
         let build_job = |task: &str, timeout: u8| -> String {
             format!(
-                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: {}\n        with:\n          fetch-depth: 2{}\n      - uses: {}\n      - uses: {}\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}",
-                task, runner_yaml, timeout, checkout, fetch_main_step, pnpm_action, setup_node, node_version, pnpm_store_step, task, affected_flag
+                "  {}:\n    runs-on: {}\n    timeout-minutes: {}\n    steps:\n      - uses: {}\n        with:\n          fetch-depth: 2{}\n      - uses: {}\n      - uses: {}\n        with:\n          node-version: '{}'\n{}\n      - run: pnpm install --frozen-lockfile\n      - run: pnpm turbo run {}{}{}",
+                task, runner_yaml, timeout, checkout, fetch_main_step, pnpm_action, setup_node, node_version, pnpm_store_step, task, affected_flag,
+                " --continue" // Run all packages even if one fails
             )
         };
 
