@@ -809,6 +809,7 @@ jobs:
 
       - name: Publish to crates.io
         if: steps.check_tag.outputs.exists == 'false'
+        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{{{ secrets.CARGO_REGISTRY_TOKEN }}}}
         run: cargo publish --no-verify --allow-dirty
