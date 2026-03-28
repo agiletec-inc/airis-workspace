@@ -228,24 +228,37 @@ fn fetch_release(version: &str) -> Result<Release> {
         )
     };
 
-    let output = Command::new("curl")
-        .args([
-            "-sS",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "User-Agent: airis-upgrade",
-            &url,
-        ])
-        .output()
-        .context("Failed to fetch release info from GitHub")?;
+    let mut req = ureq::get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "airis-upgrade");
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("GitHub API request failed: {}", stderr);
+    // Use GitHub token for authenticated requests (5000 req/h vs 60 req/h)
+    if let Ok(token) = std::env::var("GITHUB_TOKEN")
+        .or_else(|_| std::env::var("GH_TOKEN"))
+        .or_else(|_| {
+            Command::new("gh")
+                .args(["auth", "token"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(std::env::VarError::NotPresent)
+        })
+    {
+        req = req.header("Authorization", &format!("Bearer {token}"));
     }
 
-    let body = String::from_utf8(output.stdout).context("Invalid UTF-8 in GitHub response")?;
+    let body = req
+        .call()
+        .context("Failed to fetch release info from GitHub")?
+        .into_body()
+        .read_to_string()
+        .context("Failed to read GitHub API response body")?;
 
     // Check for error response
     if body.contains("\"message\":") && body.contains("Not Found") {
@@ -257,26 +270,21 @@ fn fetch_release(version: &str) -> Result<Release> {
 
 /// Download a file from URL to path
 fn download_file(url: &str, path: &PathBuf) -> Result<()> {
-    let output = Command::new("curl")
-        .args([
-            "-sS",
-            "-L", // Follow redirects
-            "-o",
-            &path.to_string_lossy(),
-            url,
-        ])
-        .output()
+    let response = ureq::get(url)
+        .header("User-Agent", "airis-upgrade")
+        .call()
         .context("Failed to download file")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("Download failed: {}", stderr);
+    let bytes = response
+        .into_body()
+        .read_to_vec()
+        .context("Failed to read download response body")?;
+
+    if bytes.is_empty() {
+        anyhow::bail!("Downloaded file is empty");
     }
 
-    // Verify file was created
-    if !path.exists() || fs::metadata(path)?.len() == 0 {
-        anyhow::bail!("Downloaded file is empty or missing");
-    }
+    fs::write(path, &bytes).context("Failed to write downloaded file")?;
 
     Ok(())
 }
