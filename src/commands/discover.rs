@@ -42,11 +42,11 @@ impl std::fmt::Display for Framework {
 /// Location category for docker-compose files
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComposeLocation {
-    Root,      // ./docker-compose.yml (should be moved)
-    Workspace, // workspace/docker-compose.yml
-    Supabase,  // supabase/docker-compose.yml
-    Traefik,   // traefik/docker-compose.yml
-    App,       // apps/*/docker-compose.yml
+    Root,      // ./compose.yml (should be moved)
+    Workspace, // workspace/compose.yml
+    Supabase,  // supabase/compose.yml
+    Traefik,   // traefik/compose.yml
+    App,       // apps/*/compose.yml
 }
 
 impl std::fmt::Display for ComposeLocation {
@@ -288,7 +288,7 @@ fn print_discovery_result(result: &DiscoveryResult) {
                 ComposeLocation::Root => format!(
                     "{} {}",
                     "→".yellow(),
-                    "workspace/docker-compose.yml".yellow()
+                    "workspace/compose.yml".yellow()
                 ),
                 _ => format!("{} (correct location)", "✓".green()),
             };
@@ -507,14 +507,14 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
 
     // Check standard locations
     let locations = [
-        ("docker-compose.yml", ComposeLocation::Root),
-        ("docker-compose.yaml", ComposeLocation::Root),
-        ("workspace/docker-compose.yml", ComposeLocation::Workspace),
-        ("workspace/docker-compose.yaml", ComposeLocation::Workspace),
-        ("supabase/docker-compose.yml", ComposeLocation::Supabase),
-        ("supabase/docker-compose.yaml", ComposeLocation::Supabase),
-        ("traefik/docker-compose.yml", ComposeLocation::Traefik),
-        ("traefik/docker-compose.yaml", ComposeLocation::Traefik),
+        ("compose.yml", ComposeLocation::Root),
+        ("compose.yaml", ComposeLocation::Root),
+        ("workspace/compose.yml", ComposeLocation::Workspace),
+        ("workspace/compose.yaml", ComposeLocation::Workspace),
+        ("supabase/compose.yml", ComposeLocation::Supabase),
+        ("supabase/compose.yaml", ComposeLocation::Supabase),
+        ("traefik/compose.yml", ComposeLocation::Traefik),
+        ("traefik/compose.yaml", ComposeLocation::Traefik),
     ];
 
     for (path, location) in locations {
@@ -534,7 +534,7 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                for compose_name in ["docker-compose.yml", "docker-compose.yaml"] {
+                for compose_name in ["compose.yml", "compose.yaml"] {
                     let compose_path = path.join(compose_name);
                     if compose_path.exists() {
                         let rel_path = compose_path

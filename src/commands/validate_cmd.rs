@@ -113,7 +113,7 @@ fn run_json(action: ValidateAction) -> Result<()> {
             ("manifest", Box::new(|| validate_manifest_impl(true)) as Box<dyn Fn() -> Result<()>>, "Run `airis init` to regenerate manifest.toml"),
         ],
         ValidateAction::Ports => vec![
-            ("ports", Box::new(|| validate_ports_impl(true)), "Use `expose:` instead of `ports:` in docker-compose.yml"),
+            ("ports", Box::new(|| validate_ports_impl(true)), "Use `expose:` instead of `ports:` in compose.yml"),
         ],
         ValidateAction::Networks => vec![
             ("networks", Box::new(|| validate_networks_impl(true)), "Check Traefik network configuration"),
@@ -180,8 +180,8 @@ fn validate_ports_impl(quiet: bool) -> Result<()> {
         .args([
             "-n",
             r"^\s*ports\s*:",
-            "--glob", "apps/*/docker-compose*.yml",
-            "--glob", "!apps/*/docker-compose.override*.yml",
+            "--glob", "apps/*/compose*.yml",
+            "--glob", "!apps/*/compose.override*.yml",
             ".",
         ])
         .output()
@@ -232,7 +232,7 @@ fn validate_networks() -> Result<()> {
 
 fn validate_networks_impl(quiet: bool) -> Result<()> {
     if !quiet {
-        println!("{}", "🔍 Checking Traefik network wiring in apps/*/docker-compose.yml...".bright_blue());
+        println!("{}", "🔍 Checking Traefik network wiring in apps/*/compose.yml...".bright_blue());
     }
 
     let apps_dir = Path::new("apps");
@@ -260,7 +260,7 @@ fn validate_networks_impl(quiet: bool) -> Result<()> {
             continue;
         }
 
-        let compose_file = path.join("docker-compose.yml");
+        let compose_file = path.join("compose.yml");
         if !compose_file.exists() {
             continue;
         }

@@ -173,7 +173,7 @@ impl TemplateEngine {
         let data = self.prepare_docker_compose_data(manifest, ".")?;
         self.hbs
             .render("docker_compose", &data)
-            .context("Failed to render docker-compose.yml")
+            .context("Failed to render compose.yml")
     }
 
     /// Generate .env.example from manifest.toml [env] section

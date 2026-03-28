@@ -33,7 +33,7 @@ fn get_package_manager(manifest: &Manifest) -> &str {
 }
 
 /// Find the compose file in the current directory.
-/// Checks in order of priority: compose.yaml, compose.yml, docker-compose.yaml, docker-compose.yml
+/// Checks in order of priority: compose.yaml, compose.yml, compose.yaml, compose.yml
 /// Returns the filename if found, None otherwise.
 fn find_compose_file() -> Option<&'static str> {
     // Modern naming (preferred)
@@ -44,11 +44,11 @@ fn find_compose_file() -> Option<&'static str> {
         return Some("compose.yml");
     }
     // Legacy naming (backwards compatibility)
-    if Path::new("docker-compose.yaml").exists() {
-        return Some("docker-compose.yaml");
+    if Path::new("compose.yaml").exists() {
+        return Some("compose.yaml");
     }
-    if Path::new("docker-compose.yml").exists() {
-        return Some("docker-compose.yml");
+    if Path::new("compose.yml").exists() {
+        return Some("compose.yml");
     }
     None
 }
@@ -894,7 +894,7 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
 
         // Wait for Supabase DB to be healthy
         println!("   {} Waiting for Supabase DB to be healthy...", "⏳".dimmed());
-        let compose_file = supabase_files.first().map(|s| s.as_str()).unwrap_or("supabase/docker-compose.yml");
+        let compose_file = supabase_files.first().map(|s| s.as_str()).unwrap_or("supabase/compose.yml");
         let health_check = format!("docker compose -f {} exec -T db pg_isready -U postgres -h localhost", compose_file);
         let mut retries = DB_HEALTH_RETRIES;
         while retries > 0 {
@@ -919,7 +919,7 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
         }
     }
 
-    // 3. Start workspace container (root compose.yml or docker-compose.yml)
+    // 3. Start workspace container (root compose.yml or compose.yml)
     if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
@@ -950,7 +950,7 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
         println!("   {} Found {} apps via pattern: {}", "🔍".dimmed(), compose_files.len(), apps_pattern.dimmed());
 
         for compose_path in &compose_files {
-            // Extract app name from path (apps/foo/docker-compose.yml -> foo)
+            // Extract app name from path (apps/foo/compose.yml -> foo)
             let app_name = Path::new(compose_path)
                 .parent()
                 .and_then(|p| p.file_name())
@@ -1012,7 +1012,7 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
         }
     }
 
-    // 2. Stop workspace (root compose.yml or docker-compose.yml)
+    // 2. Stop workspace (root compose.yml or compose.yml)
     if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛑 Stopping workspace...".cyan().bold());
         let cmd = format!("docker compose -f {} down --remove-orphans", compose_file);
@@ -1071,7 +1071,7 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
         }
     }
 
-    // Fall back to default (compose.yml or docker-compose.yml if exists)
+    // Fall back to default (compose.yml or compose.yml if exists)
     if let Some(compose_file) = find_compose_file() {
         return Ok(format!("docker compose -f {} {}", compose_file, base_cmd));
     }
@@ -1079,7 +1079,7 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
     // STRICT: No compose file found - return error with resolution steps
     bail!(
         "No compose file found.\n\n\
-         Expected: compose.yml (or docker-compose.yml) or [orchestration.dev] config in manifest.toml\n\
+         Expected: compose.yml (or compose.yml) or [orchestration.dev] config in manifest.toml\n\
          Verify:   airis manifest json\n\
          Generate: airis gen"
     );
@@ -1290,7 +1290,7 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     // Allow up/down without manifest.toml if compose file exists
     if !manifest_path.exists() {
         if matches!(task, "up" | "down") {
-            // Check for compose files (modern: compose.yml, legacy: docker-compose.yml)
+            // Check for compose files (modern: compose.yml, legacy: compose.yml)
             if let Some(compose_file) = find_compose_file() {
                 if task == "up" {
                     ensure_env_file();
@@ -1959,7 +1959,7 @@ mod tests {
     fn test_run_missing_command() {
         // Note: This test checks default_commands directly to avoid
         // directory change race conditions with other tests
-        // Use Rust project to avoid needing docker-compose.yml
+        // Use Rust project to avoid needing compose.yml
         let manifest_content = r#"
 version = 1
 
@@ -2057,8 +2057,8 @@ name = "test"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // Create docker-compose.yml for Node project test
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        // Create compose.yml for Node project test
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let manifest_content = r#"
 version = 1
@@ -2098,8 +2098,8 @@ package_manager = "bun@1.0.0"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // Create docker-compose.yml for Node project test
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        // Create compose.yml for Node project test
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let manifest_content = r#"
 version = 1
@@ -2141,8 +2141,8 @@ test = "custom test command"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // Create docker-compose.yml for Node project test
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        // Create compose.yml for Node project test
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let manifest_content = r#"
 version = 1
@@ -2281,7 +2281,7 @@ recursive = ["node_modules", "'; rm -rf /;"]
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // No docker-compose.yml, no orchestration config
+        // No compose.yml, no orchestration config
         let manifest_content = r#"
 version = 1
 
@@ -2311,8 +2311,8 @@ name = "test"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // Create docker-compose.yml
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        // Create compose.yml
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let manifest_content = r#"
 version = 1
@@ -2325,7 +2325,7 @@ name = "test"
             let result = build_compose_command(&manifest, "up -d");
             assert!(result.is_ok());
             let cmd = result.unwrap();
-            assert!(cmd.contains("-f docker-compose.yml"));
+            assert!(cmd.contains("-f compose.yml"));
             assert!(cmd.contains("up -d"));
         });
 
@@ -2340,7 +2340,7 @@ name = "test"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // No docker-compose.yml, but orchestration config exists
+        // No compose.yml, but orchestration config exists
         let manifest_content = r#"
 version = 1
 
@@ -2348,16 +2348,16 @@ version = 1
 name = "test"
 
 [orchestration.dev]
-workspace = "docker-compose.yml"
-traefik = "traefik/docker-compose.yml"
+workspace = "compose.yml"
+traefik = "traefik/compose.yml"
 "#;
         let result = std::panic::catch_unwind(|| {
             let manifest: Manifest = toml::from_str(manifest_content).unwrap();
             let result = build_compose_command(&manifest, "up -d");
             assert!(result.is_ok());
             let cmd = result.unwrap();
-            assert!(cmd.contains("-f docker-compose.yml"));
-            assert!(cmd.contains("-f traefik/docker-compose.yml"));
+            assert!(cmd.contains("-f compose.yml"));
+            assert!(cmd.contains("-f traefik/compose.yml"));
         });
 
         std::env::set_current_dir(original_dir).unwrap();

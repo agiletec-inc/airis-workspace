@@ -50,9 +50,9 @@ impl WorkspaceTruth {
         // Collect compose files
         let mut compose_files = Vec::new();
 
-        // Add root docker-compose.yml if it exists
-        if Path::new("docker-compose.yml").exists() {
-            compose_files.push("docker-compose.yml".to_string());
+        // Add root compose.yml if it exists
+        if Path::new("compose.yml").exists() {
+            compose_files.push("compose.yml".to_string());
         }
 
         // Add from orchestration config if present
@@ -208,7 +208,7 @@ workdir = "/app"
 package_manager = "pnpm@10.22.0"
 
 [docker]
-compose = "docker-compose.yml"
+compose = "compose.yml"
 "#;
         let manifest: Manifest = toml::from_str(manifest_content).unwrap();
 
@@ -217,8 +217,8 @@ compose = "docker-compose.yml"
         let original_dir = std::env::current_dir().unwrap();
         std::env::set_current_dir(&dir).unwrap();
 
-        // Create docker-compose.yml
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        // Create compose.yml
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let result = std::panic::catch_unwind(|| {
             let truth = WorkspaceTruth::from_manifest(&manifest).unwrap();
@@ -277,9 +277,9 @@ version = 1
 name = "test"
 
 [orchestration.dev]
-workspace = "docker-compose.yml"
-supabase = ["supabase/docker-compose.yml"]
-traefik = "traefik/docker-compose.yml"
+workspace = "compose.yml"
+supabase = ["supabase/compose.yml"]
+traefik = "traefik/compose.yml"
 "#;
         let manifest: Manifest = toml::from_str(manifest_content).unwrap();
 
@@ -288,20 +288,20 @@ traefik = "traefik/docker-compose.yml"
         std::env::set_current_dir(&dir).unwrap();
 
         // Create the compose files
-        std::fs::write("docker-compose.yml", "version: '3'").unwrap();
+        std::fs::write("compose.yml", "version: '3'").unwrap();
 
         let result = std::panic::catch_unwind(|| {
             let truth = WorkspaceTruth::from_manifest(&manifest).unwrap();
 
             // Should have all compose files
-            assert!(truth.compose_files.contains(&"docker-compose.yml".to_string()));
-            assert!(truth.compose_files.contains(&"supabase/docker-compose.yml".to_string()));
-            assert!(truth.compose_files.contains(&"traefik/docker-compose.yml".to_string()));
+            assert!(truth.compose_files.contains(&"compose.yml".to_string()));
+            assert!(truth.compose_files.contains(&"supabase/compose.yml".to_string()));
+            assert!(truth.compose_files.contains(&"traefik/compose.yml".to_string()));
 
             // Compose command should include all -f flags
-            assert!(truth.compose_command.contains("-f docker-compose.yml"));
-            assert!(truth.compose_command.contains("-f supabase/docker-compose.yml"));
-            assert!(truth.compose_command.contains("-f traefik/docker-compose.yml"));
+            assert!(truth.compose_command.contains("-f compose.yml"));
+            assert!(truth.compose_command.contains("-f supabase/compose.yml"));
+            assert!(truth.compose_command.contains("-f traefik/compose.yml"));
         });
 
         std::env::set_current_dir(original_dir).unwrap();

@@ -211,15 +211,15 @@ pub fn setup() -> Result<()> {
         }
     }
 
-    // 3. Start Traefik (if traefik/docker-compose.yml exists)
-    let traefik_compose = Path::new("traefik/docker-compose.yml");
+    // 3. Start Traefik (if traefik/compose.yml exists)
+    let traefik_compose = Path::new("traefik/compose.yml");
     if traefik_compose.exists() {
         println!();
         println!("{}", "Starting Traefik...".bright_blue());
 
         let proxy_env = proxy_network.as_deref().unwrap_or("bridge");
         let cmd = format!(
-            "EXTERNAL_PROXY_NETWORK={} docker compose -f traefik/docker-compose.yml up -d",
+            "EXTERNAL_PROXY_NETWORK={} docker compose -f traefik/compose.yml up -d",
             proxy_env
         );
 
