@@ -3,7 +3,7 @@
 
 [package]
 name = "airis-monorepo"
-version = "1.168.0"
+version = "1.169.0"
 edition = "2024"
 authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -18,6 +18,8 @@ exclude = [
     "/.github",
     "/.claude",
     "/.workspace",
+    "/.husky",
+    "/.cargo",
     "/apps",
     "/libs",
     "/node_modules",
@@ -28,11 +30,15 @@ exclude = [
     "/docs",
     "/scripts",
     "/npm",
+    "/hooks",
+    "/templates",
+    "/examples",
     "**/.DS_Store",
     "demo.tape",
     "pnpm-lock.yaml",
     "/manifest.toml",
     "manifest.md",
+    "compose.yml",
     "docker-compose.yml",
     "docker-compose.yml.md",
     "Dockerfile",
@@ -40,8 +46,13 @@ exclude = [
     "package.json.md",
     "pnpm-workspace.yaml",
     "pnpm-workspace.yaml.md",
+    ".npmrc",
+    "tsconfig.json",
+    "tsconfig.base.json",
     "AGENTS.md",
     "CLAUDE.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "DEPLOYMENT.md",
     "PROJECT_INDEX.md",
     "WORKSPACE.md",

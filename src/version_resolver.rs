@@ -103,6 +103,7 @@ const GITHUB_ACTIONS: &[(&str, &str)] = &[
     ("cache", "actions/cache"),
     ("doppler", "dopplerhq/cli-action"),
     ("upload_artifact", "actions/upload-artifact"),
+    ("download_artifact", "actions/download-artifact"),
 ];
 
 /// Resolve a GitHub Action version policy.
@@ -199,6 +200,7 @@ pub fn resolve_all_action_versions(
         ("cache", &actions.cache),
         ("doppler", &actions.doppler),
         ("upload_artifact", &actions.upload_artifact),
+        ("download_artifact", &actions.download_artifact),
     ];
 
     let mut resolved = actions.clone();
@@ -218,6 +220,7 @@ pub fn resolve_all_action_versions(
                 "cache" => resolved.cache = version,
                 "doppler" => resolved.doppler = version,
                 "upload_artifact" => resolved.upload_artifact = version,
+                "download_artifact" => resolved.download_artifact = version,
                 _ => {}
             }
         }
