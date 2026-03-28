@@ -57,7 +57,7 @@ policy = "^5.0.0"           # Use semver range
 - `"~X.Y.Z"`: Use patch range (e.g., `~5.1.0` matches `5.1.x`)
 
 **Resolution**:
-- Run `airis workspace sync-deps` to resolve policies to actual versions
+- Run `airis gen` to resolve policies to actual versions
 - Writes resolved versions to `package.json` `pnpm.catalog` section
 - Lock files maintain reproducibility
 
@@ -438,9 +438,9 @@ airis init              # Auto-detect and generate manifest.toml
 airis init --force      # Skip confirmation prompts
 ```
 
-### Sync Dependencies
+### Resolve Dependencies
 ```bash
-airis workspace sync-deps    # Resolve catalog policies to versions
+airis gen    # Resolve catalog policies to versions and regenerate files
 ```
 
 ### Validate Configuration

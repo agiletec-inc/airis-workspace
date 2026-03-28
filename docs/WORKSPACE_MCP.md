@@ -73,7 +73,6 @@
 - `workspace_validate_deps` → `airis validate deps`
 - `workspace_validate_arch` → `airis validate arch`
 - `workspace_sync` → `airis workspace sync`
-- `workspace_sync_deps` → `airis workspace sync-deps`
 - `workspace_generate_types` → `airis generate types`
 - `workspace_bump_version` → `airis bump-version --auto`
 - `workspace_status` → `airis status`
@@ -259,7 +258,6 @@ async fn main() {
 **Goal:** よく使うコマンドを網羅
 
 - `workspace_validate_all`
-- `workspace_sync_deps`
 - `workspace_status`
 - `workspace_doctor`
 

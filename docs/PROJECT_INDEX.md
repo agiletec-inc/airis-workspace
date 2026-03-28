@@ -39,9 +39,6 @@ airis-monorepo/
 - **Commands**:
   - `init [--force]` - Create or re-sync MANIFEST + derived files
   - `validate` - Validate workspace configuration (not implemented)
-  - `workspace sync-deps` - **NEW**: Resolve catalog policies to versions (planned)
-    - Query npm registry for `latest`/`lts` versions
-    - Write resolved versions to package.json `pnpm.catalog`
   - `manifest dev-apps` - Print dev.apps list (used by justfile)
   - `manifest rule <name>` - Print rule commands (used by justfile)
 
@@ -66,7 +63,7 @@ airis-monorepo/
   - `mode: Mode` - Docker-first | hybrid | strict
   - `catalog: IndexMap<String, CatalogEntry>` - **NEW**: Version policies (not hardcoded numbers)
     - Each entry: `policy = "latest" | "lts" | "^X.Y.Z"`
-    - Resolved to actual versions by `airis workspace sync-deps`
+    - Resolved to actual versions by `airis gen`
   - `workspaces: Workspaces` - Apps and libs
   - `apps: IndexMap<String, AppConfig>` - App-specific config
   - `docker: DockerConfig` - Docker settings
