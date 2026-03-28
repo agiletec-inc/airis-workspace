@@ -33,10 +33,9 @@ fn get_package_manager(manifest: &Manifest) -> &str {
 }
 
 /// Find the compose file in the current directory.
-/// Checks in order of priority: compose.yaml, compose.yml, compose.yaml, compose.yml
-/// Returns the filename if found, None otherwise.
+/// Checks in Docker's official priority order:
+/// compose.yaml > compose.yml > docker-compose.yaml > docker-compose.yml
 fn find_compose_file() -> Option<&'static str> {
-    // Modern naming (preferred)
     if Path::new("compose.yaml").exists() {
         return Some("compose.yaml");
     }
@@ -44,11 +43,11 @@ fn find_compose_file() -> Option<&'static str> {
         return Some("compose.yml");
     }
     // Legacy naming (backwards compatibility)
-    if Path::new("compose.yaml").exists() {
-        return Some("compose.yaml");
+    if Path::new("docker-compose.yaml").exists() {
+        return Some("docker-compose.yaml");
     }
-    if Path::new("compose.yml").exists() {
-        return Some("compose.yml");
+    if Path::new("docker-compose.yml").exists() {
+        return Some("docker-compose.yml");
     }
     None
 }
@@ -1881,7 +1880,8 @@ fn sha256_file(path: &Path) -> Result<String> {
     use sha2::{Sha256, Digest};
     let content = std::fs::read(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(&content)))
+    let hash = Sha256::digest(&content);
+    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
 /// Execute a hook command respecting Docker-first mode.

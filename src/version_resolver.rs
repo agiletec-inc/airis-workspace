@@ -28,12 +28,14 @@ pub fn resolve_version(package: &str, policy: &str) -> Result<String> {
 /// Fetch dist-tags for a package from the npm registry
 fn fetch_dist_tags(package: &str) -> Result<serde_json::Value> {
     let url = format!("{NPM_REGISTRY}/-/package/{package}/dist-tags");
-    let response = ureq::get(&url)
+    let body = ureq::get(&url)
         .call()
-        .context(format!("Failed to fetch dist-tags for {package}"))?;
+        .context(format!("Failed to fetch dist-tags for {package}"))?
+        .into_body()
+        .read_to_string()
+        .context(format!("Failed to read response body for {package}"))?;
 
-    let json: serde_json::Value = response
-        .into_json()
+    let json: serde_json::Value = serde_json::from_str(&body)
         .context(format!("Failed to parse dist-tags JSON for {package}"))?;
 
     Ok(json)
@@ -125,14 +127,16 @@ pub fn resolve_action_version(action_key: &str, policy: &str) -> Result<String> 
 /// Looks for tags matching `vN` (major-only), sorted descending.
 fn get_github_latest_major_tag(repo: &str) -> Result<String> {
     let url = format!("https://api.github.com/repos/{repo}/tags?per_page=100");
-    let response = ureq::get(&url)
-        .set("Accept", "application/vnd.github+json")
-        .set("User-Agent", "airis-monorepo")
+    let body = ureq::get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .header("User-Agent", "airis-monorepo")
         .call()
-        .context(format!("Failed to fetch tags for {repo}"))?;
+        .context(format!("Failed to fetch tags for {repo}"))?
+        .into_body()
+        .read_to_string()
+        .context(format!("Failed to read response body for {repo}"))?;
 
-    let tags: Vec<serde_json::Value> = response
-        .into_json()
+    let tags: Vec<serde_json::Value> = serde_json::from_str(&body)
         .context(format!("Failed to parse tags JSON for {repo}"))?;
 
     // Find major-only tags (v1, v2, ..., v6) — these are the stable refs

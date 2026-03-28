@@ -181,7 +181,9 @@ fn validate_ports_impl(quiet: bool) -> Result<()> {
             "-n",
             r"^\s*ports\s*:",
             "--glob", "apps/*/compose*.yml",
+            "--glob", "apps/*/docker-compose*.yml",
             "--glob", "!apps/*/compose.override*.yml",
+            "--glob", "!apps/*/docker-compose.override*.yml",
             ".",
         ])
         .output()
@@ -260,10 +262,14 @@ fn validate_networks_impl(quiet: bool) -> Result<()> {
             continue;
         }
 
-        let compose_file = path.join("compose.yml");
-        if !compose_file.exists() {
+        // Check for compose file (modern + legacy naming)
+        let compose_file = ["compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml"]
+            .iter()
+            .map(|name| path.join(name))
+            .find(|p| p.exists());
+        let Some(compose_file) = compose_file else {
             continue;
-        }
+        };
 
         let project = path.file_name()
             .and_then(|n| n.to_str())

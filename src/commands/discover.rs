@@ -507,6 +507,7 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
 
     // Check standard locations
     let locations = [
+        // Modern naming (preferred)
         ("compose.yml", ComposeLocation::Root),
         ("compose.yaml", ComposeLocation::Root),
         ("workspace/compose.yml", ComposeLocation::Workspace),
@@ -515,6 +516,15 @@ fn find_compose_files() -> Result<Vec<DetectedCompose>> {
         ("supabase/compose.yaml", ComposeLocation::Supabase),
         ("traefik/compose.yml", ComposeLocation::Traefik),
         ("traefik/compose.yaml", ComposeLocation::Traefik),
+        // Legacy naming (backwards compatibility)
+        ("docker-compose.yml", ComposeLocation::Root),
+        ("docker-compose.yaml", ComposeLocation::Root),
+        ("workspace/docker-compose.yml", ComposeLocation::Workspace),
+        ("workspace/docker-compose.yaml", ComposeLocation::Workspace),
+        ("supabase/docker-compose.yml", ComposeLocation::Supabase),
+        ("supabase/docker-compose.yaml", ComposeLocation::Supabase),
+        ("traefik/docker-compose.yml", ComposeLocation::Traefik),
+        ("traefik/docker-compose.yaml", ComposeLocation::Traefik),
     ];
 
     for (path, location) in locations {

@@ -3,7 +3,7 @@
 
 [package]
 name = "airis-monorepo"
-version = "1.157.0"
+version = "1.158.0"
 edition = "2024"
 authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -54,27 +54,27 @@ path = "src/main.rs"
 # Dependencies are managed manually in this file for now.
 # Future: will be generated from manifest.toml [rust.dependencies]
 [dependencies]
-clap = { version = "4.5", features = ["derive", "cargo", "env"] }
+clap = { version = "4.6", features = ["derive", "cargo", "env"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "1.1"
 anyhow = "1.0"
-colored = "2.1"
-tokio = { version = "1.40", features = ["full"] }
+colored = "3.1"
+tokio = { version = "1.50", features = ["full"] }
 serde_json = "1.0"
-handlebars = "6.2"
-indexmap = { version = "2.7", features = ["serde"] }
-regex = "1.11"
+handlebars = "6.4"
+indexmap = { version = "2.13", features = ["serde"] }
+regex = "1.12"
 chrono = "0.4"
-sha2 = "0.10"
+sha2 = "0.11"
 glob = "0.3"
-blake3 = "1.5"
+blake3 = "1.8"
 walkdir = "2.5"
 ignore = "0.4"       # .gitignore handling
-tempfile = "3.13"
-dialoguer = "0.11"   # Interactive prompts
-dirs = "5.0"         # Home directory resolution
-ureq = { version = "2.12", features = ["json"] }  # Sync HTTP client for npm registry API
+tempfile = "3.27"
+dialoguer = "0.12"   # Interactive prompts
+dirs = "6.0"         # Home directory resolution
+ureq = { version = "3.3", features = ["json"] }  # Sync HTTP client for npm registry API
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.tar.gz"
@@ -85,6 +85,6 @@ pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.
 pkg-fmt = "zip"
 
 [dev-dependencies]
-assert_cmd = "2.0"
+assert_cmd = "2.2"
 predicates = "3.1"
-tempfile = "3.13"
+tempfile = "3.27"
