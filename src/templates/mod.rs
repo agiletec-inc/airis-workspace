@@ -1309,12 +1309,12 @@ COPY . .
 RUN turbo prune {{scope}}/{{name}} --docker
 
 # ============================================
-# Deps stage - install dependencies
+# Deps stage - install dependencies (lockfile update allowed)
 # ============================================
 FROM base AS deps
 WORKDIR /app
 COPY --from=pruner /app/out/json/ .
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
 
 # ============================================
 # Dev target — deps + source, no build step
@@ -1330,10 +1330,12 @@ EXPOSE {{port}}
 CMD [{{dev_cmd}}]
 
 # ============================================
-# Builder stage - full build for production
+# Builder stage - reproducible build (frozen lockfile)
 # ============================================
-FROM deps AS builder
+FROM base AS builder
 WORKDIR /app
+COPY --from=pruner /app/out/json/ .
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 COPY --from=pruner /app/out/full/ .
 COPY --from=pruner /app/tsconfig.base.json ./
 {{#each build_args_lines}}

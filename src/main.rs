@@ -231,9 +231,9 @@ enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Start Docker services (alias for 'airis run up').
+    /// Build and start all services.
     ///
-    /// Executes the 'up' command from manifest.toml [commands].
+    /// Rebuilds Docker images and starts containers.
     /// Extra args are forwarded to docker compose (e.g., --no-cache, --force-recreate).
     Up {
         /// Extra arguments forwarded to docker compose (e.g., --no-cache, --force-recreate)
@@ -269,10 +269,10 @@ enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Build projects (alias for 'airis run build', or Docker hermetic build with --docker).
+    /// Build projects (alias for 'airis run build', or Docker build with --docker).
     ///
     /// Without --docker: executes 'build' from manifest.toml [commands].
-    /// With --docker: generates Dockerfile and builds container image.
+    /// With --docker: builds the prod target of the service Dockerfile.
     /// With --affected: only builds projects changed since --base.
     Build {
         /// Target project path (e.g., apps/web)
@@ -286,7 +286,7 @@ enum Commands {
         /// Head branch/commit for --affected (default: HEAD)
         #[arg(long, default_value = "HEAD")]
         head: String,
-        /// Build using Docker (hermetic build with auto-generated Dockerfile)
+        /// Build Docker image using the prod target of the service Dockerfile
         #[arg(long)]
         docker: bool,
         /// Runtime channel: lts, current, edge, bun, deno, or version (e.g., 22.12.0)
@@ -432,8 +432,9 @@ enum Commands {
     /// Regenerate workspace files from manifest.toml.
     ///
     /// Generates: package.json, pnpm-workspace.yaml, compose.yml,
-    /// Dockerfile, CI workflows. All generated files include DO NOT EDIT
-    /// markers. Safe to run repeatedly — always produces the same output
+    /// per-service Dockerfile (multi-stage dev/prod), CI workflows.
+    /// All generated files include DO NOT EDIT markers.
+    /// Safe to run repeatedly — always produces the same output
     /// from the same manifest.toml.
     #[command(name = "gen")]
     Gen {
