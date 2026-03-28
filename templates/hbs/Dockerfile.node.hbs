@@ -4,11 +4,8 @@
 
 # ---- base ----
 FROM node:{{node_version}}-alpine AS base
-ENV COREPACK_HOME="/opt/corepack"
 RUN apk add --no-cache libc6-compat \
- && mkdir -p /opt/corepack \
- && corepack enable \
- && corepack prepare pnpm --activate
+ && {{{pm_install_cmd}}}
 
 # ---- deps ----
 FROM base AS deps

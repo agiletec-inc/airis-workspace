@@ -326,6 +326,7 @@ fn generate_nextjs_dockerfile(
     vars.insert("node_version", node_version.to_string());
     vars.insert("extra_args", extra_args);
     vars.insert("port", crate::conventions::framework_defaults("nextjs").port.to_string());
+    vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
     render_dockerfile_template(NEXTJS_DOCKERFILE, &vars)
 }
 
@@ -341,6 +342,7 @@ fn generate_node_dockerfile(
     vars.insert("node_version", node_version.to_string());
     vars.insert("extra_args", extra_args);
     vars.insert("port", crate::conventions::framework_defaults("node").port.to_string());
+    vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
     render_dockerfile_template(NODE_DOCKERFILE, &vars)
 }
 

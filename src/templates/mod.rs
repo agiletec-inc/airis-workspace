@@ -83,6 +83,15 @@ impl TemplateEngine {
         let dev_script = crate::conventions::framework_defaults(fw).dev_script;
         let dev_cmd = format!("\"sh\", \"-c\", \"pnpm --filter={}/{} {}\"", scope, app.name, dev_script);
 
+        // Build package manager install command from manifest
+        // "pnpm@10.33.0" → "npm install -g pnpm@10.33.0"
+        // "pnpm" → "npm install -g pnpm"
+        let pm_install_cmd = if pnpm_version.is_empty() {
+            "npm install -g pnpm".to_string()
+        } else {
+            format!("npm install -g pnpm@{}", pnpm_version)
+        };
+
         let data = json!({
             "scope": scope,
             "name": app.name,
@@ -92,7 +101,7 @@ impl TemplateEngine {
             "is_node": variant == "node" || variant == "worker",
             "is_worker": variant == "worker",
             "node_image": crate::channel::defaults::NODE_LTS_IMAGE,
-            "pnpm_version": pnpm_version,
+            "pm_install_cmd": pm_install_cmd,
             "port": port,
             "entrypoint": entrypoint,
             "health_path": deploy.health_path.as_deref().unwrap_or("/health"),

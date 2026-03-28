@@ -213,12 +213,12 @@ health.get('/', (c) => {
 "#;
     fs::write(project_dir.join("src/routes/health.ts"), health_ts)?;
 
-    // Dockerfile
+    // Dockerfile — pnpm installed without version pin (scaffold = fresh project)
     let node_image = crate::channel::defaults::NODE_LTS_IMAGE;
     let dockerfile = format!(r#"FROM {node_image} AS builder
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+COPY package.json ./
+RUN npm install -g pnpm && pnpm install
 COPY . .
 RUN pnpm build
 

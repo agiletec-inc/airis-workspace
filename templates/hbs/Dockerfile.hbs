@@ -10,13 +10,8 @@
 # Base stage - pnpm environment setup
 # ============================================
 FROM {{node_image}} AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-ENV COREPACK_HOME="/opt/corepack"
 RUN apk add --no-cache libc6-compat{{#each extra_apk}} {{this}}{{/each}} \
- && mkdir -p /opt/corepack \
- && corepack enable \
- && corepack prepare pnpm@{{pnpm_version}} --activate
+ && {{{pm_install_cmd}}}
 
 # ============================================
 # Pruner stage - extract only needed packages

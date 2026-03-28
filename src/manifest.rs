@@ -431,7 +431,7 @@ impl Manifest {
             workspace: WorkspaceSection {
                 name: format!("airis-{}", name),  // Prefix to avoid Docker name collisions
                 scope: None,
-                package_manager: "pnpm@10.22.0".to_string(),
+                package_manager: "pnpm@10.33.0".to_string(),
                 node: None,
                 service: String::new(),
                 image: crate::channel::defaults::NODE_LTS_IMAGE.to_string(),

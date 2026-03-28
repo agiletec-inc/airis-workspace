@@ -15,7 +15,7 @@ const TCP_READ_TIMEOUT_MS: u64 = 300;
 const DB_HEALTH_RETRIES: u32 = 30;
 const DB_HEALTH_SLEEP_SECS: u64 = 2;
 
-/// Extract package manager command from manifest (e.g., "pnpm@10.22.0" -> "pnpm")
+/// Extract package manager command from manifest (e.g., "pnpm@latest" -> "pnpm")
 #[cfg(test)]
 fn get_package_manager(manifest: &Manifest) -> &str {
     let pm = &manifest.workspace.package_manager;
