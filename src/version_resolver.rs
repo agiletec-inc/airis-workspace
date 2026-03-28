@@ -102,6 +102,7 @@ const GITHUB_ACTIONS: &[(&str, &str)] = &[
     ("setup_node", "actions/setup-node"),
     ("cache", "actions/cache"),
     ("doppler", "dopplerhq/cli-action"),
+    ("upload_artifact", "actions/upload-artifact"),
 ];
 
 /// Resolve a GitHub Action version policy.
@@ -127,9 +128,32 @@ pub fn resolve_action_version(action_key: &str, policy: &str) -> Result<String> 
 /// Looks for tags matching `vN` (major-only), sorted descending.
 fn get_github_latest_major_tag(repo: &str) -> Result<String> {
     let url = format!("https://api.github.com/repos/{repo}/tags?per_page=100");
-    let body = ureq::get(&url)
+    let mut req = ureq::get(&url)
         .header("Accept", "application/vnd.github+json")
-        .header("User-Agent", "airis-monorepo")
+        .header("User-Agent", "airis-monorepo");
+
+    // Use GitHub token for authenticated requests (5000 req/h vs 60 req/h)
+    if let Ok(token) = std::env::var("GITHUB_TOKEN")
+        .or_else(|_| std::env::var("GH_TOKEN"))
+        .or_else(|_| {
+            std::process::Command::new("gh")
+                .args(["auth", "token"])
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                    } else {
+                        None
+                    }
+                })
+                .ok_or(std::env::VarError::NotPresent)
+        })
+    {
+        req = req.header("Authorization", &format!("Bearer {token}"));
+    }
+
+    let body = req
         .call()
         .context(format!("Failed to fetch tags for {repo}"))?
         .into_body()
@@ -174,6 +198,7 @@ pub fn resolve_all_action_versions(
         ("setup_node", &actions.setup_node),
         ("cache", &actions.cache),
         ("doppler", &actions.doppler),
+        ("upload_artifact", &actions.upload_artifact),
     ];
 
     let mut resolved = actions.clone();
@@ -192,6 +217,7 @@ pub fn resolve_all_action_versions(
                 "setup_node" => resolved.setup_node = version,
                 "cache" => resolved.cache = version,
                 "doppler" => resolved.doppler = version,
+                "upload_artifact" => resolved.upload_artifact = version,
                 _ => {}
             }
         }

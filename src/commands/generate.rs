@@ -207,7 +207,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
     // Node.js workspace files (only when [workspace] package_manager is set)
     if has_workspace {
-        let mut resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+        let mut resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog, manifest.packages.default_policy.as_deref())?;
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
         generate_docker_compose(manifest, &engine, force)?;
@@ -264,6 +264,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     let resolved_data = resolve_package_data(
                         &auto_app, &workspace_root, workspace_scope,
                         &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
+                        manifest.packages.default_policy.as_deref(),
                     )?;
                     crate::generators::package_json::generate_full_package_json(
                         &auto_app, &workspace_root, &resolved_catalog, &resolved_data,
@@ -277,6 +278,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                 let resolved_data = resolve_package_data(
                     app, &workspace_root, workspace_scope,
                     &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
+                    manifest.packages.default_policy.as_deref(),
                 )?;
                 crate::generators::package_json::generate_full_package_json(
                     app, &workspace_root, &resolved_catalog, &resolved_data,
@@ -413,6 +415,7 @@ fn generate_pnpm_workspace(
 /// when a concrete package name matches via `resolve_wildcard_version`.
 fn resolve_catalog_versions(
     catalog: &IndexMap<String, CatalogEntry>,
+    default_policy: Option<&str>,
 ) -> Result<IndexMap<String, String>> {
     if catalog.is_empty() {
         return Ok(IndexMap::new());
@@ -453,14 +456,20 @@ fn resolve_catalog_versions(
                 version.clone()
             }
             CatalogEntry::Follow(follow_config) => {
-                // For follow entries, we'll resolve them in a second pass
                 let target = &follow_config.follow;
                 if let Some(target_version) = resolved.get(target) {
                     println!("  ✓ {} (follow {}) → {}", package, target, target_version);
                     target_version.clone()
+                } else if let Some(policy) = default_policy {
+                    // Follow target not in catalog — resolve it via default_policy first
+                    let target_version = resolve_version(target, policy)?;
+                    println!("  ✓ {} {} → {}", target, policy, target_version);
+                    resolved.insert(target.clone(), target_version.clone());
+                    println!("  ✓ {} (follow {}) → {}", package, target, target_version);
+                    target_version
                 } else {
                     anyhow::bail!(
-                        "Cannot resolve '{}': follow target '{}' not found or not yet resolved",
+                        "Cannot resolve '{}': follow target '{}' not found in catalog (add it or set default_policy)",
                         package,
                         target
                     );
@@ -1157,6 +1166,7 @@ fn resolve_package_data(
     catalog_raw: &IndexMap<String, CatalogEntry>,
     presets: &IndexMap<String, crate::manifest::PresetSection>,
     dep_groups: &IndexMap<String, IndexMap<String, String>>,
+    default_policy: Option<&str>,
 ) -> Result<crate::generators::package_json::ResolvedPackageData> {
     let mut final_deps = IndexMap::new();
     let mut final_dev_deps = IndexMap::new();
@@ -1213,8 +1223,20 @@ fn resolve_package_data(
                                         eprintln!("  ⚠ Failed to resolve {}: {}", pkg, e);
                                     }
                                 }
+                            } else if let Some(policy) = default_policy {
+                                // Default policy fallback: resolve from npm
+                                match resolve_version(pkg, policy) {
+                                    Ok(version) => {
+                                        println!("  ✓ {} (default: {}) → {}", pkg, policy, version);
+                                        resolved_catalog.insert(pkg.clone(), version);
+                                        final_deps.insert(pkg.clone(), "catalog".to_string());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("  ⚠ Failed to resolve {}: {}", pkg, e);
+                                    }
+                                }
                             }
-                            // Not in catalog and no wildcard match → skip
+                            // Not in catalog, no wildcard, no default policy → skip
                         }
                     }
                     // Workspace deps (skip self-reference)

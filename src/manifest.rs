@@ -196,12 +196,13 @@ impl Manifest {
             }
         }
 
-        // 2. Validate catalog follow references
+        // 2. Validate catalog follow references (skip if default_policy can resolve the target)
         for (key, entry) in &self.packages.catalog {
             if let CatalogEntry::Follow(f) = entry
-                && !self.packages.catalog.contains_key(&f.follow) {
+                && !self.packages.catalog.contains_key(&f.follow)
+                && self.packages.default_policy.is_none() {
                     errors.push(format!(
-                        "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog",
+                        "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog (add it or set default_policy)",
                         f.follow
                     ));
                 }
@@ -358,6 +359,7 @@ impl Manifest {
         // Packages section
         let packages = PackagesSection {
             workspaces: vec!["apps/*".to_string(), "libs/*".to_string(), "packages/*".to_string()],
+            default_policy: None,
             catalog,
             root: PackageDefinition {
                 dependencies: IndexMap::new(),
@@ -793,6 +795,7 @@ pub struct DeployConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct BuildConfig {
     /// Build context directory (default: ".")
     #[serde(default = "default_dot")]
@@ -876,6 +879,11 @@ pub struct HookCache {
 pub struct PackagesSection {
     #[serde(default)]
     pub workspaces: Vec<String>,
+    /// Default version policy for packages not explicitly listed in catalog.
+    /// When set (e.g., "latest"), import-scanned packages that don't match
+    /// any catalog entry or wildcard pattern will use this policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_policy: Option<String>,
     #[serde(default)]
     pub catalog: IndexMap<String, CatalogEntry>,
     #[serde(default)]
@@ -1461,20 +1469,17 @@ impl ProjectDefinition {
     /// Explicit manifest values always win.
     pub fn resolve(&mut self, workspace: &WorkspaceSection) {
         // name: derive from path
-        if self.name.is_empty() {
-            if let Some(ref path) = self.path {
+        if self.name.is_empty()
+            && let Some(ref path) = self.path {
                 self.name = crate::conventions::name_from_path(path).to_string();
             }
-        }
 
         // kind: derive from path
-        if self.kind.is_none() {
-            if let Some(ref path) = self.path {
-                if path.starts_with("libs/") {
+        if self.kind.is_none()
+            && let Some(ref path) = self.path
+                && path.starts_with("libs/") {
                     self.kind = Some("lib".to_string());
                 }
-            }
-        }
 
         // framework: default to "node" for libs
         if self.framework.is_none() && self.kind.as_deref() == Some("lib") {
@@ -1759,6 +1764,7 @@ fn default_ci_jobs() -> IndexMap<String, u8> {
 
 /// E2E staging workflow configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default)]
 pub struct E2eSection {
     /// Enable E2E staging workflow generation
     #[serde(default)]
@@ -1774,16 +1780,6 @@ pub struct E2eSection {
     pub trigger_workflow: Option<String>,
 }
 
-impl Default for E2eSection {
-    fn default() -> Self {
-        E2eSection {
-            enabled: false,
-            timeout: None,
-            test_filter: None,
-            trigger_workflow: None,
-        }
-    }
-}
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ActionsVersions {
@@ -1802,10 +1798,14 @@ pub struct ActionsVersions {
     /// dopplerhq/cli-action version. Default: "v3"
     #[serde(default = "default_v3")]
     pub doppler: String,
+    /// actions/upload-artifact version. Default: "v4"
+    #[serde(default = "default_v4")]
+    pub upload_artifact: String,
 }
 
 fn default_v6() -> String { "v6".to_string() }
 fn default_v5() -> String { "v5".to_string() }
+fn default_v4() -> String { "v4".to_string() }
 fn default_v3() -> String { "v3".to_string() }
 
 impl Default for ActionsVersions {
@@ -1816,6 +1816,7 @@ impl Default for ActionsVersions {
             setup_node: default_v6(),
             cache: default_v5(),
             doppler: default_v3(),
+            upload_artifact: default_v4(),
         }
     }
 }

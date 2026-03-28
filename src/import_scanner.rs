@@ -190,6 +190,7 @@ fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
             | "build"
             | "out"
             | "coverage"
+            | "tests"
             | "__tests__"
             | "__mocks__"
             | ".git"

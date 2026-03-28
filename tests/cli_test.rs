@@ -136,3 +136,70 @@ fn test_build_parallel_option() {
         .stdout(predicate::str::contains("--parallel"))
         .stdout(predicate::str::contains("-j"));
 }
+
+// --- Build options (migrated from docker_build_test.rs) ---
+
+#[test]
+fn test_build_context_out_option() {
+    airis()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--context-out"));
+}
+
+#[test]
+fn test_build_no_cache_option() {
+    airis()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--no-cache"));
+}
+
+#[test]
+fn test_build_push_option() {
+    airis()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--push"));
+}
+
+#[test]
+fn test_build_image_option() {
+    airis()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--image"));
+}
+
+#[test]
+fn test_build_remote_cache_option() {
+    airis()
+        .args(["build", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--remote-cache"))
+        .stdout(predicate::str::contains("s3://").or(predicate::str::contains("oci://")));
+}
+
+#[test]
+fn test_cache_directory_structure() {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let cache_base = std::path::PathBuf::from(home).join(".airis").join(".cache");
+    assert!(cache_base.to_string_lossy().contains(".airis"));
+}
+
+// --- Affected command (migrated from dag_test.rs) ---
+
+#[test]
+fn test_affected_help() {
+    airis()
+        .args(["affected", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--base"))
+        .stdout(predicate::str::contains("--head"));
+}
