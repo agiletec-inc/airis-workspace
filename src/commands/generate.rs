@@ -383,8 +383,11 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         generated_paths.push(".github/workflows/release.yml".into());
     }
 
-    // Orphan detection: compare previous vs current generated files
-    detect_orphaned_files(&previous_paths, &generated_paths);
+    // Clean orphaned generated files (previously generated but no longer needed)
+    let orphan_count = crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
+    if orphan_count > 0 {
+        println!("   🧹 Removed {} orphaned file(s)", orphan_count);
+    }
 
     // Save current generation registry
     save_generation_registry(registry_path, &generated_paths)?;
@@ -1447,24 +1450,3 @@ fn save_generation_registry(path: &Path, paths: &[String]) -> Result<()> {
     Ok(())
 }
 
-/// Detect and warn about orphaned files (previously generated but no longer in manifest)
-fn detect_orphaned_files(previous: &[String], current: &[String]) {
-    if previous.is_empty() {
-        return;
-    }
-    let current_set: std::collections::HashSet<&str> = current.iter().map(|s| s.as_str()).collect();
-    let mut orphans: Vec<&str> = Vec::new();
-    for path in previous {
-        if !current_set.contains(path.as_str()) && Path::new(path).exists() {
-            orphans.push(path);
-        }
-    }
-    if !orphans.is_empty() {
-        println!();
-        println!("{}", "⚠ Orphaned files detected (previously generated, no longer in manifest):".yellow());
-        for path in &orphans {
-            println!("   {} {}", "→".yellow(), path);
-        }
-        println!("   {} Remove manually if no longer needed.", "💡".cyan());
-    }
-}
