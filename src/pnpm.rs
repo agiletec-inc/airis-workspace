@@ -52,7 +52,7 @@ impl PnpmLock {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
-        let lock: PnpmLock = serde_yaml::from_str(&content)
+        let lock: PnpmLock = serde_yml::from_str(&content)
             .with_context(|| "Failed to parse pnpm-lock.yaml")?;
 
         if !lock.lockfile_version.starts_with("9.") {

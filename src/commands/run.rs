@@ -495,8 +495,8 @@ fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
 
     let mut results = Vec::new();
 
-    // Parse YAML using serde_yaml
-    let yaml: serde_yaml::Value = match serde_yaml::from_str(&content) {
+    // Parse YAML using serde_yml
+    let yaml: serde_yml::Value = match serde_yml::from_str(&content) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
