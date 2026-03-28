@@ -654,13 +654,44 @@ impl TemplateEngine {
             .map(|n| n.default_external)
             .unwrap_or(false);
 
+        // Auto-generate artifact isolation volumes from workspace.clean.dirs + app/lib paths
+        let workdir = &manifest.workspace.workdir;
+        let clean_dirs = &manifest.workspace.clean.dirs;
+
+        let mut package_paths: Vec<String> = Vec::new();
+        for (name, app) in &manifest.apps {
+            package_paths.push(app.path.clone().unwrap_or_else(|| format!("apps/{}", name)));
+        }
+        for (name, lib) in &manifest.libs {
+            package_paths.push(lib.path.clone().unwrap_or_else(|| format!("libs/{}", name)));
+        }
+
+        let mut artifact_volume_mounts: Vec<String> = Vec::new();
+        let mut artifact_volume_names: Vec<String> = Vec::new();
+        for pkg_path in &package_paths {
+            for dir in clean_dirs {
+                let dir_clean = dir.trim_start_matches('.');
+                let path_clean = pkg_path.replace('/', "_").replace('-', "_");
+                let vol_name = format!("ws_{}_{}", dir_clean, path_clean);
+                let mount = format!("{}:{}/{}/{}", vol_name, workdir, pkg_path, dir);
+                artifact_volume_mounts.push(mount);
+                if !artifact_volume_names.contains(&vol_name) {
+                    artifact_volume_names.push(vol_name);
+                }
+            }
+        }
+
         // Build services — each service defines its own build/image in manifest
         let services: Vec<serde_json::Value> = manifest
             .service
             .iter()
             .map(|(name, svc)| {
-                // No bind mount merging — only service-specific volumes (e.g., cookie_data)
-                let merged_volumes = svc.volumes.clone();
+                // Merge artifact volumes into services that have a build config (not external images)
+                let merged_volumes = if svc.build.is_some() {
+                    [artifact_volume_mounts.clone(), svc.volumes.clone()].concat()
+                } else {
+                    svc.volumes.clone()
+                };
 
                 // Resolve env_groups: expand group references into env map
                 let mut resolved_env = indexmap::IndexMap::new();
@@ -685,10 +716,33 @@ impl TemplateEngine {
                         .unwrap_or(crate::conventions::framework_defaults("node").port)
                 });
 
+                // Convention defaults: derive values from manifest when not explicitly set
+                let container_name = svc.container_name.clone().unwrap_or_else(|| {
+                    format!("{}-{}", manifest.workspace.name, name)
+                });
+
+                // Apply build defaults: dockerfile from matching app path, target defaults to "dev"
+                let build = svc.build.as_ref().map(|b| {
+                    let dockerfile = b.dockerfile.clone().unwrap_or_else(|| {
+                        // Look up matching app by service name to derive Dockerfile path
+                        manifest.app.iter()
+                            .find(|a| a.name == *name)
+                            .and_then(|a| a.path.as_ref())
+                            .map(|path| format!("{}/Dockerfile", path))
+                            .unwrap_or_else(|| format!("{}/Dockerfile", name))
+                    });
+                    let target = b.target.clone().unwrap_or_else(|| "dev".to_string());
+                    json!({
+                        "context": b.context,
+                        "dockerfile": dockerfile,
+                        "target": target,
+                    })
+                });
+
                 json!({
                     "name": name,
                     "image": svc.image,
-                    "build": svc.build,
+                    "build": build,
                     "port": internal_port,
                     "ports": svc.ports,
                     "command": svc.command,
@@ -698,7 +752,7 @@ impl TemplateEngine {
                     "depends_on": svc.depends_on,
                     "restart": svc.restart,
                     "shm_size": svc.shm_size,
-                    "container_name": svc.container_name,
+                    "container_name": container_name,
                     "working_dir": svc.working_dir,
                     "extra_hosts": svc.extra_hosts,
                     "deploy": svc.deploy,
@@ -715,8 +769,8 @@ impl TemplateEngine {
             })
             .collect();
 
-        // Extract volume names from service-specific volumes only (no workspace volumes)
-        let mut volume_names: Vec<String> = Vec::new();
+        // Collect all named volume declarations: artifact volumes + service-specific volumes
+        let mut volume_names: Vec<String> = artifact_volume_names;
         for svc in manifest.service.values() {
             for vol in &svc.volumes {
                 // Named volumes have format "name:/path" (no ./ or / prefix)

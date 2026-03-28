@@ -1432,6 +1432,9 @@ pub struct AppDeployConfig {
     /// Runtime environment variables for deploy compose
     #[serde(default)]
     pub env: Vec<String>,
+    /// Environment variable groups for deploy compose (references [env_group] names)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_groups: Vec<String>,
     /// Deploy job timeout in minutes. Default: 15 (docker), 10 (worker).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u8>,
@@ -1457,14 +1460,30 @@ impl ProjectDefinition {
     /// Fill convention-based defaults into empty/None fields.
     /// Explicit manifest values always win.
     pub fn resolve(&mut self, workspace: &WorkspaceSection) {
-        let framework = self.framework.as_deref().unwrap_or("node");
-        let defaults = crate::conventions::framework_defaults(framework);
-
         // name: derive from path
-        if self.name.is_empty()
-            && let Some(ref path) = self.path {
+        if self.name.is_empty() {
+            if let Some(ref path) = self.path {
                 self.name = crate::conventions::name_from_path(path).to_string();
             }
+        }
+
+        // kind: derive from path
+        if self.kind.is_none() {
+            if let Some(ref path) = self.path {
+                if path.starts_with("libs/") {
+                    self.kind = Some("lib".to_string());
+                }
+            }
+        }
+
+        // framework: default to "node" for libs
+        if self.framework.is_none() && self.kind.as_deref() == Some("lib") {
+            self.framework = Some("node".to_string());
+        }
+
+        // Now that kind/framework are resolved, get framework defaults
+        let framework = self.framework.as_deref().unwrap_or("node");
+        let defaults = crate::conventions::framework_defaults(framework);
 
         // scope: derive from workspace
         if self.scope.is_none() {
@@ -1474,6 +1493,33 @@ impl ProjectDefinition {
         // port: derive from framework
         if self.port.is_none() {
             self.port = Some(defaults.port);
+        }
+
+        // Lib-specific conventions
+        if self.kind.as_deref() == Some("lib") {
+            // main
+            if self.main.is_none() {
+                self.main = Some("./dist/index.js".to_string());
+            }
+
+            // exports
+            if self.exports.is_none() {
+                // Default: "." = { types = "./dist/index.d.ts", import = "./dist/index.js" }
+                let mut export_map = toml::map::Map::new();
+                let mut dot_export = toml::map::Map::new();
+                dot_export.insert("types".to_string(), toml::Value::String("./dist/index.d.ts".to_string()));
+                dot_export.insert("import".to_string(), toml::Value::String("./dist/index.js".to_string()));
+                export_map.insert(".".to_string(), toml::Value::Table(dot_export));
+                self.exports = Some(toml::Value::Table(export_map));
+            }
+
+            // default scripts
+            if !self.scripts.contains_key("build") {
+                self.scripts.insert("build".to_string(), "tsup src/index.ts --format esm --dts --clean".to_string());
+            }
+            if !self.scripts.contains_key("typecheck") {
+                self.scripts.insert("typecheck".to_string(), "tsc --noEmit".to_string());
+            }
         }
 
         // deploy defaults from framework
