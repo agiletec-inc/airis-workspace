@@ -2723,7 +2723,7 @@ test = "echo safe"
     #[test]
     fn test_extract_host_port_env_var_default() {
         let svc = crate::manifest::ServiceConfig {
-            image: String::new(),
+            image: None,
             build: None,
             port: None,
             ports: vec!["${CORPORATE_PORT:-3000}:3000".to_string()],
@@ -2756,7 +2756,7 @@ test = "echo safe"
     #[test]
     fn test_extract_host_port_plain_number() {
         let svc = crate::manifest::ServiceConfig {
-            image: String::new(),
+            image: None,
             build: None,
             port: None,
             ports: vec!["8080:80".to_string()],
@@ -2789,7 +2789,7 @@ test = "echo safe"
     #[test]
     fn test_extract_host_port_fallback_to_port_field() {
         let svc = crate::manifest::ServiceConfig {
-            image: String::new(),
+            image: None,
             build: None,
             port: Some(9090),
             ports: vec![],
@@ -2822,7 +2822,7 @@ test = "echo safe"
     #[test]
     fn test_extract_host_port_no_ports() {
         let svc = crate::manifest::ServiceConfig {
-            image: String::new(),
+            image: None,
             build: None,
             port: None,
             ports: vec![],

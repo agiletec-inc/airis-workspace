@@ -721,7 +721,8 @@ pub struct LibConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ServiceConfig {
-    pub image: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
     /// Build configuration. When set, compose uses `build:` instead of `image:`.
     /// Format: { context = ".", dockerfile = "apps/web/Dockerfile", target = "dev" }
     #[serde(default, skip_serializing_if = "Option::is_none")]
