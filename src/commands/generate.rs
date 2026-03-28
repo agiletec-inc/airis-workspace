@@ -418,14 +418,9 @@ fn resolve_catalog_versions(
 }
 
 fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
-    let dockerfile_content = engine.render_dockerfile(manifest)?;
     let compose_content = engine.render_docker_compose(manifest)?;
 
-    let dockerfile_path = Path::new("Dockerfile");
     let compose_path = Path::new("compose.yml");
-
-    write_with_backup(dockerfile_path, &dockerfile_content)?;
-    println!("   {} Dockerfile (synced from manifest.toml)", "✓".green());
 
     write_with_backup(compose_path, &compose_content)?;
     println!("   {} compose.yml (synced from manifest.toml)", "✓".green());

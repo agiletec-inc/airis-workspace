@@ -724,6 +724,10 @@ pub struct LibConfig {
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct ServiceConfig {
     pub image: String,
+    /// Build configuration. When set, compose uses `build:` instead of `image:`.
+    /// Format: { context = ".", dockerfile = "apps/web/Dockerfile", target = "dev" }
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build: Option<BuildConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
     #[serde(default)]
@@ -792,6 +796,23 @@ pub struct DeployConfig {
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BuildConfig {
+    /// Build context directory (default: ".")
+    #[serde(default = "default_dot")]
+    pub context: String,
+    /// Path to Dockerfile relative to context
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dockerfile: Option<String>,
+    /// Multi-stage target (e.g., "dev", "prod")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+fn default_dot() -> String {
+    ".".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GpuConfig {
     /// GPU driver (default: "nvidia")
     #[serde(default = "default_gpu_driver")]

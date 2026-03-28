@@ -42,7 +42,6 @@ impl TemplateEngine {
         hbs.register_template_string("package_json", PACKAGE_JSON_TEMPLATE)?;
         hbs.register_template_string("pnpm_workspace", PNPM_WORKSPACE_TEMPLATE)?;
         hbs.register_template_string("docker_compose", DOCKER_COMPOSE_TEMPLATE)?;
-        hbs.register_template_string("dockerfile", DOCKERFILE_TEMPLATE)?;
         hbs.register_template_string("service_dockerfile", SERVICE_DOCKERFILE_TEMPLATE)?;
 
         Ok(TemplateEngine { hbs })
@@ -79,6 +78,11 @@ impl TemplateEngine {
             ])
             .collect();
 
+        // Build dev CMD from framework conventions
+        let fw = variant;
+        let dev_script = crate::conventions::framework_defaults(fw).dev_script;
+        let dev_cmd = format!("\"sh\", \"-c\", \"pnpm --filter={}/{} {}\"", scope, app.name, dev_script);
+
         let data = json!({
             "scope": scope,
             "name": app.name,
@@ -96,6 +100,7 @@ impl TemplateEngine {
             "health_timeout": deploy.health_timeout.as_deref().unwrap_or("10s"),
             "health_start_period": deploy.health_start_period.as_deref().unwrap_or("30s"),
             "health_retries": deploy.health_retries.unwrap_or(3),
+            "dev_cmd": dev_cmd,
             "build_args_lines": build_args_lines,
             "extra_apk": deploy.extra_apk,
         });
@@ -169,13 +174,6 @@ impl TemplateEngine {
         self.hbs
             .render("docker_compose", &data)
             .context("Failed to render docker-compose.yml")
-    }
-
-    pub fn render_dockerfile(&self, manifest: &Manifest) -> Result<String> {
-        let data = self.prepare_dockerfile_data(manifest)?;
-        self.hbs
-            .render("dockerfile", &data)
-            .context("Failed to render Dockerfile")
     }
 
     /// Generate .env.example from manifest.toml [env] section
@@ -632,25 +630,6 @@ impl TemplateEngine {
         }))
     }
 
-    fn prepare_dockerfile_data(&self, manifest: &Manifest) -> Result<serde_json::Value> {
-        let pm_bin = manifest.workspace.package_manager.split('@').next().unwrap_or("pnpm");
-
-        // Collect workspace package.json paths for COPY lines
-        // This enables pnpm install to resolve the full workspace graph
-        let workspace_pkg_copies: Vec<String> = manifest.app.iter()
-            .filter_map(|app| app.path.as_ref())
-            .map(|p| p.to_string())
-            .collect();
-
-        Ok(json!({
-            "workspace_image": manifest.workspace.image,
-            "workdir": manifest.workspace.workdir,
-            "pm_bin": pm_bin,
-            "is_pnpm": pm_bin == "pnpm",
-            "workspace_pkg_copies": workspace_pkg_copies,
-        }))
-    }
-
     fn prepare_docker_compose_data(&self, manifest: &Manifest, _root: &str) -> Result<serde_json::Value> {
         // Get proxy network from orchestration.networks config (None if not set)
         let proxy_network = manifest
@@ -691,8 +670,6 @@ impl TemplateEngine {
                 }
 
                 // No auto-watch — bind mount is gone, use `airis up` to rebuild
-                let watch: Vec<serde_json::Value> = svc.watch.iter().map(|w| json!(w)).collect();
-
                 // Extract internal port: explicit port > ports mapping > default 3000
                 let internal_port = svc.port.unwrap_or_else(|| {
                     svc.ports.first()
@@ -704,6 +681,7 @@ impl TemplateEngine {
                 json!({
                     "name": name,
                     "image": svc.image,
+                    "build": svc.build,
                     "port": internal_port,
                     "ports": svc.ports,
                     "command": svc.command,
@@ -717,7 +695,6 @@ impl TemplateEngine {
                     "working_dir": svc.working_dir,
                     "extra_hosts": svc.extra_hosts,
                     "deploy": svc.deploy,
-                    "watch": watch,
                     "extends": svc.extends,
                     "devices": svc.devices,
                     "runtime": svc.runtime,
@@ -1123,73 +1100,6 @@ packages:
 {{/each}}
 "#;
 
-const DOCKERFILE_TEMPLATE: &str = r#"FROM {{workspace_image}}
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-      build-essential ca-certificates git curl openssh-client \
-      python3 pkg-config tini \
-      libnspr4 libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 \
-      libcups2 libxkbcommon0 libatspi2.0-0 libxcomposite1 libxdamage1 \
-      libxfixes3 libxrandr2 libgbm1 libasound2 \
-      libdrm2 libxshmfence1 libxcb1 libpango-1.0-0 libcairo2 \
-      libglib2.0-0 && \
-    rm -rf /var/lib/apt/lists/* && \
-    corepack enable
-
-RUN set -eux; \
-    if ! id -u app >/dev/null 2>&1; then \
-      useradd -m -s /bin/bash app; \
-    fi; \
-    chown -R app:app /home/app
-
-RUN mkdir -p \
-      {{workdir}}/node_modules \
-      {{workdir}}/.pnpm \
-      {{workdir}}/.next \
-      {{workdir}}/dist \
-      {{workdir}}/build \
-      {{workdir}}/out \
-      {{workdir}}/.swc \
-      {{workdir}}/.cache \
-      {{workdir}}/.turbo \
-      /pnpm/store && \
-    chown -R app:app {{workdir}} /pnpm
-
-ENV PNPM_HOME=/pnpm
-ENV PNPM_STORE_DIR=/pnpm/store
-
-WORKDIR {{workdir}}
-
-{{#if is_pnpm}}
-# Step 1: Copy lockfile + workspace manifests (cache-efficient — only changes when deps change)
-COPY pnpm-lock.yaml pnpm-workspace.yaml .npmrc* package.json ./
-{{#each workspace_pkg_copies}}
-COPY {{{this}}}/package.json {{{this}}}/package.json
-{{/each}}
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store {{pm_bin}} install --frozen-lockfile
-
-# Step 2: Copy full source (changes on every code edit, but deps are cached above)
-COPY . .
-RUN chown -R app:app {{workdir}}
-{{else}}
-COPY . .
-RUN {{pm_bin}} install
-RUN chown -R app:app {{workdir}}
-{{/if}}
-
-# Fix named volume permissions at container start (volumes mount as root)
-# setpriv is available in util-linux (included in node:*-bookworm images)
-RUN set -e && \
-    echo '#!/bin/sh' > /usr/local/bin/entrypoint.sh && \
-    echo 'DIRS="node_modules .pnpm .next dist build out .swc .cache .turbo"' >> /usr/local/bin/entrypoint.sh && \
-    echo 'for d in $DIRS; do' >> /usr/local/bin/entrypoint.sh && \
-    echo '  find /app -maxdepth 5 -name "$d" -type d ! -user app -exec chown -R app:app '"'"'{}'"'"' + 2>/dev/null' >> /usr/local/bin/entrypoint.sh && \
-    echo 'done' >> /usr/local/bin/entrypoint.sh && \
-    echo 'exec setpriv --reuid=app --regid=app --init-groups -- "$@"' >> /usr/local/bin/entrypoint.sh && \
-    chmod +x /usr/local/bin/entrypoint.sh
-ENTRYPOINT ["tini","--","entrypoint.sh"]
-"#;
 
 const DOCKER_COMPOSE_TEMPLATE: &str = r#"# ============================================================
 # {{project}}
@@ -1223,7 +1133,18 @@ services:
     container_name: {{container_name}}
 {{/if}}
 {{#unless extends}}
+{{#if build}}
+    build:
+      context: {{build.context}}
+{{#if build.dockerfile}}
+      dockerfile: {{build.dockerfile}}
+{{/if}}
+{{#if build.target}}
+      target: {{build.target}}
+{{/if}}
+{{else}}
     image: {{image}}
+{{/if}}
 {{/unless}}
 {{#if working_dir}}
 {{#unless extends}}
@@ -1315,24 +1236,6 @@ services:
       - {{this}}
 {{/each}}
 {{/if}}
-{{#if watch}}
-    develop:
-      watch:
-{{#each watch}}
-        - path: {{path}}
-          action: {{action}}
-          target: {{target}}
-{{#if initial_sync}}
-          initial_sync: true
-{{/if}}
-{{#if ignore}}
-          ignore:
-{{#each ignore}}
-            - {{this}}
-{{/each}}
-{{/if}}
-{{/each}}
-{{/if}}
 {{#if health_path}}
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').request({hostname:'localhost',port:{{port}},path:'{{health_path}}',timeout:5000},(r)=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1)).end()\""]
@@ -1382,6 +1285,9 @@ volumes:
 const SERVICE_DOCKERFILE_TEMPLATE: &str = r#"# Auto-generated by airis gen
 # DO NOT EDIT - change manifest.toml [app.deploy] instead.
 #
+# Usage: docker build --target dev .   (development)
+#        docker build --target prod .  (production)
+#
 # Variant: {{variant}} | Package: {{scope}}/{{name}}
 
 # ============================================
@@ -1403,16 +1309,31 @@ COPY . .
 RUN turbo prune {{scope}}/{{name}} --docker
 
 # ============================================
-# Builder stage - install deps and build
+# Deps stage - install dependencies
 # ============================================
-FROM base AS builder
+FROM base AS deps
 WORKDIR /app
-
-# Install dependencies from pruned lockfile
 COPY --from=pruner /app/out/json/ .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
-# Copy source code and build
+# ============================================
+# Dev target — deps + source, no build step
+# ============================================
+FROM deps AS dev
+WORKDIR /app
+COPY --from=pruner /app/out/full/ .
+COPY --from=pruner /app/tsconfig.base.json ./
+ENV NODE_ENV=development
+{{#unless is_worker}}
+EXPOSE {{port}}
+{{/unless}}
+CMD [{{dev_cmd}}]
+
+# ============================================
+# Builder stage - full build for production
+# ============================================
+FROM deps AS builder
+WORKDIR /app
 COPY --from=pruner /app/out/full/ .
 COPY --from=pruner /app/tsconfig.base.json ./
 {{#each build_args_lines}}
@@ -1425,9 +1346,9 @@ RUN pnpm deploy --legacy --filter={{scope}}/{{name}} --prod /app/deploy
 {{/if}}
 
 # ============================================
-# Production stage - minimal runtime image
+# Prod target — minimal runtime image
 # ============================================
-FROM {{node_image}} AS production
+FROM {{node_image}} AS prod
 WORKDIR /app
 
 RUN apk add --no-cache libc6-compat wget
@@ -1460,6 +1381,7 @@ HEALTHCHECK --interval={{health_interval}} --timeout={{health_timeout}} --start-
 
 CMD ["node", "{{entrypoint}}"]
 "#;
+
 
 /// Convert a TOML value to a serde_json value for tsconfig generation.
 fn toml_value_to_json(value: &toml::Value) -> serde_json::Value {
@@ -1531,52 +1453,6 @@ workspaces = ["apps/*", "libs/*"]
         assert!(context.get("workspace_env").is_none());
     }
 
-    #[test]
-    fn test_dockerfile_includes_install() {
-        let manifest = minimal_manifest();
-        let engine = TemplateEngine::new().unwrap();
-        let result = engine.render_dockerfile(&manifest).unwrap();
-
-        // Dockerfile should use pnpm install --frozen-lockfile (single step, workspace-aware)
-        assert!(result.contains("pnpm install --frozen-lockfile"));
-        assert!(!result.contains("pnpm fetch"), "fetch+offline pattern replaced by install --frozen-lockfile");
-        // Should use BuildKit cache mount for pnpm store
-        assert!(result.contains("--mount=type=cache,id=pnpm,target=/pnpm/store"));
-        // Should NOT contain sleep infinity
-        assert!(!result.contains("sleep infinity"));
-        // Should contain COPY
-        assert!(result.contains("COPY . ."));
-        // Lockfile should be copied before source for cache optimization
-        assert!(result.contains("COPY pnpm-lock.yaml"));
-    }
-
-    #[test]
-    fn test_dockerfile_uses_correct_pm_bin() {
-        let toml_str = r#"
-[workspace]
-name = "test-project"
-image = "node:22-alpine"
-workdir = "/app"
-package_manager = "bun@1.2.0"
-volumes = []
-
-[commands]
-dev = "bun dev"
-
-[versioning]
-strategy = "manual"
-
-[packages]
-workspaces = ["apps/*", "libs/*"]
-"#;
-        let manifest: Manifest = toml::from_str(toml_str).unwrap();
-        let engine = TemplateEngine::new().unwrap();
-        let result = engine.render_dockerfile(&manifest).unwrap();
-
-        // Non-pnpm uses simple install (no fetch + offline pattern)
-        assert!(result.contains("RUN bun install"));
-        assert!(!result.contains("bun fetch"));
-    }
 
     #[test]
     fn test_compose_no_workspace_service_block() {

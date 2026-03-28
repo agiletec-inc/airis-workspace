@@ -751,6 +751,9 @@ pub fn run_buildkit(
         cmd.arg("--build-arg").arg(format!("{}={}", key, value));
     }
 
+    // Target the prod stage when building from unified multi-stage Dockerfile
+    cmd.arg("--target").arg("prod");
+
     if config.no_cache {
         cmd.arg("--no-cache");
     }
