@@ -111,9 +111,9 @@ mod tests {
         assert_eq!(get_ownership(Path::new(".env.example")), Ownership::Tool);
         assert_eq!(get_ownership(Path::new("tsconfig.json")), Ownership::Tool);
         assert_eq!(get_ownership(Path::new("tsconfig.base.json")), Ownership::Tool);
-        // CI/CD workflows are project-owned
-        assert_eq!(get_ownership(Path::new(".github/workflows/ci.yml")), Ownership::User);
-        assert_eq!(get_ownership(Path::new(".github/workflows/release.yml")), Ownership::User);
+        // CI/CD workflows: Tool if auto-generated header present, User otherwise
+        // When file doesn't exist on disk, defaults to User
+        assert_eq!(get_ownership(Path::new(".github/workflows/nonexistent.yml")), Ownership::User);
     }
 
     #[test]

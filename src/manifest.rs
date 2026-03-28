@@ -1798,14 +1798,17 @@ pub struct ActionsVersions {
     /// dopplerhq/cli-action version. Default: "v3"
     #[serde(default = "default_v3")]
     pub doppler: String,
-    /// actions/upload-artifact version. Default: "v4"
-    #[serde(default = "default_v4")]
+    /// actions/upload-artifact version. Default: "v7"
+    #[serde(default = "default_v7")]
     pub upload_artifact: String,
+    /// actions/download-artifact version. Default: "v7"
+    #[serde(default = "default_v7")]
+    pub download_artifact: String,
 }
 
+fn default_v7() -> String { "v7".to_string() }
 fn default_v6() -> String { "v6".to_string() }
 fn default_v5() -> String { "v5".to_string() }
-fn default_v4() -> String { "v4".to_string() }
 fn default_v3() -> String { "v3".to_string() }
 
 impl Default for ActionsVersions {
@@ -1816,7 +1819,8 @@ impl Default for ActionsVersions {
             setup_node: default_v6(),
             cache: default_v5(),
             doppler: default_v3(),
-            upload_artifact: default_v4(),
+            upload_artifact: default_v7(),
+            download_artifact: default_v7(),
         }
     }
 }
