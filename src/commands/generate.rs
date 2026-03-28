@@ -149,7 +149,6 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     // Check existing files vs new files
     let files_to_check = vec![
         ("package.json", has_workspace),
-        ("Dockerfile", has_workspace),
         ("compose.yml", has_workspace),
         ("pnpm-workspace.yaml", has_workspace && !manifest.packages.workspaces.is_empty()),
         ("tsconfig.base.json", has_workspace && !manifest.typescript.skip),
@@ -216,7 +215,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         generated_files.extend([
             "package.json (with workspaces)".into(),
-            "Dockerfile".into(),
             "compose.yml".into(),
         ]);
 
