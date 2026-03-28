@@ -152,10 +152,10 @@ fn extract_packages(
 /// - `"@fastify/formbody"` → `"@fastify/formbody"`
 /// - `"@agiletec/ui/button"` → `"@agiletec/ui"`
 fn extract_package_name(specifier: &str) -> &str {
-    if specifier.starts_with('@') {
+    if let Some(stripped) = specifier.strip_prefix('@') {
         // Scoped package: @scope/name or @scope/name/subpath
         // Find the second '/' (after @scope/name)
-        let after_scope = match specifier[1..].find('/') {
+        let after_scope = match stripped.find('/') {
             Some(i) => i + 1, // position of first '/' in original string
             None => return specifier, // just "@scope" (unusual but handle it)
         };
@@ -198,10 +198,7 @@ fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
 
 /// Check if a file should be scanned for imports.
 fn is_scannable_file(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("ts" | "tsx" | "js" | "jsx" | "mts" | "mjs") => true,
-        _ => false,
-    }
+    matches!(path.extension().and_then(|e| e.to_str()), Some("ts" | "tsx" | "js" | "jsx" | "mts" | "mjs"))
 }
 
 /// Check if a module specifier is a Node.js built-in module.

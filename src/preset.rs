@@ -76,8 +76,8 @@ pub fn resolve_app_presets(
             }
 
             // Apply preset deploy defaults if app doesn't have explicit deploy
-            if deploy.is_none() {
-                if let Some(ref defaults) = preset.deploy {
+            if deploy.is_none()
+                && let Some(ref defaults) = preset.deploy {
                     deploy = Some(AppDeployConfig {
                         enabled: true,
                         variant: defaults.variant.clone(),
@@ -86,7 +86,6 @@ pub fn resolve_app_presets(
                         ..Default::default()
                     });
                 }
-            }
         }
     }
 
@@ -166,9 +165,9 @@ pub fn resolve_profile_vars(template: &str, profile: &ProfileSection) -> String 
 /// Resolve a profile with inheritance.
 /// If profile has `inherits`, merge parent first, then child overrides.
 #[allow(dead_code)]
-pub fn resolve_profile<'a>(
+pub fn resolve_profile(
     name: &str,
-    profiles: &'a IndexMap<String, ProfileSection>,
+    profiles: &IndexMap<String, ProfileSection>,
 ) -> Result<ProfileSection> {
     let profile = profiles
         .get(name)

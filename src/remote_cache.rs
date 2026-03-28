@@ -74,27 +74,23 @@ impl Remote {
     /// Get cache key path for S3
     fn s3_key(&self, project: &str, hash: &str) -> String {
         let project_safe = project.replace('/', "_");
-        match self {
-            Remote::S3 { prefix, .. } => {
-                if prefix.is_empty() {
-                    format!("{}/{}/artifact.json", project_safe, hash)
-                } else {
-                    format!("{}/{}/{}/artifact.json", prefix, project_safe, hash)
-                }
-            }
-            _ => unreachable!(),
+        let Remote::S3 { prefix, .. } = self else {
+            unreachable!("s3_key called on non-S3 remote");
+        };
+        if prefix.is_empty() {
+            format!("{}/{}/artifact.json", project_safe, hash)
+        } else {
+            format!("{}/{}/{}/artifact.json", prefix, project_safe, hash)
         }
     }
 
     /// Get OCI tag for cache
     fn oci_tag(&self, project: &str, hash: &str) -> String {
         let project_safe = project.replace('/', "-");
-        match self {
-            Remote::Oci { registry } => {
-                format!("{}:{}-{}", registry, project_safe, hash)
-            }
-            _ => unreachable!(),
-        }
+        let Remote::Oci { registry } = self else {
+            unreachable!("oci_tag called on non-OCI remote");
+        };
+        format!("{}:{}-{}", registry, project_safe, hash)
     }
 }
 

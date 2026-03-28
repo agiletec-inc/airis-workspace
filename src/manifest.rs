@@ -198,14 +198,13 @@ impl Manifest {
 
         // 2. Validate catalog follow references
         for (key, entry) in &self.packages.catalog {
-            if let CatalogEntry::Follow(f) = entry {
-                if !self.packages.catalog.contains_key(&f.follow) {
+            if let CatalogEntry::Follow(f) = entry
+                && !self.packages.catalog.contains_key(&f.follow) {
                     errors.push(format!(
                         "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog",
                         f.follow
                     ));
                 }
-            }
         }
 
         // 3. Check for commands in both guards.deny and guards.wrap
@@ -237,12 +236,11 @@ impl Manifest {
         }
         // Extract from image string like "node:24-bookworm"
         let image = &self.workspace.image;
-        if image.starts_with("node:") {
-            if let Some(version_part) = image.strip_prefix("node:") {
+        if image.starts_with("node:")
+            && let Some(version_part) = image.strip_prefix("node:") {
                 let version = version_part.split('-').next().unwrap_or("22");
                 return version.to_string();
             }
-        }
         "22".to_string()
     }
 
@@ -756,8 +754,6 @@ pub struct ServiceConfig {
     pub deploy: Option<DeployConfig>,
     #[serde(default)]
     pub watch: Vec<WatchConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extends: Option<String>,
     /// Device mappings (e.g., "/dev/dri:/dev/dri")
     #[serde(default)]
     pub devices: Vec<String>,
@@ -1464,11 +1460,10 @@ impl ProjectDefinition {
         let defaults = crate::conventions::framework_defaults(framework);
 
         // name: derive from path
-        if self.name.is_empty() {
-            if let Some(ref path) = self.path {
+        if self.name.is_empty()
+            && let Some(ref path) = self.path {
                 self.name = crate::conventions::name_from_path(path).to_string();
             }
-        }
 
         // scope: derive from workspace
         if self.scope.is_none() {
@@ -1679,6 +1674,9 @@ pub struct CiSection {
     /// Default: {"lint": 10, "typecheck": 10, "test": 15}
     #[serde(default = "default_ci_jobs")]
     pub jobs: IndexMap<String, u8>,
+    /// E2E staging workflow configuration
+    #[serde(default)]
+    pub e2e: E2eSection,
 }
 
 impl Default for CiSection {
@@ -1699,6 +1697,7 @@ impl Default for CiSection {
             actions: ActionsVersions::default(),
             validate_timeout: None,
             jobs: default_ci_jobs(),
+            e2e: E2eSection::default(),
         }
     }
 }
@@ -1709,6 +1708,34 @@ fn default_ci_jobs() -> IndexMap<String, u8> {
     m.insert("typecheck".into(), 10);
     m.insert("test".into(), 15);
     m
+}
+
+/// E2E staging workflow configuration
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct E2eSection {
+    /// Enable E2E staging workflow generation
+    #[serde(default)]
+    pub enabled: bool,
+    /// Timeout in minutes. Default: 15
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u8>,
+    /// Default test filter for manual trigger. Default: "staging-smoke"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_filter: Option<String>,
+    /// Trigger workflow name (workflow_run). Default: "Deploy"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_workflow: Option<String>,
+}
+
+impl Default for E2eSection {
+    fn default() -> Self {
+        E2eSection {
+            enabled: false,
+            timeout: None,
+            test_filter: None,
+            trigger_workflow: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

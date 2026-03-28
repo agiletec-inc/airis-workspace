@@ -49,7 +49,7 @@ CMD [{{dev_cmd}}]
 FROM base AS builder
 WORKDIR /app
 COPY --from=pruner /app/out/json/ .
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install
 COPY --from=pruner /app/out/full/ .
 COPY --from=pruner /app/tsconfig.base.json ./
 {{#each build_args_lines}}

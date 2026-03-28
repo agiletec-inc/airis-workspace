@@ -509,7 +509,7 @@ fn has_airis_hook(settings: &Value, event: &str) -> bool {
         .get("hooks")
         .and_then(|h| h.get(event))
         .and_then(|arr| arr.as_array())
-        .map(|entries| entries.iter().any(|e| is_airis_entry(e)))
+        .map(|entries| entries.iter().any(is_airis_entry))
         .unwrap_or(false)
 }
 

@@ -7,29 +7,12 @@
 # Use `airis up` to start. Profiles control which services run.
 # ============================================================
 
-x-app-base: &app-base
-  image: {{project}}-base
-  working_dir: {{workdir}}
-  deploy:
-    replicas: 1
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
-  environment:
-    DOCKER_ENV: "true"
-    NODE_ENV: development
-    PNPM_HOME: /pnpm
-    PNPM_STORE_DIR: /pnpm/store
-
 services:
 {{#each services}}
   {{name}}:
-{{#if extends}}
-    <<: *{{extends}}
-{{/if}}
 {{#if container_name}}
     container_name: {{container_name}}
 {{/if}}
-{{#unless extends}}
 {{#if build}}
     build:
       context: {{build.context}}
@@ -42,11 +25,8 @@ services:
 {{else}}
     image: {{image}}
 {{/if}}
-{{/unless}}
 {{#if working_dir}}
-{{#unless extends}}
     working_dir: {{working_dir}}
-{{/unless}}
 {{/if}}
 {{#if gpu}}
     deploy:
@@ -57,10 +37,8 @@ services:
               count: {{gpu.count}}
               capabilities: [{{#each gpu.capabilities}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]
 {{else if deploy}}
-{{#unless extends}}
     deploy:
       replicas: {{deploy.replicas}}
-{{/unless}}
 {{/if}}
 {{#if command}}
     command: {{{command}}}
@@ -84,12 +62,10 @@ services:
 {{/each}}
 {{/if}}
 {{#if extra_hosts}}
-{{#unless extends}}
     extra_hosts:
 {{#each extra_hosts}}
       - "{{this}}"
 {{/each}}
-{{/unless}}
 {{/if}}
 {{#if env}}
     environment:

@@ -298,11 +298,10 @@ fn parse_service_ports_from_config(config: &Value) -> Vec<(String, u16)> {
                             .as_u64()
                             .map(|p| p as u16)
                             .or_else(|| published.as_str().and_then(|s| s.parse().ok()));
-                        if let Some(host_port) = p {
-                            if host_port > 0 {
+                        if let Some(host_port) = p
+                            && host_port > 0 {
                                 results.push((display_name.clone(), host_port));
                             }
-                        }
                     } else if let Some(port_str) = port.as_str() {
                         // String format fallback: "HOST_PORT:CONTAINER_PORT" or "HOST:HOST_PORT:CONTAINER_PORT"
                         let parts: Vec<&str> = port_str.split(':').collect();
@@ -311,11 +310,10 @@ fn parse_service_ports_from_config(config: &Value) -> Vec<(String, u16)> {
                             3 => parts[1].parse::<u16>().ok(),
                             _ => None,
                         };
-                        if let Some(p) = host_port {
-                            if p > 0 {
+                        if let Some(p) = host_port
+                            && p > 0 {
                                 results.push((display_name.clone(), p));
                             }
-                        }
                     }
                 }
             }
@@ -331,11 +329,10 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
 
     // Check orchestration.dev first
     if let Some(dev) = &manifest.orchestration.dev {
-        if let Some(workspace) = &dev.workspace {
-            if Path::new(workspace).exists() {
+        if let Some(workspace) = &dev.workspace
+            && Path::new(workspace).exists() {
                 files.push(workspace.clone());
             }
-        }
         if let Some(supabase_files) = &dev.supabase {
             for f in supabase_files {
                 if Path::new(f).exists() && !files.contains(f) {
@@ -343,11 +340,10 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
                 }
             }
         }
-        if let Some(traefik) = &dev.traefik {
-            if Path::new(traefik).exists() && !files.contains(traefik) {
+        if let Some(traefik) = &dev.traefik
+            && Path::new(traefik).exists() && !files.contains(traefik) {
                 files.push(traefik.clone());
             }
-        }
     }
 
     // Root compose file (if not already added)
@@ -366,11 +362,10 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
             }
         }
     }
-    if let Some(traefik_file) = &manifest.dev.traefik {
-        if Path::new(traefik_file).exists() && !files.contains(traefik_file) {
+    if let Some(traefik_file) = &manifest.dev.traefik
+        && Path::new(traefik_file).exists() && !files.contains(traefik_file) {
             files.push(traefik_file.clone());
         }
-    }
 
     // Apps pattern glob
     if let Ok(entries) = glob(&manifest.dev.apps_pattern) {
@@ -401,8 +396,7 @@ fn discover_compose_port_urls(compose_files: &[String]) -> Vec<DiscoveredService
 
         if let Ok(output) = output
             && output.status.success()
-        {
-            if let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
+            && let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
                 for (name, port) in parse_service_ports_from_config(&config) {
                     if seen_ports.contains(&port) {
                         continue;
@@ -417,7 +411,6 @@ fn discover_compose_port_urls(compose_files: &[String]) -> Vec<DiscoveredService
                     });
                 }
             }
-        }
     }
 
     services
@@ -472,8 +465,8 @@ fn condense_status(status: &str) -> String {
 
         // Parse "X unit" pattern (e.g., "3 minutes", "2 hours")
         let parts: Vec<&str> = rest.split_whitespace().collect();
-        if parts.len() >= 2 {
-            if let Ok(_) = parts[0].parse::<u64>() {
+        if parts.len() >= 2
+            && parts[0].parse::<u64>().is_ok() {
                 let short_unit = match parts[1] {
                     u if u.starts_with("second") => "s",
                     u if u.starts_with("minute") => "m",
@@ -485,7 +478,6 @@ fn condense_status(status: &str) -> String {
                 };
                 return format!("Up {}{}", parts[0], short_unit);
             }
-        }
     }
 
     s.to_string()
@@ -844,8 +836,7 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
             if !host.is_empty() && host.contains('.') && seen_urls.insert(url.clone()) {
                 let is_reachable = is_service_reachable(&url);
                 let display_name = router_name
-                    .replace('-', " ")
-                    .replace('_', " ")
+                    .replace(['-', '_'], " ")
                     .split_whitespace()
                     .map(|w| {
                         let mut chars = w.chars();
@@ -1256,11 +1247,10 @@ fn has_orchestration(manifest: &Manifest) -> bool {
         return true;
     }
     // Only count apps_pattern as orchestration if it matches actual files
-    if !dev.apps_pattern.is_empty() {
-        if let Ok(mut entries) = glob(&dev.apps_pattern) {
+    if !dev.apps_pattern.is_empty()
+        && let Ok(mut entries) = glob(&dev.apps_pattern) {
             return entries.next().is_some();
         }
-    }
     false
 }
 
@@ -1841,13 +1831,12 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
     if let Some(cache) = &manifest.hooks.cache {
         let key_path = Path::new(&cache.key);
         if key_path.exists() {
-            let current_hash = sha256_file(key_path)?;
+            let current_hash = hash_file(key_path)?;
             let hash_file = Path::new(".airis/hook-cache");
-            if let Ok(saved) = std::fs::read_to_string(hash_file) {
-                if saved.trim() == current_hash {
+            if let Ok(saved) = std::fs::read_to_string(hash_file)
+                && saved.trim() == current_hash {
                     return Ok(());
                 }
-            }
         }
     }
 
@@ -1860,7 +1849,7 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
         if let Some(cache) = &manifest.hooks.cache {
             let key_path = Path::new(&cache.key);
             if key_path.exists() {
-                let hash = sha256_file(key_path)?;
+                let hash = hash_file(key_path)?;
                 std::fs::create_dir_all(".airis")
                     .context("Failed to create .airis directory")?;
                 std::fs::write(".airis/hook-cache", &hash)
@@ -1875,13 +1864,11 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-/// Compute SHA256 hash of a file.
-fn sha256_file(path: &Path) -> Result<String> {
-    use sha2::{Sha256, Digest};
+/// Compute BLAKE3 hash of a file.
+fn hash_file(path: &Path) -> Result<String> {
     let content = std::fs::read(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    let hash = Sha256::digest(&content);
-    Ok(hash.iter().map(|b| format!("{:02x}", b)).collect())
+    Ok(blake3::hash(&content).to_hex()[..64].to_string())
 }
 
 /// Execute a hook command respecting Docker-first mode.
@@ -2752,7 +2739,6 @@ test = "echo safe"
             extra_hosts: vec![],
             deploy: None,
             watch: vec![],
-            extends: None,
             devices: vec![],
             runtime: None,
             gpu: None,
@@ -2786,7 +2772,6 @@ test = "echo safe"
             extra_hosts: vec![],
             deploy: None,
             watch: vec![],
-            extends: None,
             devices: vec![],
             runtime: None,
             gpu: None,
@@ -2820,7 +2805,6 @@ test = "echo safe"
             extra_hosts: vec![],
             deploy: None,
             watch: vec![],
-            extends: None,
             devices: vec![],
             runtime: None,
             gpu: None,
@@ -2854,7 +2838,6 @@ test = "echo safe"
             extra_hosts: vec![],
             deploy: None,
             watch: vec![],
-            extends: None,
             devices: vec![],
             runtime: None,
             gpu: None,
@@ -2870,28 +2853,28 @@ test = "echo safe"
     }
 
     #[test]
-    fn test_sha256_file_deterministic() {
+    fn test_hash_file_deterministic() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.txt");
         std::fs::write(&file, "hello world").unwrap();
 
-        let hash1 = sha256_file(&file).unwrap();
-        let hash2 = sha256_file(&file).unwrap();
+        let hash1 = hash_file(&file).unwrap();
+        let hash2 = hash_file(&file).unwrap();
         assert_eq!(hash1, hash2);
-        // Known SHA256 of "hello world"
-        assert_eq!(hash1, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+        // Known BLAKE3 of "hello world"
+        assert_eq!(hash1, "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24");
     }
 
     #[test]
-    fn test_sha256_file_changes_with_content() {
+    fn test_hash_file_changes_with_content() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("test.txt");
 
         std::fs::write(&file, "version 1").unwrap();
-        let hash1 = sha256_file(&file).unwrap();
+        let hash1 = hash_file(&file).unwrap();
 
         std::fs::write(&file, "version 2").unwrap();
-        let hash2 = sha256_file(&file).unwrap();
+        let hash2 = hash_file(&file).unwrap();
 
         assert_ne!(hash1, hash2);
     }
