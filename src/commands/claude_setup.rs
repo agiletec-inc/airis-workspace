@@ -166,16 +166,17 @@ check_violations() {
   local source="$2"
 
   # Host-specific absolute paths
-  if echo "$text" | grep -qE '(/Users/|/home/[a-z]|~/)'; then
+  if echo "$text" | grep -qE '(/Users/[a-z]|~/)'; then
     cat >&2 <<BLOCK
 BLOCKED: Host path in Docker/CI file ($source)
 
-  Host-specific path (/Users/..., /home/..., ~/) detected in $BASENAME.
+  Host-specific path (/Users/..., ~/) detected in $BASENAME.
   This WILL fail in CI.
 
   Fix: Use container-internal paths only.
   - pnpm store: PNPM_STORE_DIR=/pnpm/store (named volume)
   - node_modules: /app/node_modules (named volume)
+  - /home/app is OK (container user), /Users/kazuki is NOT
 
   If this violation is in existing code, fix it before making other changes.
 BLOCK
