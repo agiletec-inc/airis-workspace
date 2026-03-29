@@ -336,19 +336,18 @@ impl TemplateEngine {
         writeln!(out, "FROM {} AS deps", python_image).unwrap();
         writeln!(out, "WORKDIR /app").unwrap();
         if !extra_apt.is_empty() {
-            writeln!(out, "RUN apt-get update && apt-get install -y --no-install-recommends \\")
-                .unwrap();
+            writeln!(
+                out,
+                "RUN apt-get update && apt-get install -y --no-install-recommends \\"
+            )
+            .unwrap();
             for pkg in &extra_apt {
                 writeln!(out, "{}", pkg).unwrap();
             }
             writeln!(out, " && rm -rf /var/lib/apt/lists/*").unwrap();
         }
         writeln!(out, "COPY {}/pyproject.toml ./", path).unwrap();
-        writeln!(
-            out,
-            "RUN --mount=type=cache,target=/root/.cache/pip \\"
-        )
-        .unwrap();
+        writeln!(out, "RUN --mount=type=cache,target=/root/.cache/pip \\").unwrap();
         writeln!(out, "    pip install --no-cache-dir .").unwrap();
         writeln!(out).unwrap();
 
