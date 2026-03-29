@@ -1336,6 +1336,34 @@ fn has_orchestration(manifest: &Manifest) -> bool {
     false
 }
 
+/// Match input against [remap] table entries.
+///
+/// Returns (original_key, remapped_value) if a match is found.
+/// Matching is case-insensitive and supports prefix matching:
+/// e.g., input "npm install foo" matches remap key "npm install".
+fn find_remap_match(remap: &IndexMap<String, String>, input: &str) -> Option<(String, String)> {
+    let lower = input.to_lowercase();
+
+    // Exact match first
+    for (key, value) in remap {
+        if lower == key.to_lowercase() {
+            return Some((key.clone(), value.clone()));
+        }
+    }
+
+    // Prefix match: input starts with a remap key
+    for (key, value) in remap {
+        let key_lower = key.to_lowercase();
+        if lower.starts_with(&key_lower)
+            && lower[key_lower.len()..].starts_with(|c: char| c.is_whitespace())
+        {
+            return Some((key.clone(), value.clone()));
+        }
+    }
+
+    None
+}
+
 /// Execute a command defined in manifest.toml [commands] section
 pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     // Block shell metacharacters in extra_args to prevent host command injection
@@ -1422,19 +1450,50 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         commands.insert(key.clone(), value.clone());
     }
 
-    // Check if command exists
-    let cmd = commands.get(task).ok_or_else(|| {
-        anyhow::anyhow!(
-            "❌ Command '{}' not found in manifest.toml [commands] section.\n\n\
-                 Available commands:\n{}",
-            task.bold(),
-            commands
-                .keys()
-                .map(|k| format!("  - {}", k))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    })?;
+    // Check if command exists; if not, try remap
+    let cmd = match commands.get(task) {
+        Some(cmd) => cmd.clone(),
+        None => {
+            // Build full input string for remap matching
+            let full_input = if extra_args.is_empty() {
+                task.to_string()
+            } else {
+                format!("{} {}", task, extra_args.join(" "))
+            };
+
+            if let Some((from, to)) = find_remap_match(&manifest.remap, &full_input) {
+                eprintln!(
+                    "🔄 Remapped: {} → {}",
+                    from.yellow().strikethrough(),
+                    to.green().bold()
+                );
+
+                // If target is "airis <cmd> [args]", extract and re-run
+                if let Some(airis_cmd) = to.strip_prefix("airis ") {
+                    let parts: Vec<&str> = airis_cmd.split_whitespace().collect();
+                    let remapped_task = parts[0];
+                    let remapped_args: Vec<String> =
+                        parts[1..].iter().map(|s| s.to_string()).collect();
+                    return run(remapped_task, &remapped_args);
+                }
+
+                // Otherwise execute the remapped command directly
+                to
+            } else {
+                bail!(
+                    "❌ Command '{}' not found in manifest.toml [commands] section.\n\n\
+                         Available commands:\n{}\n\n\
+                         Hint: Check [remap] section for command translations.",
+                    task.bold(),
+                    commands
+                        .keys()
+                        .map(|k| format!("  - {}", k))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                );
+            }
+        }
+    };
 
     if task == "up" {
         ensure_env_file();
@@ -2994,5 +3053,66 @@ strategy = "manual"
         assert_eq!(manifest.hooks.pre_command.as_deref(), Some("pnpm install"));
         assert_eq!(manifest.hooks.skip, vec!["up", "down", "ps"]);
         assert_eq!(manifest.hooks.cache.as_ref().unwrap().key, "pnpm-lock.yaml");
+    }
+
+    // ── remap matching tests ──
+
+    #[test]
+    fn test_remap_exact_match() {
+        let mut remap = IndexMap::new();
+        remap.insert("npm install".to_string(), "airis up".to_string());
+        remap.insert("docker compose up".to_string(), "airis up".to_string());
+
+        let result = find_remap_match(&remap, "npm install");
+        assert!(result.is_some());
+        let (from, to) = result.unwrap();
+        assert_eq!(from, "npm install");
+        assert_eq!(to, "airis up");
+    }
+
+    #[test]
+    fn test_remap_case_insensitive() {
+        let mut remap = IndexMap::new();
+        remap.insert("npm install".to_string(), "airis up".to_string());
+
+        assert!(find_remap_match(&remap, "NPM INSTALL").is_some());
+        assert!(find_remap_match(&remap, "Npm Install").is_some());
+    }
+
+    #[test]
+    fn test_remap_prefix_match() {
+        let mut remap = IndexMap::new();
+        remap.insert("npm install".to_string(), "airis up".to_string());
+
+        // "npm install foo" should match "npm install" key
+        let result = find_remap_match(&remap, "npm install foo");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().1, "airis up");
+    }
+
+    #[test]
+    fn test_remap_no_match() {
+        let mut remap = IndexMap::new();
+        remap.insert("npm install".to_string(), "airis up".to_string());
+
+        assert!(find_remap_match(&remap, "cargo build").is_none());
+        assert!(find_remap_match(&remap, "npm").is_none());
+    }
+
+    #[test]
+    fn test_remap_no_partial_word_match() {
+        let mut remap = IndexMap::new();
+        remap.insert("npm".to_string(), "airis up".to_string());
+
+        // "npmx" should NOT match "npm" (no whitespace boundary)
+        assert!(find_remap_match(&remap, "npmx").is_none());
+        // "npm install" should match "npm" (whitespace after key)
+        assert!(find_remap_match(&remap, "npm install").is_some());
+    }
+
+    #[test]
+    fn test_remap_empty_table() {
+        let remap = IndexMap::new();
+        assert!(find_remap_match(&remap, "npm install").is_none());
     }
 }
