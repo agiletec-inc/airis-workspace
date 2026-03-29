@@ -1484,6 +1484,9 @@ pub struct AppDeployConfig {
     /// Extra apk packages for native modules (e.g., ["python3", "make", "g++"])
     #[serde(default)]
     pub extra_apk: Vec<String>,
+    /// Base Docker image override (e.g., "python:3.12-slim", "nvidia/cuda:12.4.1-runtime-ubuntu22.04")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_image: Option<String>,
     /// Deploy target: "docker" (self-hosted compose) or "worker" (Cloudflare Workers).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deploy_target: Option<String>,
