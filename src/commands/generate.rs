@@ -864,7 +864,26 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
 
     for app in &deployable_apps {
         let app_path = app.path.as_deref().unwrap_or(&app.name);
+        let framework = app.framework.as_deref().unwrap_or("node");
         let dockerfile_path = Path::new(app_path).join("Dockerfile");
+
+        // Python projects maintain their own Dockerfiles — just verify it exists
+        if framework == "python" {
+            if dockerfile_path.exists() {
+                println!(
+                    "   {} {}/Dockerfile (python — user-managed)",
+                    "✓".green(),
+                    app_path,
+                );
+            } else {
+                println!(
+                    "   {} {}/Dockerfile missing (python projects need a hand-written Dockerfile)",
+                    "⚠".yellow(),
+                    app_path,
+                );
+            }
+            continue;
+        }
 
         // Ensure directory exists
         if let Some(parent) = dockerfile_path.parent() {
@@ -879,8 +898,8 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
             .deploy
             .as_ref()
             .and_then(|d| d.variant.as_deref())
-            .unwrap_or(match app.framework.as_deref() {
-                Some("nextjs") => "nextjs",
+            .unwrap_or(match framework {
+                "nextjs" => "nextjs",
                 _ => "node",
             });
 
