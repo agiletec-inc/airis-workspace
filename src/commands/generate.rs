@@ -1376,6 +1376,7 @@ fn detect_ts_major(manifest: &Manifest, resolved_catalog: &IndexMap<String, Stri
 /// Resolve package data for full-gen mode.
 ///
 /// Combines: convention scripts + preset + dep_group + import scan → final deps/scripts
+#[allow(clippy::too_many_arguments)]
 fn resolve_package_data(
     app: &ProjectDefinition,
     workspace_root: &Path,
