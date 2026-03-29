@@ -19,6 +19,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy, rustfmt
+          rustflags: ""
 
       - name: Check formatting
         run: cargo fmt --check
