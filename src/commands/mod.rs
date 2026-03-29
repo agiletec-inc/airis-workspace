@@ -1,4 +1,5 @@
 pub mod affected;
+pub mod build;
 pub mod bump_version;
 pub mod bundle;
 pub mod claude_setup;
