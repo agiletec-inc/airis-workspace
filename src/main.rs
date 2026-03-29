@@ -43,26 +43,30 @@ fn resolve_channel_for_project(cli_channel: Option<String>, project_path: &str) 
 
     // Try to read from manifest.toml
     if let Ok(content) = std::fs::read_to_string("manifest.toml")
-        && let Ok(manifest) = toml::from_str::<toml::Value>(&content) {
-            // Extract project name from path (e.g., "apps/web" -> "web")
-            let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
+        && let Ok(manifest) = toml::from_str::<toml::Value>(&content)
+    {
+        // Extract project name from path (e.g., "apps/web" -> "web")
+        let project_name = project_path.rsplit('/').next().unwrap_or(project_path);
 
-            // Look for [projects.<name>.runner.channel]
-            if let Some(projects) = manifest.get("projects")
-                && let Some(project) = projects.get(project_name)
-                    && let Some(runner) = project.get("runner") {
-                        // Check channel first
-                        if let Some(channel) = runner.get("channel")
-                            && let Some(ch) = channel.as_str() {
-                                return ch.to_string();
-                            }
-                        // Check version (mode=exact)
-                        if let Some(version) = runner.get("version")
-                            && let Some(v) = version.as_str() {
-                                return v.to_string();
-                            }
-                    }
+        // Look for [projects.<name>.runner.channel]
+        if let Some(projects) = manifest.get("projects")
+            && let Some(project) = projects.get(project_name)
+            && let Some(runner) = project.get("runner")
+        {
+            // Check channel first
+            if let Some(channel) = runner.get("channel")
+                && let Some(ch) = channel.as_str()
+            {
+                return ch.to_string();
+            }
+            // Check version (mode=exact)
+            if let Some(version) = runner.get("version")
+                && let Some(v) = version.as_str()
+            {
+                return v.to_string();
+            }
         }
+    }
 
     // Default to lts
     "lts".to_string()
@@ -745,7 +749,13 @@ fn main() -> Result<()> {
 /// Dispatch a parsed CLI command to the appropriate handler.
 fn dispatch(command: Commands) -> Result<()> {
     match command {
-        Commands::Init { snapshot, no_snapshot, setup_npmrc, write, skip_discovery } => {
+        Commands::Init {
+            snapshot,
+            no_snapshot,
+            setup_npmrc,
+            write,
+            skip_discovery,
+        } => {
             commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
             if setup_npmrc {
                 commands::init::setup_npmrc()?;
@@ -822,7 +832,11 @@ fn dispatch(command: Commands) -> Result<()> {
             validate_cmd::run(validate_action, json)?;
         }
         Commands::Verify => commands::verify::run()?,
-        Commands::Doctor { fix, truth, truth_json } => {
+        Commands::Doctor {
+            fix,
+            truth,
+            truth_json,
+        } => {
             if truth || truth_json {
                 commands::doctor::run_truth(truth_json)?;
             } else {
@@ -833,14 +847,34 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
         Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
-        Commands::Test { coverage_check, min_coverage, extra_args } => {
+        Commands::Test {
+            coverage_check,
+            min_coverage,
+            extra_args,
+        } => {
             if coverage_check {
                 commands::run::run_test_coverage(min_coverage)?;
             } else {
                 commands::run::run("test", &extra_args)?;
             }
         }
-        Commands::Build { project, affected, base, head, docker, channel, targets, parallel, image, push, context_out, no_cache, remote_cache, prod, quick } => {
+        Commands::Build {
+            project,
+            affected,
+            base,
+            head,
+            docker,
+            channel,
+            targets,
+            parallel,
+            image,
+            push,
+            context_out,
+            no_cache,
+            remote_cache,
+            prod,
+            quick,
+        } => {
             if affected && docker {
                 // Parallel build for affected projects
                 use colored::Colorize;
@@ -851,14 +885,18 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else {
                     let worker_count = parallel.unwrap_or_else(executor::default_parallelism);
                     let root = std::env::current_dir()?;
-                    let remote = remote_cache.as_ref().map(|url| remote_cache::Remote::parse(url)).transpose()?;
+                    let remote = remote_cache
+                        .as_ref()
+                        .map(|url| remote_cache::Remote::parse(url))
+                        .transpose()?;
 
                     // Build task list
                     let mut exec = executor::ParallelExecutor::new(worker_count);
 
                     for proj in &affected_projects {
                         let target = convert_package_to_path(proj);
-                        let resolved_channel = resolve_channel_for_project(channel.clone(), &target);
+                        let resolved_channel =
+                            resolve_channel_for_project(channel.clone(), &target);
 
                         // Get dependencies from DAG
                         let deps: Vec<String> = {
@@ -866,11 +904,19 @@ fn dispatch(command: Commands) -> Result<()> {
                             if let Ok(lock) = pnpm::PnpmLock::load(&lock_path) {
                                 let workspace_map = pnpm::build_workspace_map(&lock);
                                 let dag = dag::build_dag(&workspace_map);
-                                dag.nodes.get(&target)
-                                    .map(|n| n.deps.iter()
-                                        .filter(|d| affected_projects.iter().any(|ap| convert_package_to_path(ap) == **d))
-                                        .cloned()
-                                        .collect())
+                                dag.nodes
+                                    .get(&target)
+                                    .map(|n| {
+                                        n.deps
+                                            .iter()
+                                            .filter(|d| {
+                                                affected_projects
+                                                    .iter()
+                                                    .any(|ap| convert_package_to_path(ap) == **d)
+                                            })
+                                            .cloned()
+                                            .collect()
+                                    })
                                     .unwrap_or_default()
                             } else {
                                 vec![]
@@ -905,7 +951,9 @@ fn dispatch(command: Commands) -> Result<()> {
                                 // Check cache first
                                 let hash = docker_build::compute_content_hash(&root, &task.target)?;
 
-                                if let Some(_artifact) = docker_build::cache_hit(&task.target, &hash) {
+                                if let Some(_artifact) =
+                                    docker_build::cache_hit(&task.target, &hash)
+                                {
                                     return Ok(executor::TaskResult {
                                         task_id: task.id,
                                         success: true,
@@ -916,15 +964,17 @@ fn dispatch(command: Commands) -> Result<()> {
 
                                 // Check remote cache
                                 if let Some(ref remote) = remote
-                                    && let Some(artifact) = remote_cache::remote_hit(&task.target, &hash, remote)? {
-                                        docker_build::cache_store(&task.target, &hash, &artifact)?;
-                                        return Ok(executor::TaskResult {
-                                            task_id: task.id,
-                                            success: true,
-                                            duration_ms: start.elapsed().as_millis() as u64,
-                                            error: None,
-                                        });
-                                    }
+                                    && let Some(artifact) =
+                                        remote_cache::remote_hit(&task.target, &hash, remote)?
+                                {
+                                    docker_build::cache_store(&task.target, &hash, &artifact)?;
+                                    return Ok(executor::TaskResult {
+                                        task_id: task.id,
+                                        success: true,
+                                        duration_ms: start.elapsed().as_millis() as u64,
+                                        error: None,
+                                    });
+                                }
 
                                 // Build
                                 let config = docker_build::BuildConfig {
@@ -949,7 +999,12 @@ fn dispatch(command: Commands) -> Result<()> {
                                 docker_build::cache_store(&task.target, &hash, &artifact)?;
 
                                 if let Some(ref remote) = remote {
-                                    remote_cache::remote_store(&task.target, &hash, &artifact, remote)?;
+                                    remote_cache::remote_store(
+                                        &task.target,
+                                        &hash,
+                                        &artifact,
+                                        remote,
+                                    )?;
                                 }
 
                                 Ok(executor::TaskResult {
@@ -959,7 +1014,8 @@ fn dispatch(command: Commands) -> Result<()> {
                                     error: None,
                                 })
                             }
-                        }).await
+                        })
+                        .await
                     })?;
 
                     let failed: Vec<_> = results.iter().filter(|r| !r.success).collect();
@@ -986,11 +1042,17 @@ fn dispatch(command: Commands) -> Result<()> {
                 let root = std::env::current_dir()?;
 
                 // Parse remote cache URL if provided
-                let remote = remote_cache.as_ref().map(|url| remote_cache::Remote::parse(url)).transpose()?;
+                let remote = remote_cache
+                    .as_ref()
+                    .map(|url| remote_cache::Remote::parse(url))
+                    .transpose()?;
 
                 if build_targets.len() > 1 {
                     println!("{}", "==================================".bright_blue());
-                    println!("{}", "airis build --docker (multi-target)".bright_blue().bold());
+                    println!(
+                        "{}",
+                        "airis build --docker (multi-target)".bright_blue().bold()
+                    );
                     println!("Project: {}", target.cyan());
                     println!("Targets: {}", build_targets.join(", ").yellow());
                     println!("{}", "==================================".bright_blue());
@@ -998,7 +1060,16 @@ fn dispatch(command: Commands) -> Result<()> {
 
                 for (idx, build_channel) in build_targets.iter().enumerate() {
                     if build_targets.len() > 1 {
-                        println!("\n{}", format!("▶ [{}/{}] Building for target: {}", idx + 1, build_targets.len(), build_channel).bright_blue());
+                        println!(
+                            "\n{}",
+                            format!(
+                                "▶ [{}/{}] Building for target: {}",
+                                idx + 1,
+                                build_targets.len(),
+                                build_channel
+                            )
+                            .bright_blue()
+                        );
                     }
 
                     // Calculate content hash for cache lookup (includes channel in hash)
@@ -1008,18 +1079,26 @@ fn dispatch(command: Commands) -> Result<()> {
 
                     // Check local cache first
                     if let Some(artifact) = docker_build::cache_hit(&target, &final_hash) {
-                        println!("{}", format!("  ✅ Local cache hit: {}", artifact.image_ref).green());
+                        println!(
+                            "{}",
+                            format!("  ✅ Local cache hit: {}", artifact.image_ref).green()
+                        );
                         continue;
                     }
 
                     // Check remote cache if configured
                     if let Some(ref remote) = remote
-                        && let Some(artifact) = remote_cache::remote_hit(&target, &final_hash, remote)? {
-                            println!("{}", format!("  ✅ Remote cache hit: {}", artifact.image_ref).green());
-                            // Store to local cache for next time
-                            docker_build::cache_store(&target, &final_hash, &artifact)?;
-                            continue;
-                        }
+                        && let Some(artifact) =
+                            remote_cache::remote_hit(&target, &final_hash, remote)?
+                    {
+                        println!(
+                            "{}",
+                            format!("  ✅ Remote cache hit: {}", artifact.image_ref).green()
+                        );
+                        // Store to local cache for next time
+                        docker_build::cache_store(&target, &final_hash, &artifact)?;
+                        continue;
+                    }
 
                     // Generate image name with target suffix for multi-target
                     let target_image_name = if build_targets.len() > 1 {
@@ -1062,24 +1141,36 @@ fn dispatch(command: Commands) -> Result<()> {
                 }
 
                 if build_targets.len() > 1 {
-                    println!("\n{}", format!("✅ Built {} target(s) for {}", build_targets.len(), target).green().bold());
+                    println!(
+                        "\n{}",
+                        format!("✅ Built {} target(s) for {}", build_targets.len(), target)
+                            .green()
+                            .bold()
+                    );
                 }
             } else if prod {
-                let app_name = project.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("--prod requires a project path")
-                })?;
+                let app_name = project
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--prod requires a project path"))?;
                 commands::run::run_build_prod(app_name)?;
             } else if quick {
-                let app_name = project.as_deref().ok_or_else(|| {
-                    anyhow::anyhow!("--quick requires a project path")
-                })?;
+                let app_name = project
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--quick requires a project path"))?;
                 commands::run::run_build_quick(app_name)?;
             } else {
                 commands::run::run("build", &[])?;
             }
         }
-        Commands::Clean { dry_run, extra_args: _ } => commands::clean::run(dry_run)?,
-        Commands::Bundle { project, output, k8s } => {
+        Commands::Clean {
+            dry_run,
+            extra_args: _,
+        } => commands::clean::run(dry_run)?,
+        Commands::Bundle {
+            project,
+            output,
+            k8s,
+        } => {
             commands::bundle::run(&project, output.as_deref(), k8s)?;
         }
         Commands::Lint { extra_args } => commands::run::run("lint", &extra_args)?,
@@ -1092,47 +1183,47 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::run::run("ps", &extra_args)?;
             }
         }
-        Commands::Logs { service, follow, tail } => {
-            commands::run::run_logs(service.as_deref(), follow, tail)?
-        }
-        Commands::Exec { service, cmd } => {
-            commands::run::run_exec(&service, &cmd)?
-        }
-        Commands::Restart { service } => {
-            commands::run::run_restart(service.as_deref())?
-        }
+        Commands::Logs {
+            service,
+            follow,
+            tail,
+        } => commands::run::run_logs(service.as_deref(), follow, tail)?,
+        Commands::Exec { service, cmd } => commands::run::run_exec(&service, &cmd)?,
+        Commands::Restart { service } => commands::run::run_restart(service.as_deref())?,
         Commands::Network { action } => match action {
             NetworkCommands::Init => commands::network::init()?,
             NetworkCommands::Setup => commands::network::setup()?,
             NetworkCommands::List => commands::network::list()?,
             NetworkCommands::Remove => commands::network::remove()?,
         },
-        Commands::New { template } => {
-            match template {
-                NewCommands::Api { name, runtime } => {
-                    commands::new_cmd::run_with_runtime("api", &name, &runtime)?;
-                }
-                NewCommands::Web { name, runtime } => {
-                    commands::new_cmd::run_with_runtime("web", &name, &runtime)?;
-                }
-                NewCommands::Lib { name, runtime } => {
-                    commands::new_cmd::run_with_runtime("lib", &name, &runtime)?;
-                }
-                NewCommands::Edge { name } => {
-                    commands::new_cmd::run_with_runtime("edge", &name, "deno")?;
-                }
-                NewCommands::SupabaseTrigger { name } => {
-                    commands::new_cmd::run_with_runtime("supabase-trigger", &name, "plpgsql")?;
-                }
-                NewCommands::SupabaseRealtime { name } => {
-                    commands::new_cmd::run_with_runtime("supabase-realtime", &name, "deno")?;
-                }
+        Commands::New { template } => match template {
+            NewCommands::Api { name, runtime } => {
+                commands::new_cmd::run_with_runtime("api", &name, &runtime)?;
             }
-        }
+            NewCommands::Web { name, runtime } => {
+                commands::new_cmd::run_with_runtime("web", &name, &runtime)?;
+            }
+            NewCommands::Lib { name, runtime } => {
+                commands::new_cmd::run_with_runtime("lib", &name, &runtime)?;
+            }
+            NewCommands::Edge { name } => {
+                commands::new_cmd::run_with_runtime("edge", &name, "deno")?;
+            }
+            NewCommands::SupabaseTrigger { name } => {
+                commands::new_cmd::run_with_runtime("supabase-trigger", &name, "plpgsql")?;
+            }
+            NewCommands::SupabaseRealtime { name } => {
+                commands::new_cmd::run_with_runtime("supabase-realtime", &name, "deno")?;
+            }
+        },
         Commands::Affected { base, head } => {
             commands::affected::run(&base, &head)?;
         }
-        Commands::Gen { dry_run, force, migrate } => {
+        Commands::Gen {
+            dry_run,
+            force,
+            migrate,
+        } => {
             commands::generate::run(dry_run, force, migrate)?;
         }
         Commands::Generate { action } => match action {
@@ -1149,7 +1240,7 @@ fn dispatch(command: Commands) -> Result<()> {
             major,
             minor,
             patch,
-            auto: _,  // unused but kept for clarity
+            auto: _, // unused but kept for clarity
         } => {
             use commands::bump_version::{self, BumpMode};
 

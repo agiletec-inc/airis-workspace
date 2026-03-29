@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use glob::glob;
 
-use crate::manifest::{Manifest, MANIFEST_FILE};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::safe_fs::{SafeAction, SafeFS};
 
 /// Run the clean command
@@ -24,7 +24,10 @@ pub fn run(dry_run: bool) -> Result<()> {
     let safe_fs = SafeFS::current(dry_run)?;
 
     if dry_run {
-        println!("{}", "🔍 Dry-run mode: showing what would be cleaned...".bright_blue());
+        println!(
+            "{}",
+            "🔍 Dry-run mode: showing what would be cleaned...".bright_blue()
+        );
     } else {
         println!("{}", "🧹 Cleaning host build artifacts...".bright_blue());
     }
@@ -52,17 +55,13 @@ pub fn run(dry_run: bool) -> Result<()> {
     for pattern in &clean.recursive {
         // Validate pattern is safe
         if pattern.contains("..") || pattern.starts_with('/') {
-            println!(
-                "   {} {} (unsafe pattern skipped)",
-                "⏭️".yellow(),
-                pattern
-            );
+            println!("   {} {} (unsafe pattern skipped)", "⏭️".yellow(), pattern);
             skipped += 1;
             continue;
         }
 
         // Find matching directories up to depth 3
-        let glob_pattern = format!("**/{}",pattern);
+        let glob_pattern = format!("**/{}", pattern);
         match glob(&glob_pattern) {
             Ok(paths) => {
                 for entry in paths.flatten() {
@@ -132,22 +131,20 @@ pub fn run(dry_run: bool) -> Result<()> {
             skipped
         );
         println!();
-        println!(
-            "Run {} to actually clean.",
-            "airis clean".bright_cyan()
-        );
+        println!("Run {} to actually clean.", "airis clean".bright_cyan());
     } else {
         println!(
             "{} Cleaned {} item(s), {} skipped, {} errors",
-            if errors == 0 { "✅".green() } else { "⚠️".yellow() },
+            if errors == 0 {
+                "✅".green()
+            } else {
+                "⚠️".yellow()
+            },
             cleaned,
             skipped,
             errors
         );
-        println!(
-            "{}",
-            "(container cache preserved)".dimmed()
-        );
+        println!("{}", "(container cache preserved)".dimmed());
     }
 
     if errors > 0 {
@@ -180,11 +177,16 @@ fn print_result(action: &SafeAction, path: &str, cleaned: &mut usize, skipped: &
 }
 
 /// Remove orphaned generated files (called by airis gen after generation).
-pub fn remove_orphaned_files(previous_paths: &[String], current_paths: &[String], dry_run: bool) -> usize {
+pub fn remove_orphaned_files(
+    previous_paths: &[String],
+    current_paths: &[String],
+    dry_run: bool,
+) -> usize {
     use std::fs;
     use std::path::Path;
 
-    let current_set: std::collections::HashSet<&str> = current_paths.iter().map(|s| s.as_str()).collect();
+    let current_set: std::collections::HashSet<&str> =
+        current_paths.iter().map(|s| s.as_str()).collect();
     let mut removed = 0;
 
     for path_str in previous_paths {
@@ -202,13 +204,21 @@ pub fn remove_orphaned_files(previous_paths: &[String], current_paths: &[String]
                 && !content.contains("DO NOT EDIT")
                 && !content.contains("airis gen")
             {
-                println!("   {} {} (skipped — no airis marker, may be user-created)", "⏭️".yellow(), path_str);
+                println!(
+                    "   {} {} (skipped — no airis marker, may be user-created)",
+                    "⏭️".yellow(),
+                    path_str
+                );
                 continue;
             }
         }
 
         if dry_run {
-            println!("   {} {} (orphaned — would delete)", "→".bright_blue(), path_str);
+            println!(
+                "   {} {} (orphaned — would delete)",
+                "→".bright_blue(),
+                path_str
+            );
         } else {
             match fs::remove_file(path) {
                 Ok(()) => {

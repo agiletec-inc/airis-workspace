@@ -8,10 +8,10 @@ use std::collections::{HashMap, HashSet};
 /// A node in the dependency graph
 #[derive(Debug, Clone)]
 pub struct DagNode {
-    pub id: String,        // e.g., "apps/focustoday-api"
+    pub id: String, // e.g., "apps/focustoday-api"
     #[allow(dead_code)]
-    pub name: String,      // e.g., "focustoday-api" or "@agiletec/focustoday-api"
-    pub path: String,      // relative path from root
+    pub name: String, // e.g., "focustoday-api" or "@agiletec/focustoday-api"
+    pub path: String, // relative path from root
     pub deps: Vec<String>, // IDs of dependencies
 }
 

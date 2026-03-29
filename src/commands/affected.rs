@@ -90,9 +90,14 @@ fn build_dependency_graph() -> Result<HashMap<String, Vec<String>>> {
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
 
     // Try to load workspace paths from manifest, fall back to conventional dirs
-    let scan_dirs = match crate::manifest::Manifest::load(Path::new(crate::manifest::MANIFEST_FILE)) {
+    let scan_dirs = match crate::manifest::Manifest::load(Path::new(crate::manifest::MANIFEST_FILE))
+    {
         Ok(manifest) => manifest.all_workspace_paths(),
-        Err(_) => vec!["apps".to_string(), "libs".to_string(), "packages".to_string()],
+        Err(_) => vec![
+            "apps".to_string(),
+            "libs".to_string(),
+            "packages".to_string(),
+        ],
     };
 
     for dir in &scan_dirs {
@@ -104,8 +109,9 @@ fn build_dependency_graph() -> Result<HashMap<String, Vec<String>>> {
         // Check if this path itself has a package.json (exact workspace member)
         let pkg_json = dir_path.join("package.json");
         if pkg_json.exists()
-            && let Ok((name, deps)) = parse_package_json(&pkg_json) {
-                graph.insert(name, deps);
+            && let Ok((name, deps)) = parse_package_json(&pkg_json)
+        {
+            graph.insert(name, deps);
         }
 
         // Also scan immediate children (for glob patterns like "apps/*")
@@ -113,9 +119,10 @@ fn build_dependency_graph() -> Result<HashMap<String, Vec<String>>> {
             for entry in entries.flatten() {
                 let child_pkg_json = entry.path().join("package.json");
                 if child_pkg_json.exists()
-                    && let Ok((name, deps)) = parse_package_json(&child_pkg_json) {
-                        graph.insert(name, deps);
-                    }
+                    && let Ok((name, deps)) = parse_package_json(&child_pkg_json)
+                {
+                    graph.insert(name, deps);
+                }
             }
         }
     }
@@ -128,10 +135,7 @@ fn parse_package_json(path: &Path) -> Result<(String, Vec<String>)> {
     let content = fs::read_to_string(path)?;
     let json: Value = serde_json::from_str(&content)?;
 
-    let name = json["name"]
-        .as_str()
-        .unwrap_or("unknown")
-        .to_string();
+    let name = json["name"].as_str().unwrap_or("unknown").to_string();
 
     let mut deps = Vec::new();
 
@@ -139,7 +143,12 @@ fn parse_package_json(path: &Path) -> Result<(String, Vec<String>)> {
     if let Some(dependencies) = json["dependencies"].as_object() {
         for dep_name in dependencies.keys() {
             // Only include workspace packages (starting with @ or workspace:)
-            if dep_name.starts_with('@') || dependencies[dep_name].as_str().map(|v| v.contains("workspace:")).unwrap_or(false) {
+            if dep_name.starts_with('@')
+                || dependencies[dep_name]
+                    .as_str()
+                    .map(|v| v.contains("workspace:"))
+                    .unwrap_or(false)
+            {
                 deps.push(dep_name.clone());
             }
         }
@@ -148,7 +157,12 @@ fn parse_package_json(path: &Path) -> Result<(String, Vec<String>)> {
     // Collect devDependencies
     if let Some(dev_dependencies) = json["devDependencies"].as_object() {
         for dep_name in dev_dependencies.keys() {
-            if dep_name.starts_with('@') || dev_dependencies[dep_name].as_str().map(|v| v.contains("workspace:")).unwrap_or(false) {
+            if dep_name.starts_with('@')
+                || dev_dependencies[dep_name]
+                    .as_str()
+                    .map(|v| v.contains("workspace:"))
+                    .unwrap_or(false)
+            {
                 deps.push(dep_name.clone());
             }
         }
@@ -170,9 +184,10 @@ fn get_package_from_path(file_path: &str) -> Option<String> {
                 let pkg_json = format!("{}/{}/package.json", parts[0], pkg_name);
                 if let Ok(content) = fs::read_to_string(&pkg_json)
                     && let Ok(json) = serde_json::from_str::<Value>(&content)
-                        && let Some(name) = json["name"].as_str() {
-                            return Some(name.to_string());
-                        }
+                    && let Some(name) = json["name"].as_str()
+                {
+                    return Some(name.to_string());
+                }
                 Some(format!("@workspace/{}", pkg_name))
             }
             "libs" => {
@@ -181,9 +196,10 @@ fn get_package_from_path(file_path: &str) -> Option<String> {
                     let pkg_json = format!("libs/supabase/{}/package.json", parts[2]);
                     if let Ok(content) = fs::read_to_string(&pkg_json)
                         && let Ok(json) = serde_json::from_str::<Value>(&content)
-                            && let Some(name) = json["name"].as_str() {
-                                return Some(name.to_string());
-                            }
+                        && let Some(name) = json["name"].as_str()
+                    {
+                        return Some(name.to_string());
+                    }
                     Some(format!("@workspace/{}", parts[2]))
                 } else {
                     // libs/ui/... → @workspace/ui
@@ -191,9 +207,10 @@ fn get_package_from_path(file_path: &str) -> Option<String> {
                     let pkg_json = format!("libs/{}/package.json", pkg_name);
                     if let Ok(content) = fs::read_to_string(&pkg_json)
                         && let Ok(json) = serde_json::from_str::<Value>(&content)
-                            && let Some(name) = json["name"].as_str() {
-                                return Some(name.to_string());
-                            }
+                        && let Some(name) = json["name"].as_str()
+                    {
+                        return Some(name.to_string());
+                    }
                     Some(format!("@workspace/{}", pkg_name))
                 }
             }
@@ -205,7 +222,11 @@ fn get_package_from_path(file_path: &str) -> Option<String> {
 }
 
 /// Find all packages that depend on the given package (recursively)
-fn find_dependents(pkg: &str, graph: &HashMap<String, Vec<String>>, affected: &mut HashSet<String>) {
+fn find_dependents(
+    pkg: &str,
+    graph: &HashMap<String, Vec<String>>,
+    affected: &mut HashSet<String>,
+) {
     for (name, deps) in graph {
         if deps.contains(&pkg.to_string()) && !affected.contains(name) {
             affected.insert(name.clone());

@@ -6,7 +6,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, Semaphore};
+use tokio::sync::{Mutex, Semaphore, mpsc};
 
 /// Task state in the execution graph
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,7 +169,10 @@ impl ParallelExecutor {
             let captured_id = task.id.clone();
 
             tokio::spawn(async move {
-                let _permit = semaphore.acquire().await.expect("semaphore closed unexpectedly");
+                let _permit = semaphore
+                    .acquire()
+                    .await
+                    .expect("semaphore closed unexpectedly");
 
                 // Mark as running
                 {
@@ -243,7 +246,10 @@ impl ParallelExecutor {
                         if matches!(states_guard.get(skip_id), Some(TaskState::Pending)) {
                             states_guard.insert(
                                 skip_id.clone(),
-                                TaskState::Failed(format!("skipped: dependency '{}' failed", task_id)),
+                                TaskState::Failed(format!(
+                                    "skipped: dependency '{}' failed",
+                                    task_id
+                                )),
                             );
                         }
                     }
@@ -273,73 +279,76 @@ impl ParallelExecutor {
 
                 // If successful, check dependents
                 if let Some(deps) = dependents.get(&task_id) {
-                        for dep_id in deps {
-                            let should_run = {
-                                let states_guard = states.lock().await;
+                    for dep_id in deps {
+                        let should_run = {
+                            let states_guard = states.lock().await;
 
-                                // Check if all dependencies are completed
-                                let Some(dep_task) = tasks.get(dep_id) else {
-                                    // This should never happen as dep_id comes from dependents map
-                                    eprintln!("Internal error: dependent task not found during state check: {}", dep_id);
-                                    continue;
-                                };
-                                let all_deps_done = dep_task.dependencies.iter().all(|d| {
-                                    matches!(
-                                        states_guard.get(d),
-                                        Some(TaskState::Completed)
-                                    )
-                                });
-
-                                // Only run if pending and all deps done
-                                all_deps_done
-                                    && matches!(
-                                        states_guard.get(dep_id),
-                                        Some(TaskState::Pending)
-                                    )
+                            // Check if all dependencies are completed
+                            let Some(dep_task) = tasks.get(dep_id) else {
+                                // This should never happen as dep_id comes from dependents map
+                                eprintln!(
+                                    "Internal error: dependent task not found during state check: {}",
+                                    dep_id
+                                );
+                                continue;
                             };
+                            let all_deps_done = dep_task
+                                .dependencies
+                                .iter()
+                                .all(|d| matches!(states_guard.get(d), Some(TaskState::Completed)));
 
-                            if should_run {
-                                // Mark as ready then spawn
+                            // Only run if pending and all deps done
+                            all_deps_done
+                                && matches!(states_guard.get(dep_id), Some(TaskState::Pending))
+                        };
+
+                        if should_run {
+                            // Mark as ready then spawn
+                            {
+                                let mut states_guard = states.lock().await;
+                                states_guard.insert(dep_id.clone(), TaskState::Ready);
+                            }
+
+                            let task = match tasks.get(dep_id) {
+                                Some(t) => t.clone(),
+                                None => {
+                                    // This should never happen as dep_id comes from dependents map
+                                    eprintln!(
+                                        "Internal error: dependent task not found: {}",
+                                        dep_id
+                                    );
+                                    continue;
+                                }
+                            };
+                            let semaphore = Arc::clone(&semaphore);
+                            let tx = tx.clone();
+                            let states = Arc::clone(&states);
+                            let task_fn = task_fn.clone();
+                            let captured_id = task.id.clone();
+
+                            tokio::spawn(async move {
+                                let _permit = semaphore
+                                    .acquire()
+                                    .await
+                                    .expect("semaphore closed unexpectedly");
+
                                 {
-                                    let mut states_guard = states.lock().await;
-                                    states_guard.insert(dep_id.clone(), TaskState::Ready);
+                                    let mut states = states.lock().await;
+                                    states.insert(task.id.clone(), TaskState::Running);
                                 }
 
-                                let task = match tasks.get(dep_id) {
-                                    Some(t) => t.clone(),
-                                    None => {
-                                        // This should never happen as dep_id comes from dependents map
-                                        eprintln!("Internal error: dependent task not found: {}", dep_id);
-                                        continue;
-                                    }
-                                };
-                                let semaphore = Arc::clone(&semaphore);
-                                let tx = tx.clone();
-                                let states = Arc::clone(&states);
-                                let task_fn = task_fn.clone();
-                                let captured_id = task.id.clone();
-
-                                tokio::spawn(async move {
-                                    let _permit = semaphore.acquire().await.expect("semaphore closed unexpectedly");
-
-                                    {
-                                        let mut states = states.lock().await;
-                                        states.insert(task.id.clone(), TaskState::Running);
-                                    }
-
-                                    let result =
-                                        task_fn(task).await.unwrap_or_else(|e| TaskResult {
-                                            task_id: captured_id,
-                                            success: false,
-                                            duration_ms: 0,
-                                            error: Some(e.to_string()),
-                                        });
-
-                                    let _ = tx.send(result).await;
+                                let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
+                                    task_id: captured_id,
+                                    success: false,
+                                    duration_ms: 0,
+                                    error: Some(e.to_string()),
                                 });
-                            }
+
+                                let _ = tx.send(result).await;
+                            });
                         }
                     }
+                }
             }
         }
 
@@ -351,9 +360,12 @@ impl ParallelExecutor {
         if failed.is_empty() {
             println!(
                 "{}",
-                format!("✅ All {} tasks completed successfully ({}ms total)", total_tasks, total_time)
-                    .green()
-                    .bold()
+                format!(
+                    "✅ All {} tasks completed successfully ({}ms total)",
+                    total_tasks, total_time
+                )
+                .green()
+                .bold()
             );
         } else {
             println!(
@@ -395,12 +407,14 @@ mod tests {
     async fn test_executor_empty() {
         let executor = ParallelExecutor::new(4);
         let results = executor
-            .execute(|_task| async { Ok(TaskResult {
-                task_id: String::new(),
-                success: true,
-                duration_ms: 0,
-                error: None,
-            }) })
+            .execute(|_task| async {
+                Ok(TaskResult {
+                    task_id: String::new(),
+                    success: true,
+                    duration_ms: 0,
+                    error: None,
+                })
+            })
             .await
             .unwrap();
         assert!(results.is_empty());

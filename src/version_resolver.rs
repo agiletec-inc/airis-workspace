@@ -18,9 +18,7 @@ pub fn resolve_version(package: &str, policy: &str) -> Result<String> {
     match policy {
         "latest" => get_npm_latest(package),
         "lts" => get_npm_lts(package),
-        version if version.starts_with('^') || version.starts_with('~') => {
-            Ok(version.to_string())
-        }
+        version if version.starts_with('^') || version.starts_with('~') => Ok(version.to_string()),
         _ => Ok(policy.to_string()),
     }
 }
@@ -143,7 +141,9 @@ fn get_github_latest_major_tag(repo: &str) -> Result<String> {
                 .ok()
                 .and_then(|o| {
                     if o.status.success() {
-                        String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                        String::from_utf8(o.stdout)
+                            .ok()
+                            .map(|s| s.trim().to_string())
                     } else {
                         None
                     }
@@ -161,8 +161,8 @@ fn get_github_latest_major_tag(repo: &str) -> Result<String> {
         .read_to_string()
         .context(format!("Failed to read response body for {repo}"))?;
 
-    let tags: Vec<serde_json::Value> = serde_json::from_str(&body)
-        .context(format!("Failed to parse tags JSON for {repo}"))?;
+    let tags: Vec<serde_json::Value> =
+        serde_json::from_str(&body).context(format!("Failed to parse tags JSON for {repo}"))?;
 
     // Find major-only tags (v1, v2, ..., v6) — these are the stable refs
     let mut major_versions: Vec<u32> = tags

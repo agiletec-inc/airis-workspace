@@ -20,7 +20,7 @@
 //! remote_store("apps/web", "abc123", &artifact, &remote)?;
 //! ```
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::process::Command;
 
 use crate::docker_build::CachedArtifact;
@@ -29,14 +29,9 @@ use crate::docker_build::CachedArtifact;
 #[derive(Debug, Clone)]
 pub enum Remote {
     /// S3 bucket storage
-    S3 {
-        bucket: String,
-        prefix: String,
-    },
+    S3 { bucket: String, prefix: String },
     /// OCI registry (using oras)
-    Oci {
-        registry: String,
-    },
+    Oci { registry: String },
 }
 
 impl Remote {
@@ -145,11 +140,10 @@ fn s3_get(bucket: &str, key: &str) -> Result<Option<CachedArtifact>> {
         return Ok(None);
     }
 
-    let content = String::from_utf8(output.stdout)
-        .context("Invalid UTF-8 from S3")?;
+    let content = String::from_utf8(output.stdout).context("Invalid UTF-8 from S3")?;
 
-    let artifact: CachedArtifact = serde_json::from_str(&content)
-        .context("Failed to parse cached artifact from S3")?;
+    let artifact: CachedArtifact =
+        serde_json::from_str(&content).context("Failed to parse cached artifact from S3")?;
 
     Ok(Some(artifact))
 }
@@ -216,8 +210,8 @@ fn oci_pull(tag: &str) -> Result<Option<CachedArtifact>> {
     let content = std::fs::read_to_string(&artifact_path)?;
     let _ = std::fs::remove_dir_all(&temp_dir);
 
-    let artifact: CachedArtifact = serde_json::from_str(&content)
-        .context("Failed to parse cached artifact from OCI")?;
+    let artifact: CachedArtifact =
+        serde_json::from_str(&content).context("Failed to parse cached artifact from OCI")?;
 
     Ok(Some(artifact))
 }
@@ -233,11 +227,7 @@ fn oci_push(tag: &str, artifact: &CachedArtifact) -> Result<()> {
     std::fs::write(&artifact_path, &content)?;
 
     let output = Command::new("oras")
-        .args([
-            "push",
-            tag,
-            "artifact.json:application/json",
-        ])
+        .args(["push", tag, "artifact.json:application/json"])
         .current_dir(&temp_dir)
         .output()
         .context("Failed to run oras push")?;

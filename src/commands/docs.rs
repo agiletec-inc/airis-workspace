@@ -1,9 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::manifest::{DocsMode, Manifest, MANIFEST_FILE};
+use crate::manifest::{DocsMode, MANIFEST_FILE, Manifest};
 
 const CLAUDE_WRAPPER_TEMPLATE: &str = r#"# CLAUDE.md
 
@@ -105,7 +105,9 @@ pub fn wrap(target: &str) -> Result<()> {
                     "⚠️  {} already exists. Cannot overwrite in 'warn' mode.",
                     target.yellow()
                 );
-                println!("   Change [docs.mode] to 'backup' in manifest.toml to enable overwrites.");
+                println!(
+                    "   Change [docs.mode] to 'backup' in manifest.toml to enable overwrites."
+                );
                 return Ok(());
             }
             DocsMode::Backup => {
@@ -123,7 +125,7 @@ pub fn wrap(target: &str) -> Result<()> {
         "CLAUDE.md" => CLAUDE_WRAPPER_TEMPLATE,
         ".cursorrules" => CURSORRULES_WRAPPER_TEMPLATE,
         "GEMINI.md" => CLAUDE_WRAPPER_TEMPLATE, // Same template
-        "AGENTS.md" => CLAUDE_WRAPPER_TEMPLATE,  // Same template
+        "AGENTS.md" => CLAUDE_WRAPPER_TEMPLATE, // Same template
         _ => {
             bail!(
                 "❌ Unknown documentation file: {}. Supported: CLAUDE.md, .cursorrules, GEMINI.md, AGENTS.md",

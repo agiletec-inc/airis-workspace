@@ -333,13 +333,15 @@ fn airis_stop_entry() -> Value {
 
 /// Install global Claude Code hooks to ~/.claude/
 pub fn setup_global() -> Result<()> {
-    println!("{}", "🛡️  Setting up Claude Code Docker-First hooks...".bright_blue());
+    println!(
+        "{}",
+        "🛡️  Setting up Claude Code Docker-First hooks...".bright_blue()
+    );
     println!();
 
     // 1. Create hooks directory
     let dir = hooks_dir()?;
-    fs::create_dir_all(&dir)
-        .with_context(|| format!("Failed to create {}", dir.display()))?;
+    fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
 
     // 2. Write docker-first-guard.sh
     let guard_path = dir.join("docker-first-guard.sh");
@@ -347,7 +349,11 @@ pub fn setup_global() -> Result<()> {
         .with_context(|| format!("Failed to write {}", guard_path.display()))?;
     #[cfg(unix)]
     fs::set_permissions(&guard_path, fs::Permissions::from_mode(0o755))?;
-    println!("   {} {}", "✓".green(), guard_path.display().to_string().dimmed());
+    println!(
+        "   {} {}",
+        "✓".green(),
+        guard_path.display().to_string().dimmed()
+    );
 
     // 3. Write docker-first-edit-guard.sh
     let edit_guard_path = dir.join("docker-first-edit-guard.sh");
@@ -355,7 +361,11 @@ pub fn setup_global() -> Result<()> {
         .with_context(|| format!("Failed to write {}", edit_guard_path.display()))?;
     #[cfg(unix)]
     fs::set_permissions(&edit_guard_path, fs::Permissions::from_mode(0o755))?;
-    println!("   {} {}", "✓".green(), edit_guard_path.display().to_string().dimmed());
+    println!(
+        "   {} {}",
+        "✓".green(),
+        edit_guard_path.display().to_string().dimmed()
+    );
 
     // 5. Write stop-test-check.sh
     let stop_path = dir.join("stop-test-check.sh");
@@ -363,7 +373,11 @@ pub fn setup_global() -> Result<()> {
         .with_context(|| format!("Failed to write {}", stop_path.display()))?;
     #[cfg(unix)]
     fs::set_permissions(&stop_path, fs::Permissions::from_mode(0o755))?;
-    println!("   {} {}", "✓".green(), stop_path.display().to_string().dimmed());
+    println!(
+        "   {} {}",
+        "✓".green(),
+        stop_path.display().to_string().dimmed()
+    );
 
     // 6. Write global command files (~/.claude/commands/)
     let cmd_dir = commands_dir()?;
@@ -373,7 +387,11 @@ pub fn setup_global() -> Result<()> {
     let pw_path = cmd_dir.join("playwright-cli.md");
     fs::write(&pw_path, playwright_cli_command())
         .with_context(|| format!("Failed to write {}", pw_path.display()))?;
-    println!("   {} {}", "✓".green(), pw_path.display().to_string().dimmed());
+    println!(
+        "   {} {}",
+        "✓".green(),
+        pw_path.display().to_string().dimmed()
+    );
 
     // 7. Merge hooks into settings.json
     let settings = settings_path()?;
@@ -391,15 +409,31 @@ pub fn setup_global() -> Result<()> {
     let pretty = serde_json::to_string_pretty(&value)?;
     fs::write(&settings, pretty)
         .with_context(|| format!("Failed to write {}", settings.display()))?;
-    println!("   {} {}", "✓".green(), settings.display().to_string().dimmed());
+    println!(
+        "   {} {}",
+        "✓".green(),
+        settings.display().to_string().dimmed()
+    );
 
     println!();
     println!("{}", "✅ Claude Code hooks installed".green());
     println!();
-    println!("  {} Docker-First Bash guard blocks host package managers", "•".dimmed());
-    println!("  {} Docker-First Edit guard blocks host paths in Docker/CI files", "•".dimmed());
-    println!("  {} Stop hook runs tests when Claude finishes", "•".dimmed());
-    println!("  {} /playwright-cli command for browser automation", "•".dimmed());
+    println!(
+        "  {} Docker-First Bash guard blocks host package managers",
+        "•".dimmed()
+    );
+    println!(
+        "  {} Docker-First Edit guard blocks host paths in Docker/CI files",
+        "•".dimmed()
+    );
+    println!(
+        "  {} Stop hook runs tests when Claude finishes",
+        "•".dimmed()
+    );
+    println!(
+        "  {} /playwright-cli command for browser automation",
+        "•".dimmed()
+    );
 
     Ok(())
 }
@@ -452,7 +486,10 @@ pub fn status() -> Result<()> {
     if all_ok {
         println!("{}", "✅ All hooks installed and configured".green());
     } else {
-        println!("{}", "⚠️  Some hooks are missing. Run `airis guards install --hooks` to install.".yellow());
+        println!(
+            "{}",
+            "⚠️  Some hooks are missing. Run `airis guards install --hooks` to install.".yellow()
+        );
     }
 
     Ok(())
@@ -460,17 +497,27 @@ pub fn status() -> Result<()> {
 
 /// Remove airis-managed hooks
 pub fn uninstall() -> Result<()> {
-    println!("{}", "🗑️  Removing airis Claude Code hooks...".bright_blue());
+    println!(
+        "{}",
+        "🗑️  Removing airis Claude Code hooks...".bright_blue()
+    );
     println!();
 
     // 1. Remove hooks directory
     let dir = hooks_dir()?;
     if dir.exists() {
-        fs::remove_dir_all(&dir)
-            .with_context(|| format!("Failed to remove {}", dir.display()))?;
-        println!("   {} Removed {}", "✓".green(), dir.display().to_string().dimmed());
+        fs::remove_dir_all(&dir).with_context(|| format!("Failed to remove {}", dir.display()))?;
+        println!(
+            "   {} Removed {}",
+            "✓".green(),
+            dir.display().to_string().dimmed()
+        );
     } else {
-        println!("   {} {} (not found)", "–".dimmed(), dir.display().to_string().dimmed());
+        println!(
+            "   {} {} (not found)",
+            "–".dimmed(),
+            dir.display().to_string().dimmed()
+        );
     }
 
     // 2. Remove airis entries from settings.json
@@ -484,7 +531,11 @@ pub fn uninstall() -> Result<()> {
 
         let pretty = serde_json::to_string_pretty(&value)?;
         fs::write(&settings, pretty)?;
-        println!("   {} Cleaned {}", "✓".green(), settings.display().to_string().dimmed());
+        println!(
+            "   {} Cleaned {}",
+            "✓".green(),
+            settings.display().to_string().dimmed()
+        );
     }
 
     println!();

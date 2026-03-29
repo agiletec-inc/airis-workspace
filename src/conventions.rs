@@ -29,9 +29,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             dev_script: "next dev",
             build_script: "next build",
             start_script: "next start",
-            docker_env: &[
-                ("WATCHPACK_POLLING", "true"),
-            ],
+            docker_env: &[("WATCHPACK_POLLING", "true")],
             default_scripts: &[
                 ("dev", "next dev"),
                 ("build", "NODE_ENV=production next build"),
@@ -47,9 +45,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             dev_script: "vite",
             build_script: "vite build",
             start_script: "vite preview",
-            docker_env: &[
-                ("CHOKIDAR_USEPOLLING", "true"),
-            ],
+            docker_env: &[("CHOKIDAR_USEPOLLING", "true")],
             default_scripts: &[
                 ("dev", "vite"),
                 ("build", "vite build"),
@@ -216,7 +212,10 @@ mod tests {
     #[test]
     fn test_name_from_path() {
         assert_eq!(name_from_path("apps/corporate"), "corporate");
-        assert_eq!(name_from_path("products/airis/voice-gateway"), "voice-gateway");
+        assert_eq!(
+            name_from_path("products/airis/voice-gateway"),
+            "voice-gateway"
+        );
         assert_eq!(name_from_path("libs/ui"), "ui");
         assert_eq!(name_from_path("standalone"), "standalone");
     }
@@ -249,7 +248,11 @@ mod tests {
     #[test]
     fn test_vite_has_chokidar_polling() {
         let d = framework_defaults("vite");
-        assert!(d.docker_env.iter().any(|(k, _)| *k == "CHOKIDAR_USEPOLLING"));
+        assert!(
+            d.docker_env
+                .iter()
+                .any(|(k, _)| *k == "CHOKIDAR_USEPOLLING")
+        );
     }
 
     #[test]

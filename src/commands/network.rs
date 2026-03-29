@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use std::path::Path;
 use std::process::Command;
@@ -72,12 +72,14 @@ pub fn init() -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let project_name = &manifest.workspace.name;
 
-    println!("🌐 Initializing Docker networks for project: {}", project_name.cyan());
+    println!(
+        "🌐 Initializing Docker networks for project: {}",
+        project_name.cyan()
+    );
 
     let networks = default_networks();
     let mut created = 0;
@@ -91,14 +93,22 @@ pub fn init() -> Result<()> {
             skipped += 1;
         } else {
             create_network(&network_name)?;
-            println!("  {} {} - {}", "✓".green(), network_name, network.description);
+            println!(
+                "  {} {} - {}",
+                "✓".green(),
+                network_name,
+                network.description
+            );
             created += 1;
         }
     }
 
     println!();
     if created > 0 {
-        println!("✅ Created {} network(s), skipped {} existing", created, skipped);
+        println!(
+            "✅ Created {} network(s), skipped {} existing",
+            created, skipped
+        );
     } else {
         println!("✅ All networks already exist ({} total)", skipped);
     }
@@ -117,14 +127,18 @@ pub fn list() -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let project_name = &manifest.workspace.name;
 
     // Get all networks
     let output = Command::new("docker")
-        .args(["network", "ls", "--format", "{{.Name}}\t{{.Driver}}\t{{.Scope}}"])
+        .args([
+            "network",
+            "ls",
+            "--format",
+            "{{.Name}}\t{{.Driver}}\t{{.Scope}}",
+        ])
         .output()
         .with_context(|| "Failed to list Docker networks")?;
 
@@ -136,7 +150,12 @@ pub fn list() -> Result<()> {
 
     println!("🌐 Networks for project: {}", project_name.cyan());
     println!();
-    println!("{:<40} {:<10} {}", "NAME".bold(), "DRIVER".bold(), "SCOPE".bold());
+    println!(
+        "{:<40} {:<10} {}",
+        "NAME".bold(),
+        "DRIVER".bold(),
+        "SCOPE".bold()
+    );
 
     let mut found = 0;
     for line in networks.lines() {
@@ -152,7 +171,11 @@ pub fn list() -> Result<()> {
     }
 
     if found == 0 {
-        println!("  {} No networks found. Run {} to create them.", "⚠".yellow(), "airis network init".bold());
+        println!(
+            "  {} No networks found. Run {} to create them.",
+            "⚠".yellow(),
+            "airis network init".bold()
+        );
     }
 
     Ok(())
@@ -170,12 +193,14 @@ pub fn setup() -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let project_name = &manifest.workspace.name;
     // Resolve proxy network: manifest > env var > skip
-    let proxy_network = manifest.orchestration.networks.as_ref()
+    let proxy_network = manifest
+        .orchestration
+        .networks
+        .as_ref()
         .and_then(|n| n.proxy.clone())
         .or_else(|| std::env::var("EXTERNAL_PROXY_NETWORK").ok());
 
@@ -192,7 +217,10 @@ pub fn setup() -> Result<()> {
             println!("  {} {} (created)", "✓".green(), proxy);
         }
     } else {
-        println!("  {} skipped (no proxy network configured in manifest or EXTERNAL_PROXY_NETWORK)", "⏭️".dimmed());
+        println!(
+            "  {} skipped (no proxy network configured in manifest or EXTERNAL_PROXY_NETWORK)",
+            "⏭️".dimmed()
+        );
     }
 
     // 2. Create project networks
@@ -212,9 +240,14 @@ pub fn setup() -> Result<()> {
     }
 
     // 3. Start Traefik (check modern + legacy naming)
-    let traefik_compose = ["traefik/compose.yml", "traefik/compose.yaml",
-        "traefik/docker-compose.yml", "traefik/docker-compose.yaml"]
-        .iter().find(|p| Path::new(p).exists());
+    let traefik_compose = [
+        "traefik/compose.yml",
+        "traefik/compose.yaml",
+        "traefik/docker-compose.yml",
+        "traefik/docker-compose.yaml",
+    ]
+    .iter()
+    .find(|p| Path::new(p).exists());
     if let Some(&traefik_path) = traefik_compose {
         let _traefik_compose = Path::new(traefik_path);
         println!();
@@ -258,12 +291,14 @@ pub fn remove() -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let project_name = &manifest.workspace.name;
 
-    println!("🌐 Removing Docker networks for project: {}", project_name.cyan());
+    println!(
+        "🌐 Removing Docker networks for project: {}",
+        project_name.cyan()
+    );
 
     let networks = default_networks();
     let mut removed = 0;

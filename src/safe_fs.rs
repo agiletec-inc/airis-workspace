@@ -19,10 +19,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::Local;
 
-use crate::ownership::{get_ownership, Ownership};
+use crate::ownership::{Ownership, get_ownership};
 
 /// Backup directory relative to workspace root
 const BACKUP_DIR: &str = ".airis/backups";
@@ -76,7 +76,8 @@ impl SafeFS {
         let root = root.as_ref();
 
         // Canonicalize to absolute path
-        let root = root.canonicalize()
+        let root = root
+            .canonicalize()
             .with_context(|| format!("Workspace root not found: {}", root.display()))?;
 
         // Verify it's a valid workspace (has manifest.toml)
@@ -128,12 +129,14 @@ impl SafeFS {
             full_path.canonicalize()?
         } else {
             // Path doesn't exist yet - canonicalize parent
-            let parent = full_path.parent()
+            let parent = full_path
+                .parent()
                 .ok_or_else(|| anyhow::anyhow!("Invalid path: no parent"))?;
 
             if parent.exists() {
                 let canonical_parent = parent.canonicalize()?;
-                let filename = full_path.file_name()
+                let filename = full_path
+                    .file_name()
                     .ok_or_else(|| anyhow::anyhow!("Invalid path: no filename"))?;
                 canonical_parent.join(filename)
             } else {
@@ -175,8 +178,12 @@ impl SafeFS {
         }
 
         let backup_dir = self.backup_dir();
-        fs::create_dir_all(&backup_dir)
-            .with_context(|| format!("Failed to create backup directory: {}", backup_dir.display()))?;
+        fs::create_dir_all(&backup_dir).with_context(|| {
+            format!(
+                "Failed to create backup directory: {}",
+                backup_dir.display()
+            )
+        })?;
 
         // Create timestamped backup filename
         let timestamp = Local::now().format("%Y%m%d_%H%M%S");
@@ -206,11 +213,7 @@ impl SafeFS {
     /// - Creates backup if file exists and will be overwritten
     /// - Respects ownership rules
     /// - In dry-run mode, only reports what would happen
-    pub fn write(
-        &self,
-        path: impl AsRef<Path>,
-        content: impl AsRef<[u8]>,
-    ) -> Result<SafeOpResult> {
+    pub fn write(&self, path: impl AsRef<Path>, content: impl AsRef<[u8]>) -> Result<SafeOpResult> {
         let path = self.resolve_and_validate(path)?;
         let relative_path = path.strip_prefix(&self.root).unwrap_or(&path);
         let ownership = get_ownership(relative_path);
@@ -232,7 +235,11 @@ impl SafeFS {
 
         if self.dry_run {
             return Ok(SafeOpResult {
-                action: if exists { SafeAction::WouldOverwrite } else { SafeAction::WouldCreate },
+                action: if exists {
+                    SafeAction::WouldOverwrite
+                } else {
+                    SafeAction::WouldCreate
+                },
                 path,
                 backup: None,
             });
@@ -256,7 +263,11 @@ impl SafeFS {
             .with_context(|| format!("Failed to write file: {}", path.display()))?;
 
         Ok(SafeOpResult {
-            action: if exists { SafeAction::Overwritten } else { SafeAction::Created },
+            action: if exists {
+                SafeAction::Overwritten
+            } else {
+                SafeAction::Created
+            },
             path,
             backup,
         })
@@ -459,7 +470,11 @@ mod tests {
 
     fn create_test_workspace() -> tempfile::TempDir {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("manifest.toml"), "version = 1\n[workspace]\nname = \"test\"").unwrap();
+        fs::write(
+            dir.path().join("manifest.toml"),
+            "version = 1\n[workspace]\nname = \"test\"",
+        )
+        .unwrap();
         dir
     }
 
@@ -484,7 +499,11 @@ mod tests {
 
         // Paths inside workspace should be allowed
         assert!(safe_fs.resolve_and_validate("src/main.rs").is_ok());
-        assert!(safe_fs.resolve_and_validate("apps/dashboard/package.json").is_ok());
+        assert!(
+            safe_fs
+                .resolve_and_validate("apps/dashboard/package.json")
+                .is_ok()
+        );
         assert!(safe_fs.resolve_and_validate(".next").is_ok());
     }
 

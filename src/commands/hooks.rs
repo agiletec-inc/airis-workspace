@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use std::path::Path;
 
@@ -14,8 +14,7 @@ const AIRIS_MARKER: &str = "# airis-managed";
 fn install_hook(hooks_dir: &Path, name: &str, content: &str) -> Result<()> {
     let hook_path = hooks_dir.join(name);
 
-    fs::write(&hook_path, content)
-        .with_context(|| format!("Failed to write {} hook", name))?;
+    fs::write(&hook_path, content).with_context(|| format!("Failed to write {} hook", name))?;
 
     #[cfg(unix)]
     {
@@ -57,11 +56,9 @@ fn install_claude_hooks() -> Result<()> {
     let mut settings: Value = if settings_path.exists() {
         let content = fs::read_to_string(&settings_path)
             .with_context(|| "Failed to read ~/.claude/settings.json")?;
-        serde_json::from_str(&content)
-            .with_context(|| "Failed to parse ~/.claude/settings.json")?
+        serde_json::from_str(&content).with_context(|| "Failed to parse ~/.claude/settings.json")?
     } else {
-        fs::create_dir_all(&claude_dir)
-            .with_context(|| "Failed to create ~/.claude directory")?;
+        fs::create_dir_all(&claude_dir).with_context(|| "Failed to create ~/.claude directory")?;
         json!({})
     };
 
@@ -109,8 +106,8 @@ fn install_claude_hooks() -> Result<()> {
         }]
     }));
 
-    let formatted = serde_json::to_string_pretty(&settings)
-        .context("Failed to serialize settings")?;
+    let formatted =
+        serde_json::to_string_pretty(&settings).context("Failed to serialize settings")?;
     fs::write(&settings_path, format!("{formatted}\n"))
         .with_context(|| "Failed to write ~/.claude/settings.json")?;
 
@@ -126,8 +123,7 @@ pub fn install() -> Result<()> {
         eprintln!("⚠️  Not a git repository. Skipping Git hook installation.");
     } else {
         let hooks_dir = git_dir.join("hooks");
-        fs::create_dir_all(&hooks_dir)
-            .with_context(|| "Failed to create .git/hooks directory")?;
+        fs::create_dir_all(&hooks_dir).with_context(|| "Failed to create .git/hooks directory")?;
 
         install_hook(&hooks_dir, "pre-commit", PRE_COMMIT_HOOK)?;
         install_hook(&hooks_dir, "pre-push", PRE_PUSH_HOOK)?;

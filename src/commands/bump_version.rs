@@ -1,18 +1,18 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use regex::Regex;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::manifest::{Manifest, VersioningStrategy, MANIFEST_FILE};
+use crate::manifest::{MANIFEST_FILE, Manifest, VersioningStrategy};
 
 #[derive(Debug, Clone)]
 pub enum BumpMode {
-    Auto,     // Detect from commit message
-    Major,    // x.0.0
-    Minor,    // x.y.0
-    Patch,    // x.y.z
+    Auto,  // Detect from commit message
+    Major, // x.0.0
+    Minor, // x.y.0
+    Patch, // x.y.z
 }
 
 /// Bump version in Cargo.toml only (manifest.toml is NEVER modified)
@@ -22,15 +22,17 @@ pub fn run(mode: BumpMode) -> Result<()> {
 
     // Load manifest for versioning strategy only
     let manifest = if manifest_path.exists() {
-        Some(Manifest::load(manifest_path)
-            .with_context(|| format!("Failed to load {}", MANIFEST_FILE))?)
+        Some(
+            Manifest::load(manifest_path)
+                .with_context(|| format!("Failed to load {}", MANIFEST_FILE))?,
+        )
     } else {
         None
     };
 
     // Get current version from Cargo.toml (which should be synced from git tags)
-    let current_version = get_cargo_version()?
-        .ok_or_else(|| anyhow::anyhow!("❌ No version found in Cargo.toml"))?;
+    let current_version =
+        get_cargo_version()?.ok_or_else(|| anyhow::anyhow!("❌ No version found in Cargo.toml"))?;
 
     // Determine bump type
     let new_version = match mode {
@@ -84,8 +86,7 @@ fn get_cargo_version() -> Result<Option<String>> {
         return Ok(None);
     }
 
-    let content = fs::read_to_string(cargo_path)
-        .with_context(|| "Failed to read Cargo.toml")?;
+    let content = fs::read_to_string(cargo_path).with_context(|| "Failed to read Cargo.toml")?;
 
     // Extract version from Cargo.toml
     let version = content
@@ -102,10 +103,7 @@ fn get_cargo_version() -> Result<Option<String>> {
 
 /// Bump version string by type
 fn bump_version_string(current: &str, bump_type: &str) -> Result<String> {
-    let parts: Vec<u32> = current
-        .split('.')
-        .map(|s| s.parse().unwrap_or(0))
-        .collect();
+    let parts: Vec<u32> = current.split('.').map(|s| s.parse().unwrap_or(0)).collect();
 
     if parts.len() < 3 {
         bail!("Invalid version format: {}", current);
@@ -185,15 +183,13 @@ fn update_cargo_toml(new_version: &str) -> Result<()> {
         return Ok(());
     }
 
-    let content = fs::read_to_string(cargo_path)
-        .with_context(|| "Failed to read Cargo.toml")?;
+    let content = fs::read_to_string(cargo_path).with_context(|| "Failed to read Cargo.toml")?;
 
     // Replace version line
     let updated = Regex::new(r#"version = "[\d.]+""#)?
         .replace(&content, format!(r#"version = "{}""#, new_version));
 
-    fs::write(cargo_path, updated.as_ref())
-        .with_context(|| "Failed to write Cargo.toml")?;
+    fs::write(cargo_path, updated.as_ref()).with_context(|| "Failed to write Cargo.toml")?;
 
     Ok(())
 }

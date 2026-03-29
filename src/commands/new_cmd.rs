@@ -1,11 +1,11 @@
 //! New command: scaffold new apps, services, and libraries from templates
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::manifest::{Manifest, MANIFEST_FILE};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 
 /// Get the base directory for a template category
 fn get_base_dir(category: &str) -> &str {
@@ -19,7 +19,9 @@ fn get_base_dir(category: &str) -> &str {
 
 /// Resolve runtime alias to full runtime name
 fn resolve_runtime(manifest: &Manifest, runtime: &str) -> String {
-    manifest.runtimes.alias
+    manifest
+        .runtimes
+        .alias
         .get(runtime)
         .cloned()
         .unwrap_or_else(|| runtime.to_string())
@@ -32,7 +34,10 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
         bail!("Project name cannot be empty");
     }
 
-    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+    if !name
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    {
         bail!("Project name can only contain alphanumeric characters, hyphens, and underscores");
     }
 
@@ -95,7 +100,8 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
                 edge: deno\n  \
                 supabase-trigger: plpgsql\n  \
                 supabase-realtime: deno",
-                resolved_runtime, category
+                resolved_runtime,
+                category
             );
         }
     }
@@ -104,8 +110,14 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
     println!("{}", "✅ Project created successfully!".green());
     println!();
     println!("{}", "Next steps:".bright_yellow());
-    println!("  1. Run {} to regenerate workspace files", "airis init".cyan());
-    println!("  2. Run {} to install dependencies", "airis install".cyan());
+    println!(
+        "  1. Run {} to regenerate workspace files",
+        "airis init".cyan()
+    );
+    println!(
+        "  2. Run {} to install dependencies",
+        "airis install".cyan()
+    );
     println!("  3. Start development with {}", "airis dev".cyan());
 
     Ok(())
@@ -215,7 +227,8 @@ health.get('/', (c) => {
 
     // Dockerfile — pnpm installed without version pin (scaffold = fresh project)
     let node_image = crate::channel::defaults::NODE_LTS_IMAGE;
-    let dockerfile = format!(r#"FROM {node_image} AS builder
+    let dockerfile = format!(
+        r#"FROM {node_image} AS builder
 WORKDIR /app
 COPY package.json ./
 RUN npm install -g pnpm && pnpm install
@@ -230,7 +243,8 @@ COPY --from=builder /app/node_modules ./node_modules
 ENV NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "dist/index.js"]
-"#);
+"#
+    );
     fs::write(project_dir.join("Dockerfile"), dockerfile)?;
 
     // .gitignore
@@ -408,8 +422,7 @@ out/
 
 /// Generate a TypeScript library
 fn generate_lib_project(project_dir: &Path, name: &str) -> Result<()> {
-    fs::create_dir_all(project_dir.join("src"))
-        .context("Failed to create src directory")?;
+    fs::create_dir_all(project_dir.join("src")).context("Failed to create src directory")?;
 
     // package.json
     let package_json = format!(
@@ -535,8 +548,11 @@ testpaths = ["tests"]
     fs::write(project_dir.join("pyproject.toml"), pyproject)?;
 
     // src/<pkg>/__init__.py
-    let init_py = format!(r#""""{}"""
-"#, name);
+    let init_py = format!(
+        r#""""{}"""
+"#,
+        name
+    );
     fs::write(
         project_dir.join(format!("src/{}/__init__.py", pkg_name)),
         init_py,
@@ -561,8 +577,7 @@ dist/
 
 /// Generate a Rust service
 fn generate_rust_service(project_dir: &Path, name: &str) -> Result<()> {
-    fs::create_dir_all(project_dir.join("src"))
-        .context("Failed to create src directory")?;
+    fs::create_dir_all(project_dir.join("src")).context("Failed to create src directory")?;
 
     // Cargo.toml
     let cargo_toml = format!(
@@ -664,8 +679,7 @@ Cargo.lock
 
 /// Generate a Python FastAPI service
 fn generate_py_api(project_dir: &Path, name: &str) -> Result<()> {
-    fs::create_dir_all(project_dir.join("app"))
-        .context("Failed to create app directory")?;
+    fs::create_dir_all(project_dir.join("app")).context("Failed to create app directory")?;
 
     // pyproject.toml
     let pyproject = format!(
@@ -724,7 +738,8 @@ async def health():
 
     // Dockerfile
     let python_image = crate::channel::defaults::PYTHON_IMAGE;
-    let dockerfile = format!(r#"FROM {python_image}
+    let dockerfile = format!(
+        r#"FROM {python_image}
 
 WORKDIR /app
 
@@ -738,7 +753,8 @@ COPY . .
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-"#);
+"#
+    );
     fs::write(project_dir.join("Dockerfile"), dockerfile)?;
 
     // .gitignore
@@ -763,8 +779,7 @@ dist/
 
 /// Generate a Supabase Edge Function
 fn generate_edge_function(project_dir: &Path, name: &str) -> Result<()> {
-    fs::create_dir_all(project_dir)
-        .context("Failed to create edge function directory")?;
+    fs::create_dir_all(project_dir).context("Failed to create edge function directory")?;
 
     // index.ts - main edge function
     let index_ts = format!(
@@ -816,8 +831,7 @@ fn generate_supabase_trigger(project_dir: &Path, name: &str) -> Result<()> {
     // For triggers, we create a migration file instead of a function directory
     let migrations_dir = Path::new("supabase/migrations");
     if !migrations_dir.exists() {
-        fs::create_dir_all(migrations_dir)
-            .context("Failed to create migrations directory")?;
+        fs::create_dir_all(migrations_dir).context("Failed to create migrations directory")?;
     }
 
     // Generate timestamp for migration
@@ -865,8 +879,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
     println!("  {} {}", "✓".green(), migration_file.display());
 
     // Create empty function directory for consistency
-    fs::create_dir_all(project_dir)
-        .context("Failed to create function directory")?;
+    fs::create_dir_all(project_dir).context("Failed to create function directory")?;
 
     let readme = format!(
         r#"# {}
@@ -903,8 +916,7 @@ PERFORM net.http_post(
 
 /// Generate a Supabase Realtime handler
 fn generate_supabase_realtime(project_dir: &Path, name: &str) -> Result<()> {
-    fs::create_dir_all(project_dir)
-        .context("Failed to create realtime function directory")?;
+    fs::create_dir_all(project_dir).context("Failed to create realtime function directory")?;
 
     // index.ts - realtime broadcast/presence handler
     let index_ts = format!(

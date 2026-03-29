@@ -10,7 +10,7 @@
 //! - ALWAYS create backups before moving files
 //! - ALWAYS warn if target file already exists
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::Local;
 use colored::Colorize;
 use indexmap::IndexMap;
@@ -24,7 +24,13 @@ use super::discover::{ComposeLocation, DiscoveryResult};
 fn format_inline_table(map: &IndexMap<String, String>) -> String {
     let pairs: Vec<String> = map
         .iter()
-        .map(|(k, v)| format!("\"{}\" = \"{}\"", escape_toml_string(k), escape_toml_string(v)))
+        .map(|(k, v)| {
+            format!(
+                "\"{}\" = \"{}\"",
+                escape_toml_string(k),
+                escape_toml_string(v)
+            )
+        })
         .collect();
     format!("{{ {} }}", pairs.join(", "))
 }
@@ -144,7 +150,11 @@ pub fn execute(plan: &MigrationPlan, dry_run: bool) -> Result<MigrationReport> {
 }
 
 /// Execute the migration plan in a specific directory
-pub fn execute_in_dir(plan: &MigrationPlan, dry_run: bool, base_dir: &Path) -> Result<MigrationReport> {
+pub fn execute_in_dir(
+    plan: &MigrationPlan,
+    dry_run: bool,
+    base_dir: &Path,
+) -> Result<MigrationReport> {
     let mut report = MigrationReport::new();
 
     if dry_run {
@@ -161,7 +171,12 @@ pub fn execute_in_dir(plan: &MigrationPlan, dry_run: bool, base_dir: &Path) -> R
                 execute_create_directory(&base_dir.join(path), dry_run, &mut report)?;
             }
             MigrationTask::MoveFile { from, to } => {
-                execute_move_file(&base_dir.join(from), &base_dir.join(to), dry_run, &mut report)?;
+                execute_move_file(
+                    &base_dir.join(from),
+                    &base_dir.join(to),
+                    dry_run,
+                    &mut report,
+                )?;
             }
             MigrationTask::GenerateManifest => {
                 execute_generate_manifest(&plan.discovery, dry_run, base_dir, &mut report)?;
@@ -184,10 +199,15 @@ fn execute_create_directory(dir: &Path, dry_run: bool, report: &mut MigrationRep
     }
 
     if dry_run {
-        println!("   {} Would create directory: {}", "→".bright_blue(), path_str);
+        println!(
+            "   {} Would create directory: {}",
+            "→".bright_blue(),
+            path_str
+        );
         report.completed.push(format!("Would create: {}", path_str));
     } else {
-        fs::create_dir_all(dir).with_context(|| format!("Failed to create directory: {}", path_str))?;
+        fs::create_dir_all(dir)
+            .with_context(|| format!("Failed to create directory: {}", path_str))?;
         println!("   {} Created directory: {}", "✓".green(), path_str);
         report.completed.push(format!("Created: {}", path_str));
     }
@@ -196,7 +216,12 @@ fn execute_create_directory(dir: &Path, dry_run: bool, report: &mut MigrationRep
 }
 
 /// Execute file move with backup
-fn execute_move_file(from_path: &Path, to_path: &Path, dry_run: bool, report: &mut MigrationReport) -> Result<()> {
+fn execute_move_file(
+    from_path: &Path,
+    to_path: &Path,
+    dry_run: bool,
+    report: &mut MigrationReport,
+) -> Result<()> {
     let from_str = from_path.display().to_string();
     let to_str = to_path.display().to_string();
 
@@ -223,7 +248,9 @@ fn execute_move_file(from_path: &Path, to_path: &Path, dry_run: bool, report: &m
             from_str,
             to_str
         );
-        report.completed.push(format!("Would move: {} → {}", from_str, to_str));
+        report
+            .completed
+            .push(format!("Would move: {} → {}", from_str, to_str));
     } else {
         // Create backup before move
         let backup_path = create_backup(from_path)?;
@@ -246,7 +273,9 @@ fn execute_move_file(from_path: &Path, to_path: &Path, dry_run: bool, report: &m
         }
 
         println!("   {} Moved: {} → {}", "✓".green(), from_str, to_str);
-        report.completed.push(format!("Moved: {} → {}", from_str, to_str));
+        report
+            .completed
+            .push(format!("Moved: {} → {}", from_str, to_str));
     }
 
     Ok(())
@@ -286,10 +315,7 @@ fn execute_generate_manifest(
     let content = generate_manifest_content(discovery)?;
 
     if dry_run {
-        println!(
-            "   {} Would generate manifest.toml:",
-            "→".bright_blue()
-        );
+        println!("   {} Would generate manifest.toml:", "→".bright_blue());
         println!();
         // Show preview (first 30 lines)
         for line in content.lines().take(30) {
@@ -567,10 +593,11 @@ mod tests {
         let plan = plan(discovery).unwrap();
 
         // Should always have GenerateManifest task
-        assert!(plan
-            .tasks
-            .iter()
-            .any(|t| matches!(t, MigrationTask::GenerateManifest)));
+        assert!(
+            plan.tasks
+                .iter()
+                .any(|t| matches!(t, MigrationTask::GenerateManifest))
+        );
     }
 
     #[test]

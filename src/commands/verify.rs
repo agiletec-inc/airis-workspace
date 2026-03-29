@@ -23,9 +23,11 @@ pub fn run() -> Result<()> {
 
     // Check Traefik external endpoints
     println!("{}", "==> Traefik (external)".yellow());
-    let traefik_checks = vec![
-        ("API /health", "http://localhost:8000/health", vec!["200", "401"]),
-    ];
+    let traefik_checks = vec![(
+        "API /health",
+        "http://localhost:8000/health",
+        vec!["200", "401"],
+    )];
 
     for (name, url, expected) in traefik_checks {
         let result = check_endpoint(name, url, &expected);
@@ -46,9 +48,21 @@ pub fn run() -> Result<()> {
     match workspace_container {
         Some(container) => {
             let kong_checks = vec![
-                ("Kong /auth health", "http://kong:8000/auth/v1/health", vec!["200", "401"]),
-                ("Kong /rest root", "http://kong:8000/rest/v1", vec!["200", "401"]),
-                ("Kong /storage health", "http://kong:8000/storage/v1/health", vec!["200", "401", "400"]),
+                (
+                    "Kong /auth health",
+                    "http://kong:8000/auth/v1/health",
+                    vec!["200", "401"],
+                ),
+                (
+                    "Kong /rest root",
+                    "http://kong:8000/rest/v1",
+                    vec!["200", "401"],
+                ),
+                (
+                    "Kong /storage health",
+                    "http://kong:8000/storage/v1/health",
+                    vec!["200", "401", "400"],
+                ),
             ];
 
             for (name, url, expected) in kong_checks {
@@ -111,11 +125,13 @@ fn check_endpoint(name: &str, url: &str, expected: &[&str]) -> CheckResult {
 }
 
 /// Check an endpoint from inside a container
-fn check_endpoint_in_container(container: &str, name: &str, url: &str, expected: &[&str]) -> CheckResult {
-    let cmd = format!(
-        "curl -s -o /dev/null -w '%{{http_code}}' {}",
-        url
-    );
+fn check_endpoint_in_container(
+    container: &str,
+    name: &str,
+    url: &str,
+    expected: &[&str],
+) -> CheckResult {
+    let cmd = format!("curl -s -o /dev/null -w '%{{http_code}}' {}", url);
 
     let output = Command::new("docker")
         .args(["exec", container, "sh", "-c", &cmd])

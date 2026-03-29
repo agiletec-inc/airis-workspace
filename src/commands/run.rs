@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono;
 use colored::Colorize;
 use glob::glob;
@@ -67,11 +67,7 @@ fn ensure_env_file() {
                 ".env.example".dimmed(),
                 ".env".bold()
             ),
-            Err(e) => println!(
-                "   {} Failed to copy .env.example: {}",
-                "⚠️".yellow(),
-                e
-            ),
+            Err(e) => println!("   {} Failed to copy .env.example: {}", "⚠️".yellow(), e),
         }
     }
 }
@@ -86,10 +82,7 @@ fn run_post_up(manifest: &Manifest) {
     println!("\n{}", "🔧 Running post_up hooks...".cyan().bold());
     for hook in hooks {
         println!("   {} {}", "→".dimmed(), hook.dimmed());
-        let status = Command::new("sh")
-            .arg("-c")
-            .arg(hook)
-            .status();
+        let status = Command::new("sh").arg("-c").arg(hook).status();
 
         match status {
             Ok(s) if s.success() => {
@@ -104,12 +97,7 @@ fn run_post_up(manifest: &Manifest) {
                 );
             }
             Err(e) => {
-                println!(
-                    "   {} post_up hook error: {} — {}",
-                    "⚠️".yellow(),
-                    hook,
-                    e
-                );
+                println!("   {} post_up hook error: {} — {}", "⚠️".yellow(), hook, e);
             }
         }
     }
@@ -118,14 +106,9 @@ fn run_post_up(manifest: &Manifest) {
 /// Execute a shell command and return success status
 fn exec_command(cmd: &str) -> Result<bool> {
     let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", cmd])
-            .status()
+        Command::new("cmd").args(["/C", cmd]).status()
     } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .status()
+        Command::new("sh").arg("-c").arg(cmd).status()
     }
     .with_context(|| format!("Failed to execute: {}", cmd))?;
 
@@ -134,22 +117,30 @@ fn exec_command(cmd: &str) -> Result<bool> {
 
 /// Smart compose up: reuses existing containers if already running
 /// Based on compose_up.py logic
-fn smart_compose_up(project: Option<&str>, compose_files: &[&str], extra_args: &[String]) -> Result<bool> {
+fn smart_compose_up(
+    project: Option<&str>,
+    compose_files: &[&str],
+    extra_args: &[String],
+) -> Result<bool> {
     // Validate that all compose files exist first
     for file in compose_files {
         let path = Path::new(file);
         if !path.exists() {
             eprintln!(
                 "{}\n\n\n{}\n",
-                format!("❌ Docker Compose file not found: {}", file).red().bold(),
-                "💡 Tip: Check your manifest.toml [dev] section or ensure the file exists.".yellow()
+                format!("❌ Docker Compose file not found: {}", file)
+                    .red()
+                    .bold(),
+                "💡 Tip: Check your manifest.toml [dev] section or ensure the file exists."
+                    .yellow()
             );
             return Ok(false);
         }
     }
 
     // Build file arguments
-    let file_args: Vec<String> = compose_files.iter()
+    let file_args: Vec<String> = compose_files
+        .iter()
         .flat_map(|f| vec!["-f".to_string(), f.to_string()])
         .collect();
 
@@ -177,7 +168,12 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str], extra_args: &
             let stderr = String::from_utf8_lossy(&output.stderr);
             eprintln!(
                 "{}\n\n{}\n{}\n\n{}\n",
-                format!("❌ Invalid Docker Compose file(s): {}", compose_files.join(", ")).red().bold(),
+                format!(
+                    "❌ Invalid Docker Compose file(s): {}",
+                    compose_files.join(", ")
+                )
+                .red()
+                .bold(),
                 "Docker error:".yellow(),
                 stderr,
                 "💡 Check your compose file syntax and network configurations.".yellow()
@@ -186,39 +182,48 @@ fn smart_compose_up(project: Option<&str>, compose_files: &[&str], extra_args: &
         }
         if output.status.success()
             && let Ok(config) = serde_json::from_slice::<Value>(&output.stdout)
-                && let Some(services) = config.get("services").and_then(|s| s.as_object()) {
-                    let mut not_running = Vec::new();
+            && let Some(services) = config.get("services").and_then(|s| s.as_object())
+        {
+            let mut not_running = Vec::new();
 
-                    for service in services.values() {
-                        if let Some(container_name) = service.get("container_name").and_then(|c| c.as_str()) {
-                            // Check if container is running
-                            let inspect = Command::new("docker")
-                                .args(["inspect", "-f", "{{.State.Running}}", container_name])
-                                .stdout(Stdio::piped())
-                                .stderr(Stdio::null())
-                                .output();
+            for service in services.values() {
+                if let Some(container_name) = service.get("container_name").and_then(|c| c.as_str())
+                {
+                    // Check if container is running
+                    let inspect = Command::new("docker")
+                        .args(["inspect", "-f", "{{.State.Running}}", container_name])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::null())
+                        .output();
 
-                            let is_running = if let Ok(inspect_output) = inspect {
-                                inspect_output.status.success() &&
-                                    String::from_utf8_lossy(&inspect_output.stdout).trim() == "true"
-                            } else {
-                                false
-                            };
-
-                            if !is_running {
-                                not_running.push(container_name.to_string());
-                            }
-                        }
-                    }
-
-                    if !not_running.is_empty() {
-                        for name in &not_running {
-                            println!("     {} detected stopped/missing container: {}", "🔍".dimmed(), name.dimmed());
-                        }
+                    let is_running = if let Ok(inspect_output) = inspect {
+                        inspect_output.status.success()
+                            && String::from_utf8_lossy(&inspect_output.stdout).trim() == "true"
                     } else {
-                        println!("     {} containers already running; refreshing...", "✓".dimmed());
+                        false
+                    };
+
+                    if !is_running {
+                        not_running.push(container_name.to_string());
                     }
                 }
+            }
+
+            if !not_running.is_empty() {
+                for name in &not_running {
+                    println!(
+                        "     {} detected stopped/missing container: {}",
+                        "🔍".dimmed(),
+                        name.dimmed()
+                    );
+                }
+            } else {
+                println!(
+                    "     {} containers already running; refreshing...",
+                    "✓".dimmed()
+                );
+            }
+        }
     }
 
     // Execute docker compose up -d --remove-orphans (+ extra args)
@@ -301,9 +306,10 @@ fn parse_service_ports_from_config(config: &Value) -> Vec<(String, u16)> {
                             .map(|p| p as u16)
                             .or_else(|| published.as_str().and_then(|s| s.parse().ok()));
                         if let Some(host_port) = p
-                            && host_port > 0 {
-                                results.push((display_name.clone(), host_port));
-                            }
+                            && host_port > 0
+                        {
+                            results.push((display_name.clone(), host_port));
+                        }
                     } else if let Some(port_str) = port.as_str() {
                         // String format fallback: "HOST_PORT:CONTAINER_PORT" or "HOST:HOST_PORT:CONTAINER_PORT"
                         let parts: Vec<&str> = port_str.split(':').collect();
@@ -313,9 +319,10 @@ fn parse_service_ports_from_config(config: &Value) -> Vec<(String, u16)> {
                             _ => None,
                         };
                         if let Some(p) = host_port
-                            && p > 0 {
-                                results.push((display_name.clone(), p));
-                            }
+                            && p > 0
+                        {
+                            results.push((display_name.clone(), p));
+                        }
                     }
                 }
             }
@@ -332,9 +339,10 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
     // Check orchestration.dev first
     if let Some(dev) = &manifest.orchestration.dev {
         if let Some(workspace) = &dev.workspace
-            && Path::new(workspace).exists() {
-                files.push(workspace.clone());
-            }
+            && Path::new(workspace).exists()
+        {
+            files.push(workspace.clone());
+        }
         if let Some(supabase_files) = &dev.supabase {
             for f in supabase_files {
                 if Path::new(f).exists() && !files.contains(f) {
@@ -343,9 +351,11 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
             }
         }
         if let Some(traefik) = &dev.traefik
-            && Path::new(traefik).exists() && !files.contains(traefik) {
-                files.push(traefik.clone());
-            }
+            && Path::new(traefik).exists()
+            && !files.contains(traefik)
+        {
+            files.push(traefik.clone());
+        }
     }
 
     // Root compose file (if not already added)
@@ -365,9 +375,11 @@ fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
         }
     }
     if let Some(traefik_file) = &manifest.dev.traefik
-        && Path::new(traefik_file).exists() && !files.contains(traefik_file) {
-            files.push(traefik_file.clone());
-        }
+        && Path::new(traefik_file).exists()
+        && !files.contains(traefik_file)
+    {
+        files.push(traefik_file.clone());
+    }
 
     // Apps pattern glob
     if let Ok(entries) = glob(&manifest.dev.apps_pattern) {
@@ -398,21 +410,22 @@ fn discover_compose_port_urls(compose_files: &[String]) -> Vec<DiscoveredService
 
         if let Ok(output) = output
             && output.status.success()
-            && let Ok(config) = serde_json::from_slice::<Value>(&output.stdout) {
-                for (name, port) in parse_service_ports_from_config(&config) {
-                    if seen_ports.contains(&port) {
-                        continue;
-                    }
-                    seen_ports.insert(port);
-
-                    let url = format!("http://localhost:{}", port);
-                    services.push(DiscoveredService {
-                        name,
-                        url,
-                        is_reachable: false,
-                    });
+            && let Ok(config) = serde_json::from_slice::<Value>(&output.stdout)
+        {
+            for (name, port) in parse_service_ports_from_config(&config) {
+                if seen_ports.contains(&port) {
+                    continue;
                 }
+                seen_ports.insert(port);
+
+                let url = format!("http://localhost:{}", port);
+                services.push(DiscoveredService {
+                    name,
+                    url,
+                    is_reachable: false,
+                });
             }
+        }
     }
 
     services
@@ -512,19 +525,18 @@ fn condense_status(status: &str) -> String {
 
         // Parse "X unit" pattern (e.g., "3 minutes", "2 hours")
         let parts: Vec<&str> = rest.split_whitespace().collect();
-        if parts.len() >= 2
-            && parts[0].parse::<u64>().is_ok() {
-                let short_unit = match parts[1] {
-                    u if u.starts_with("second") => "s",
-                    u if u.starts_with("minute") => "m",
-                    u if u.starts_with("hour") => "h",
-                    u if u.starts_with("day") => "d",
-                    u if u.starts_with("week") => "w",
-                    u if u.starts_with("month") => "mo",
-                    _ => return s.to_string(),
-                };
-                return format!("Up {}{}", parts[0], short_unit);
-            }
+        if parts.len() >= 2 && parts[0].parse::<u64>().is_ok() {
+            let short_unit = match parts[1] {
+                u if u.starts_with("second") => "s",
+                u if u.starts_with("minute") => "m",
+                u if u.starts_with("hour") => "h",
+                u if u.starts_with("day") => "d",
+                u if u.starts_with("week") => "w",
+                u if u.starts_with("month") => "mo",
+                _ => return s.to_string(),
+            };
+            return format!("Up {}{}", parts[0], short_unit);
+        }
     }
 
     s.to_string()
@@ -565,20 +577,19 @@ fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
             };
 
             // Get rule string
-            let rule = config
-                .get("rule")
-                .and_then(|r| r.as_str())
-                .unwrap_or("");
+            let rule = config.get("rule").and_then(|r| r.as_str()).unwrap_or("");
 
             // Extract host from rule
-            let host = host_regex.as_ref()
+            let host = host_regex
+                .as_ref()
                 .and_then(|re| re.captures(rule))
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().to_string())
                 .unwrap_or_default();
 
             // Extract path prefix from rule
-            let path = path_regex.as_ref()
+            let path = path_regex
+                .as_ref()
                 .and_then(|re| re.captures(rule))
                 .and_then(|c| c.get(1))
                 .map(|m| m.as_str().to_string())
@@ -627,10 +638,11 @@ fn is_service_reachable(url: &str) -> bool {
     };
 
     // Connect with timeout
-    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(TCP_CONNECT_TIMEOUT_MS)) {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let mut stream =
+        match TcpStream::connect_timeout(&addr, Duration::from_millis(TCP_CONNECT_TIMEOUT_MS)) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
 
     // Set read timeout
     let _ = stream.set_read_timeout(Some(Duration::from_millis(TCP_READ_TIMEOUT_MS)));
@@ -656,10 +668,14 @@ fn is_service_reachable(url: &str) -> bool {
 
     // Only 2xx responses are considered "working"
     // Everything else (4xx, 5xx) means the service is broken
-    if response.contains(" 200 ") || response.contains(" 201 ") ||
-       response.contains(" 204 ") || response.contains(" 301 ") ||
-       response.contains(" 302 ") || response.contains(" 307 ") ||
-       response.contains(" 308 ") {
+    if response.contains(" 200 ")
+        || response.contains(" 201 ")
+        || response.contains(" 204 ")
+        || response.contains(" 301 ")
+        || response.contains(" 302 ")
+        || response.contains(" 307 ")
+        || response.contains(" 308 ")
+    {
         return true;
     }
 
@@ -676,12 +692,10 @@ fn get_docker_traefik_routers(workspace_name: &str) -> Vec<(String, String, Stri
         .output();
 
     let containers: Vec<String> = match output {
-        Ok(o) if o.status.success() => {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(|s| s.to_string())
-                .collect()
-        }
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .map(|s| s.to_string())
+            .collect(),
         _ => return Vec::new(),
     };
 
@@ -703,62 +717,67 @@ fn get_docker_traefik_routers(workspace_name: &str) -> Vec<(String, String, Stri
             .output();
 
         if let Ok(output) = output
-            && let Ok(labels) = serde_json::from_slice::<serde_json::Map<String, Value>>(&output.stdout) {
-                // Check if traefik is enabled
-                let traefik_enabled = labels
-                    .get("traefik.enable")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s == "true")
-                    .unwrap_or(false);
+            && let Ok(labels) =
+                serde_json::from_slice::<serde_json::Map<String, Value>>(&output.stdout)
+        {
+            // Check if traefik is enabled
+            let traefik_enabled = labels
+                .get("traefik.enable")
+                .and_then(|v| v.as_str())
+                .map(|s| s == "true")
+                .unwrap_or(false);
 
-                if !traefik_enabled {
-                    continue;
-                }
+            if !traefik_enabled {
+                continue;
+            }
 
-                // Find router rules
-                for (key, value) in &labels {
-                    if key.contains(".rule") && key.starts_with("traefik.http.routers.") {
-                        let rule = value.as_str().unwrap_or("");
+            // Find router rules
+            for (key, value) in &labels {
+                if key.contains(".rule") && key.starts_with("traefik.http.routers.") {
+                    let rule = value.as_str().unwrap_or("");
 
-                        // Extract router name from key
-                        let router_name = key
-                            .strip_prefix("traefik.http.routers.")
-                            .and_then(|s| s.strip_suffix(".rule"))
-                            .unwrap_or(&container)
-                            .to_string();
+                    // Extract router name from key
+                    let router_name = key
+                        .strip_prefix("traefik.http.routers.")
+                        .and_then(|s| s.strip_suffix(".rule"))
+                        .unwrap_or(&container)
+                        .to_string();
 
-                        // Check entrypoint is "web"
-                        let entrypoint_key = format!("traefik.http.routers.{}.entrypoints", router_name);
-                        let entrypoint = labels
-                            .get(&entrypoint_key)
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("web");
+                    // Check entrypoint is "web"
+                    let entrypoint_key =
+                        format!("traefik.http.routers.{}.entrypoints", router_name);
+                    let entrypoint = labels
+                        .get(&entrypoint_key)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("web");
 
-                        if entrypoint != "web" {
-                            continue;
-                        }
+                    if entrypoint != "web" {
+                        continue;
+                    }
 
-                        // Extract host
-                        let host = host_regex.as_ref()
-                            .and_then(|re| re.captures(rule))
-                            .and_then(|c| c.get(1))
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_default();
+                    // Extract host
+                    let host = host_regex
+                        .as_ref()
+                        .and_then(|re| re.captures(rule))
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_default();
 
-                        // Extract path prefix
-                        let path = path_regex.as_ref()
-                            .and_then(|re| re.captures(rule))
-                            .and_then(|c| c.get(1))
-                            .map(|m| m.as_str().to_string())
-                            .unwrap_or_else(|| "/".to_string());
+                    // Extract path prefix
+                    let path = path_regex
+                        .as_ref()
+                        .and_then(|re| re.captures(rule))
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string())
+                        .unwrap_or_else(|| "/".to_string());
 
-                        // Only include hosts with a proper domain structure
-                        if !host.is_empty() && host.contains('.') {
-                            results.push((router_name, host, path));
-                        }
+                    // Only include hosts with a proper domain structure
+                    if !host.is_empty() && host.contains('.') {
+                        results.push((router_name, host, path));
                     }
                 }
             }
+        }
     }
 
     results
@@ -838,12 +857,9 @@ fn display_service_urls(manifest: &Manifest) -> Result<()> {
                             .and_then(|ports| {
                                 for port in ports {
                                     if let Some(published) = port.get("published") {
-                                        return published
-                                            .as_u64()
-                                            .map(|p| p as u16)
-                                            .or_else(|| {
-                                                published.as_str().and_then(|s| s.parse().ok())
-                                            });
+                                        return published.as_u64().map(|p| p as u16).or_else(
+                                            || published.as_str().and_then(|s| s.parse().ok()),
+                                        );
                                     }
                                 }
                                 None
@@ -926,9 +942,18 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
         }
 
         // Wait for Supabase DB to be healthy
-        println!("   {} Waiting for Supabase DB to be healthy...", "⏳".dimmed());
-        let compose_file = supabase_files.first().map(|s| s.as_str()).unwrap_or("supabase/compose.yml");
-        let health_check = format!("docker compose -f {} exec -T db pg_isready -U postgres -h localhost", compose_file);
+        println!(
+            "   {} Waiting for Supabase DB to be healthy...",
+            "⏳".dimmed()
+        );
+        let compose_file = supabase_files
+            .first()
+            .map(|s| s.as_str())
+            .unwrap_or("supabase/compose.yml");
+        let health_check = format!(
+            "docker compose -f {} exec -T db pg_isready -U postgres -h localhost",
+            compose_file
+        );
         let mut retries = DB_HEALTH_RETRIES;
         while retries > 0 {
             if exec_command(&health_check)? {
@@ -948,7 +973,10 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
         println!("{}", "🔀 Starting Traefik...".cyan().bold());
 
         if !smart_compose_up(None, &[traefik.as_str()], &[])? {
-            bail!("Traefik failed to start. Check `docker compose -f {} logs`", traefik);
+            bail!(
+                "Traefik failed to start. Check `docker compose -f {} logs`",
+                traefik
+            );
         }
     }
 
@@ -980,7 +1008,12 @@ fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
 
     if !compose_files.is_empty() {
         println!("{}", "🚀 Starting apps...".cyan().bold());
-        println!("   {} Found {} apps via pattern: {}", "🔍".dimmed(), compose_files.len(), apps_pattern.dimmed());
+        println!(
+            "   {} Found {} apps via pattern: {}",
+            "🔍".dimmed(),
+            compose_files.len(),
+            apps_pattern.dimmed()
+        );
 
         for compose_path in &compose_files {
             // Extract app name from path (apps/foo/compose.yml -> foo)
@@ -1062,9 +1095,7 @@ fn orchestrated_down(manifest: &Manifest) -> Result<()> {
     // 4. Stop Supabase
     if let Some(supabase_files) = &dev.supabase {
         println!("{}", "🛑 Stopping Supabase...".cyan().bold());
-        let files: Vec<String> = supabase_files.iter()
-            .map(|f| format!("-f {}", f))
-            .collect();
+        let files: Vec<String> = supabase_files.iter().map(|f| format!("-f {}", f)).collect();
         let cmd = format!("docker compose {} down --remove-orphans", files.join(" "));
         let _ = exec_command(&cmd);
     }
@@ -1100,7 +1131,11 @@ fn build_compose_command(manifest: &Manifest, base_cmd: &str) -> Result<String> 
         }
 
         if !compose_files.is_empty() {
-            return Ok(format!("docker compose {} {}", compose_files.join(" "), base_cmd));
+            return Ok(format!(
+                "docker compose {} {}",
+                compose_files.join(" "),
+                base_cmd
+            ));
         }
     }
 
@@ -1142,9 +1177,9 @@ fn validate_clean_path(path: &str) -> Option<String> {
 
     // Reject shell metacharacters that could be exploited
     // Allow only alphanumeric, dash, underscore, dot, and forward slash
-    let is_safe = trimmed.chars().all(|c| {
-        c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/'
-    });
+    let is_safe = trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/');
 
     if !is_safe {
         return None;
@@ -1178,9 +1213,9 @@ fn validate_clean_pattern(pattern: &str) -> Option<String> {
 
     // Reject shell metacharacters except for glob wildcards (* and ?)
     // which are handled safely by find -name
-    let is_safe = trimmed.chars().all(|c| {
-        c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '*' || c == '?'
-    });
+    let is_safe = trimmed
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '*' || c == '?');
 
     if !is_safe {
         return None;
@@ -1236,10 +1271,7 @@ fn build_clean_command(manifest: &Manifest) -> String {
         if let Some(safe_dir) = validate_clean_path(dir) {
             // Use -maxdepth 0 to only match the exact path, not traverse into it first
             // This ensures we're deleting what we intend to delete
-            parts.push(format!(
-                "rm -rf './{}'",
-                safe_dir.replace('\'', "'\\''")
-            ));
+            parts.push(format!("rm -rf './{}'", safe_dir.replace('\'', "'\\''")));
         } else {
             // Warn about skipped dangerous path
             parts.push(format!(
@@ -1263,8 +1295,8 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
     let mut cmds = IndexMap::new();
 
     // Detect project type: Rust or Node
-    let is_rust_project = !manifest.project.rust_edition.is_empty()
-        || !manifest.project.binary_name.is_empty();
+    let is_rust_project =
+        !manifest.project.rust_edition.is_empty() || !manifest.project.binary_name.is_empty();
 
     if is_rust_project {
         // Rust project: use cargo commands (no docker compose required)
@@ -1275,8 +1307,14 @@ fn default_commands(manifest: &Manifest) -> Result<IndexMap<String, String>> {
     } else {
         // Docker/Node project: up/down/ps only — no workspace container
         // Install runs inside Dockerfile RUN, not via CLI
-        cmds.insert("up".to_string(), build_compose_command(manifest, "up -d --build --remove-orphans")?);
-        cmds.insert("down".to_string(), build_compose_command(manifest, "down --remove-orphans")?);
+        cmds.insert(
+            "up".to_string(),
+            build_compose_command(manifest, "up -d --build --remove-orphans")?,
+        );
+        cmds.insert(
+            "down".to_string(),
+            build_compose_command(manifest, "down --remove-orphans")?,
+        );
         cmds.insert("ps".to_string(), build_compose_command(manifest, "ps")?);
     }
 
@@ -1291,9 +1329,10 @@ fn has_orchestration(manifest: &Manifest) -> bool {
     }
     // Only count apps_pattern as orchestration if it matches actual files
     if !dev.apps_pattern.is_empty()
-        && let Ok(mut entries) = glob(&dev.apps_pattern) {
-            return entries.next().is_some();
-        }
+        && let Ok(mut entries) = glob(&dev.apps_pattern)
+    {
+        return entries.next().is_some();
+    }
     false
 }
 
@@ -1327,21 +1366,24 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                 if task == "up" {
                     ensure_env_file();
                 }
-                let action = if task == "up" { "up -d --build --remove-orphans" } else { "down" };
-                let extra = if extra_args.is_empty() { String::new() } else { format!(" {}", extra_args.join(" ")) };
+                let action = if task == "up" {
+                    "up -d --build --remove-orphans"
+                } else {
+                    "down"
+                };
+                let extra = if extra_args.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", extra_args.join(" "))
+                };
                 let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
 
                 println!("🚀 Running: {}", cmd.cyan());
 
                 let status = if cfg!(target_os = "windows") {
-                    Command::new("cmd")
-                        .args(["/C", &cmd])
-                        .status()
+                    Command::new("cmd").args(["/C", &cmd]).status()
                 } else {
-                    Command::new("sh")
-                        .arg("-c")
-                        .arg(&cmd)
-                        .status()
+                    Command::new("sh").arg("-c").arg(&cmd).status()
                 }
                 .with_context(|| format!("Failed to execute: {}", cmd))?;
 
@@ -1362,8 +1404,7 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     // Special handling for up/down with orchestration
     // User-defined [commands] override always takes priority over orchestration
@@ -1382,20 +1423,18 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     }
 
     // Check if command exists
-    let cmd = commands
-        .get(task)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "❌ Command '{}' not found in manifest.toml [commands] section.\n\n\
+    let cmd = commands.get(task).ok_or_else(|| {
+        anyhow::anyhow!(
+            "❌ Command '{}' not found in manifest.toml [commands] section.\n\n\
                  Available commands:\n{}",
-                task.bold(),
-                commands
-                    .keys()
-                    .map(|k| format!("  - {}", k))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
-        })?;
+            task.bold(),
+            commands
+                .keys()
+                .map(|k| format!("  - {}", k))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    })?;
 
     if task == "up" {
         ensure_env_file();
@@ -1417,14 +1456,9 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
     // Execute command
     let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &full_cmd])
-            .status()
+        Command::new("cmd").args(["/C", &full_cmd]).status()
     } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&full_cmd)
-            .status()
+        Command::new("sh").arg("-c").arg(&full_cmd).status()
     }
     .with_context(|| format!("Failed to execute: {}", full_cmd))?;
 
@@ -1521,8 +1555,7 @@ pub fn run_logs(service: Option<&str>, follow: bool, tail: Option<u32>) -> Resul
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let mut args = vec!["logs".to_string()];
 
@@ -1543,14 +1576,9 @@ pub fn run_logs(service: Option<&str>, follow: bool, tail: Option<u32>) -> Resul
     println!("🚀 Running: {}", cmd.cyan());
 
     let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &cmd])
-            .status()
+        Command::new("cmd").args(["/C", &cmd]).status()
     } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
-            .status()
+        Command::new("sh").arg("-c").arg(&cmd).status()
     }
     .with_context(|| format!("Failed to execute: {}", cmd))?;
 
@@ -1572,8 +1600,7 @@ pub fn run_exec(service: &str, cmd: &[String]) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     if cmd.is_empty() {
         bail!("❌ No command specified. Usage: airis exec <service> <cmd>");
@@ -1585,14 +1612,9 @@ pub fn run_exec(service: &str, cmd: &[String]) -> Result<()> {
     println!("🚀 Running: {}", full_cmd.cyan());
 
     let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &full_cmd])
-            .status()
+        Command::new("cmd").args(["/C", &full_cmd]).status()
     } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&full_cmd)
-            .status()
+        Command::new("sh").arg("-c").arg(&full_cmd).status()
     }
     .with_context(|| format!("Failed to execute: {}", full_cmd))?;
 
@@ -1650,7 +1672,12 @@ pub fn run_build_prod(app: &str) -> Result<()> {
 
     // Get image size
     let size_output = Command::new("docker")
-        .args(["images", &format!("{}:latest", app), "--format", "{{.Size}}"])
+        .args([
+            "images",
+            &format!("{}:latest", app),
+            "--format",
+            "{{.Size}}",
+        ])
         .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -1685,8 +1712,7 @@ pub fn run_build_quick(app: &str) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let app_dir = format!("apps/{}", app);
 
@@ -1704,7 +1730,10 @@ pub fn run_build_quick(app: &str) -> Result<()> {
         if config_content.contains("output") && config_content.contains("standalone") {
             println!("{}", "✅ Standalone output configured".green());
         } else {
-            println!("{}", "⚠️  Warning: Standalone output not found in next.config.mjs".yellow());
+            println!(
+                "{}",
+                "⚠️  Warning: Standalone output not found in next.config.mjs".yellow()
+            );
         }
     }
 
@@ -1736,10 +1765,7 @@ pub fn run_build_quick(app: &str) -> Result<()> {
     );
     let check_full_cmd = build_compose_command(&manifest, &check_cmd)?;
 
-    let _ = Command::new("sh")
-        .arg("-c")
-        .arg(&check_full_cmd)
-        .status();
+    let _ = Command::new("sh").arg("-c").arg(&check_full_cmd).status();
 
     Ok(())
 }
@@ -1755,8 +1781,7 @@ pub fn run_restart(service: Option<&str>) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     let restart_cmd = match service {
         Some(svc) => format!("restart {}", svc),
@@ -1768,14 +1793,9 @@ pub fn run_restart(service: Option<&str>) -> Result<()> {
     println!("🚀 Running: {}", full_cmd.cyan());
 
     let status = if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &full_cmd])
-            .status()
+        Command::new("cmd").args(["/C", &full_cmd]).status()
     } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&full_cmd)
-            .status()
+        Command::new("sh").arg("-c").arg(&full_cmd).status()
     }
     .with_context(|| format!("Failed to execute: {}", full_cmd))?;
 
@@ -1797,8 +1817,7 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .with_context(|| "Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
     println!("🧪 Running tests with coverage check");
     println!("📊 Minimum coverage threshold: {}%", min_coverage);
@@ -1843,7 +1862,11 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
             if coverage >= min_coverage as f64 {
                 println!(
                     "{}",
-                    format!("✅ Coverage {:.1}% meets threshold {}%", coverage, min_coverage).green()
+                    format!(
+                        "✅ Coverage {:.1}% meets threshold {}%",
+                        coverage, min_coverage
+                    )
+                    .green()
                 );
             } else {
                 bail!(
@@ -1877,13 +1900,17 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
             let current_hash = hash_file(key_path)?;
             let hash_file = Path::new(".airis/hook-cache");
             if let Ok(saved) = std::fs::read_to_string(hash_file)
-                && saved.trim() == current_hash {
-                    return Ok(());
-                }
+                && saved.trim() == current_hash
+            {
+                return Ok(());
+            }
         }
     }
 
-    println!("{}", format!("📦 Running pre-command: {}", pre_command).bright_blue());
+    println!(
+        "{}",
+        format!("📦 Running pre-command: {}", pre_command).bright_blue()
+    );
 
     let success = execute_hook_command(pre_command, manifest)?;
 
@@ -1893,10 +1920,8 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
             let key_path = Path::new(&cache.key);
             if key_path.exists() {
                 let hash = hash_file(key_path)?;
-                std::fs::create_dir_all(".airis")
-                    .context("Failed to create .airis directory")?;
-                std::fs::write(".airis/hook-cache", &hash)
-                    .context("Failed to write hook cache")?;
+                std::fs::create_dir_all(".airis").context("Failed to create .airis directory")?;
+                std::fs::write(".airis/hook-cache", &hash).context("Failed to write hook cache")?;
             }
         }
         println!("{}", "  ✓ Pre-command completed".green());
@@ -1909,8 +1934,8 @@ fn ensure_pre_command(manifest: &Manifest) -> Result<()> {
 
 /// Compute BLAKE3 hash of a file.
 fn hash_file(path: &Path) -> Result<String> {
-    let content = std::fs::read(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+    let content =
+        std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
     Ok(blake3::hash(&content).to_hex()[..64].to_string())
 }
 
@@ -1921,7 +1946,9 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
     let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
 
     if is_docker_first {
-        let svc = manifest.docker.workspace
+        let svc = manifest
+            .docker
+            .workspace
             .as_ref()
             .map(|w| w.service.as_str())
             .filter(|s| !s.is_empty())
@@ -1937,9 +1964,22 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
                 Ok(s) if s.success() => return Ok(true),
                 _ => {
                     // Fallback: run --rm (starts temporary container)
-                    println!("  {} container not running, starting temporary container...", "↻".yellow());
+                    println!(
+                        "  {} container not running, starting temporary container...",
+                        "↻".yellow()
+                    );
                     let status = Command::new("docker")
-                        .args(["compose", "run", "--rm", "--no-deps", "-T", svc, "sh", "-c", cmd])
+                        .args([
+                            "compose",
+                            "run",
+                            "--rm",
+                            "--no-deps",
+                            "-T",
+                            svc,
+                            "sh",
+                            "-c",
+                            cmd,
+                        ])
                         .status()
                         .context("Failed to execute docker compose run")?;
                     return Ok(status.success());
@@ -1975,10 +2015,12 @@ mod tests {
         let result = std::panic::catch_unwind(|| {
             let result = run("test", &[]);
             assert!(result.is_err());
-            assert!(result
-                .unwrap_err()
-                .to_string()
-                .contains("manifest.toml not found"));
+            assert!(
+                result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("manifest.toml not found")
+            );
         });
 
         std::env::set_current_dir(original_dir).unwrap();
@@ -2003,8 +2045,7 @@ binary_name = "test"
 [commands]
 test = "echo 'test'"
 "#;
-        let manifest: crate::manifest::Manifest =
-            toml::from_str(manifest_content).unwrap();
+        let manifest: crate::manifest::Manifest = toml::from_str(manifest_content).unwrap();
 
         // Merge defaults with manifest commands (Rust project doesn't need compose)
         let commands = default_commands(&manifest).unwrap();
@@ -2905,7 +2946,10 @@ test = "echo safe"
         let hash2 = hash_file(&file).unwrap();
         assert_eq!(hash1, hash2);
         // Known BLAKE3 of "hello world"
-        assert_eq!(hash1, "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24");
+        assert_eq!(
+            hash1,
+            "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
+        );
     }
 
     #[test]

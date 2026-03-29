@@ -7,9 +7,7 @@
 use anyhow::{Context, Result, bail};
 use indexmap::IndexMap;
 
-use crate::manifest::{
-    AppDeployConfig, PresetSection, ProfileSection, ProjectDefinition,
-};
+use crate::manifest::{AppDeployConfig, PresetSection, ProfileSection, ProjectDefinition};
 
 /// Resolved app with preset deps/scripts merged in.
 /// App values always override preset values.
@@ -77,15 +75,16 @@ pub fn resolve_app_presets(
 
             // Apply preset deploy defaults if app doesn't have explicit deploy
             if deploy.is_none()
-                && let Some(ref defaults) = preset.deploy {
-                    deploy = Some(AppDeployConfig {
-                        enabled: true,
-                        variant: defaults.variant.clone(),
-                        port: defaults.port,
-                        health_path: defaults.health_path.clone(),
-                        ..Default::default()
-                    });
-                }
+                && let Some(ref defaults) = preset.deploy
+            {
+                deploy = Some(AppDeployConfig {
+                    enabled: true,
+                    variant: defaults.variant.clone(),
+                    port: defaults.port,
+                    health_path: defaults.health_path.clone(),
+                    ..Default::default()
+                });
+            }
         }
     }
 
@@ -130,9 +129,9 @@ fn expand_dep_groups(
     target: &mut IndexMap<String, String>,
 ) -> Result<()> {
     for name in group_names {
-        let group = dep_groups.get(name).with_context(|| {
-            format!("dep_group '{}' is not defined in [dep_group.*]", name)
-        })?;
+        let group = dep_groups
+            .get(name)
+            .with_context(|| format!("dep_group '{}' is not defined in [dep_group.*]", name))?;
         for (k, v) in group {
             target.insert(k.clone(), v.clone());
         }
@@ -182,7 +181,8 @@ pub fn resolve_profile(
         // Child overrides parent
         Ok(ProfileSection {
             branch: profile.branch.clone().or(parent.branch),
-            env_source: if matches!(profile.env_source, crate::manifest::EnvSource::Simple(ref s) if s == "dotenv") {
+            env_source: if matches!(profile.env_source, crate::manifest::EnvSource::Simple(ref s) if s == "dotenv")
+            {
                 parent.env_source
             } else {
                 profile.env_source.clone()
@@ -284,8 +284,7 @@ mod tests {
         app.preset = Some(PresetRef::Single("nextjs-app".to_string()));
 
         // Add app-specific dep
-        app.deps
-            .insert("stripe".to_string(), "catalog".to_string());
+        app.deps.insert("stripe".to_string(), "catalog".to_string());
 
         let resolved = resolve_app_presets(&app, &presets, &IndexMap::new()).unwrap();
 
@@ -398,10 +397,12 @@ mod tests {
 
         let result = resolve_app_presets(&app, &presets, &IndexMap::new());
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("not defined in [preset.*]"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not defined in [preset.*]")
+        );
     }
 
     #[test]
@@ -462,17 +463,20 @@ mod tests {
         nextjs_base.insert("react".to_string(), "catalog".to_string());
         dep_groups.insert("nextjs-base".to_string(), nextjs_base);
 
-        presets.insert("nextjs-app".to_string(), PresetSection {
-            framework: Some("nextjs".to_string()),
-            private: Some(true),
-            scripts: IndexMap::new(),
-            deps: IndexMap::new(),
-            dev_deps: IndexMap::new(),
-            dep_groups: vec!["nextjs-base".to_string()],
-            dev_dep_groups: vec![],
-            scope: None,
-            deploy: None,
-        });
+        presets.insert(
+            "nextjs-app".to_string(),
+            PresetSection {
+                framework: Some("nextjs".to_string()),
+                private: Some(true),
+                scripts: IndexMap::new(),
+                deps: IndexMap::new(),
+                dev_deps: IndexMap::new(),
+                dep_groups: vec!["nextjs-base".to_string()],
+                dev_dep_groups: vec![],
+                scope: None,
+                deploy: None,
+            },
+        );
 
         let mut app = empty_project("myapp");
         app.preset = Some(crate::manifest::PresetRef::Single("nextjs-app".to_string()));
@@ -494,6 +498,11 @@ mod tests {
 
         let result = resolve_app_presets(&app, &presets, &dep_groups);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("not defined in [dep_group.*]"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("not defined in [dep_group.*]")
+        );
     }
 }

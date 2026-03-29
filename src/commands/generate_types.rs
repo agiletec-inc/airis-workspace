@@ -6,7 +6,12 @@ use std::process::Command;
 
 /// Generate TypeScript types from Supabase PostgreSQL schema
 pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
-    println!("{}", "🔧 Generating TypeScript types from Supabase...".cyan().bold());
+    println!(
+        "{}",
+        "🔧 Generating TypeScript types from Supabase..."
+            .cyan()
+            .bold()
+    );
     println!("   {} Host: {}:{}", "📍".dimmed(), host, port);
     println!("   {} Database: {}", "💾".dimmed(), database);
     println!("   {} Output: {}", "📂".dimmed(), output);
@@ -59,7 +64,10 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
             "types",
             "typescript",
             "--db-url",
-            &format!("postgresql://postgres:postgres@{}:{}/{}", host, port, database),
+            &format!(
+                "postgresql://postgres:postgres@{}:{}/{}",
+                host, port, database
+            ),
         ])
         .current_dir(".")
         .status()
@@ -70,7 +78,10 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
     }
 
     println!();
-    println!("{}", "✅ TypeScript types generated successfully!".green().bold());
+    println!(
+        "{}",
+        "✅ TypeScript types generated successfully!".green().bold()
+    );
     println!();
     println!("{}", "📝 Next steps:".bright_yellow());
     println!("  1. Check generated types in {}", output);

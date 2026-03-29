@@ -41,7 +41,12 @@ const MANIFEST_TEMPLATE: &str = include_str!("../../examples/manifest.toml");
 ///    b. Create migration plan
 ///    c. Show plan (dry-run by default)
 ///    d. Execute plan if --write is passed
-pub fn run(_force_snapshot: bool, _no_snapshot: bool, write: bool, skip_discovery: bool) -> Result<()> {
+pub fn run(
+    _force_snapshot: bool,
+    _no_snapshot: bool,
+    write: bool,
+    skip_discovery: bool,
+) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if manifest_path.exists() {
@@ -54,9 +59,15 @@ pub fn run(_force_snapshot: bool, _no_snapshot: bool, write: bool, skip_discover
         println!();
         println!("{}", "Next steps:".bright_yellow());
         println!("  1. Edit {} to configure your workspace", MANIFEST_FILE);
-        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
+        println!(
+            "  2. Run {} to generate workspace files",
+            "airis gen".bright_cyan()
+        );
         println!();
-        println!("{}", "Or use Claude Code for intelligent configuration:".bright_yellow());
+        println!(
+            "{}",
+            "Or use Claude Code for intelligent configuration:".bright_yellow()
+        );
         println!("  Ask Claude to analyze your repo and update manifest.toml");
         return Ok(());
     }
@@ -100,16 +111,19 @@ fn run_discovery_mode(write: bool) -> Result<()> {
                 println!("   {} {}", "✗".red(), err);
             }
         } else {
-            println!(
-                "{} Migration completed successfully!",
-                "✅".green()
-            );
+            println!("{} Migration completed successfully!", "✅".green());
         }
 
         println!();
         println!("{}", "Next steps:".bright_yellow());
-        println!("  1. Review {} and adjust as needed", MANIFEST_FILE.bright_cyan());
-        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
+        println!(
+            "  1. Review {} and adjust as needed",
+            MANIFEST_FILE.bright_cyan()
+        );
+        println!(
+            "  2. Run {} to generate workspace files",
+            "airis gen".bright_cyan()
+        );
     } else {
         // Dry-run: show what would happen
         let _report = migrate::execute(&plan, true)?;
@@ -136,11 +150,7 @@ fn run_template_mode(write: bool) -> Result<()> {
 
     if write {
         fs::write(manifest_path, MANIFEST_TEMPLATE)?;
-        println!(
-            "{} Created {}",
-            "✓".green(),
-            MANIFEST_FILE.bright_cyan()
-        );
+        println!("{} Created {}", "✓".green(), MANIFEST_FILE.bright_cyan());
         println!();
         println!("{}", "Next steps:".bright_yellow());
         println!("  1. Edit {} to configure your workspace:", MANIFEST_FILE);
@@ -149,7 +159,10 @@ fn run_template_mode(write: bool) -> Result<()> {
         println!("     - Add your libs under [libs.*]");
         println!("     - Configure [packages.catalog] for shared dependencies");
         println!();
-        println!("  2. Run {} to generate workspace files", "airis gen".bright_cyan());
+        println!(
+            "  2. Run {} to generate workspace files",
+            "airis gen".bright_cyan()
+        );
         println!();
         println!("{}", "Pro tip:".bright_yellow());
         println!("  Use Claude Code to intelligently configure manifest.toml");
@@ -168,7 +181,10 @@ fn run_template_mode(write: bool) -> Result<()> {
             println!("{}", line);
         }
         println!("{}", "─".repeat(60));
-        println!("... ({} more lines)", MANIFEST_TEMPLATE.lines().count() - 50);
+        println!(
+            "... ({} more lines)",
+            MANIFEST_TEMPLATE.lines().count() - 50
+        );
         println!();
         println!(
             "Run {} to actually create the file",

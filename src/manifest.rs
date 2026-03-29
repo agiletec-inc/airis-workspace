@@ -105,7 +105,6 @@ pub struct Manifest {
     pub env_group: IndexMap<String, IndexMap<String, String>>,
 
     // ── v2 fields (ignored when version = 1) ──
-
     /// Environment profiles: local, stg, prd, etc.
     #[serde(default)]
     pub profile: IndexMap<String, ProfileSection>,
@@ -200,12 +199,13 @@ impl Manifest {
         for (key, entry) in &self.packages.catalog {
             if let CatalogEntry::Follow(f) = entry
                 && !self.packages.catalog.contains_key(&f.follow)
-                && self.packages.default_policy.is_none() {
-                    errors.push(format!(
+                && self.packages.default_policy.is_none()
+            {
+                errors.push(format!(
                         "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog (add it or set default_policy)",
                         f.follow
                     ));
-                }
+            }
         }
 
         // 3. Check for commands in both guards.deny and guards.wrap
@@ -238,10 +238,11 @@ impl Manifest {
         // Extract from image string like "node:24-bookworm"
         let image = &self.workspace.image;
         if image.starts_with("node:")
-            && let Some(version_part) = image.strip_prefix("node:") {
-                let version = version_part.split('-').next().unwrap_or("22");
-                return version.to_string();
-            }
+            && let Some(version_part) = image.strip_prefix("node:")
+        {
+            let version = version_part.split('-').next().unwrap_or("22");
+            return version.to_string();
+        }
         "22".to_string()
     }
 
@@ -271,18 +272,12 @@ impl Manifest {
         let mut paths = Vec::new();
 
         for (key, app) in &self.apps {
-            let path = app
-                .path
-                .clone()
-                .unwrap_or_else(|| format!("apps/{}", key));
+            let path = app.path.clone().unwrap_or_else(|| format!("apps/{}", key));
             paths.push(path);
         }
 
         for (key, lib) in &self.libs {
-            let path = lib
-                .path
-                .clone()
-                .unwrap_or_else(|| format!("libs/{}", key));
+            let path = lib.path.clone().unwrap_or_else(|| format!("libs/{}", key));
             paths.push(path);
         }
 
@@ -297,10 +292,19 @@ impl Manifest {
                 for entry in entries.flatten() {
                     // Skip paths inside node_modules or build artifact directories
                     // (transitive deps and generated files are not workspaces)
-                    let skip_dirs = ["node_modules", ".next", "dist", ".turbo", ".swc", "build", "out"];
-                    if entry.components().any(|c| {
-                        skip_dirs.iter().any(|d| c.as_os_str() == *d)
-                    }) {
+                    let skip_dirs = [
+                        "node_modules",
+                        ".next",
+                        "dist",
+                        ".turbo",
+                        ".swc",
+                        "build",
+                        "out",
+                    ];
+                    if entry
+                        .components()
+                        .any(|c| skip_dirs.iter().any(|d| c.as_os_str() == *d))
+                    {
                         continue;
                     }
                     if entry.is_dir() && entry.join("package.json").exists() {
@@ -346,19 +350,52 @@ impl Manifest {
 
         // Catalog with common TypeScript/React dependencies
         let mut catalog = IndexMap::new();
-        catalog.insert("react".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("react-dom".to_string(), CatalogEntry::Follow(FollowConfig { follow: "react".to_string() }));
-        catalog.insert("next".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("typescript".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("tailwindcss".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("zod".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("vitest".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("eslint".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
-        catalog.insert("prettier".to_string(), CatalogEntry::Policy(VersionPolicy::Latest));
+        catalog.insert(
+            "react".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "react-dom".to_string(),
+            CatalogEntry::Follow(FollowConfig {
+                follow: "react".to_string(),
+            }),
+        );
+        catalog.insert(
+            "next".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "typescript".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "tailwindcss".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "zod".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "vitest".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "eslint".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
+        catalog.insert(
+            "prettier".to_string(),
+            CatalogEntry::Policy(VersionPolicy::Latest),
+        );
 
         // Packages section
         let packages = PackagesSection {
-            workspaces: vec!["apps/*".to_string(), "libs/*".to_string(), "packages/*".to_string()],
+            workspaces: vec![
+                "apps/*".to_string(),
+                "libs/*".to_string(),
+                "packages/*".to_string(),
+            ],
             default_policy: None,
             catalog,
             root: PackageDefinition {
@@ -396,10 +433,7 @@ impl Manifest {
                 "docker".to_string(),
                 "docker-compose".to_string(),
             ],
-            danger: vec![
-                "rm -rf /".to_string(),
-                "chmod -R 777".to_string(),
-            ],
+            danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
         };
 
         // Remap common commands to airis
@@ -424,12 +458,16 @@ impl Manifest {
                 license: "MIT".to_string(),
                 homepage: String::new(),
                 repository: String::new(),
-                keywords: vec!["monorepo".to_string(), "docker".to_string(), "typescript".to_string()],
+                keywords: vec![
+                    "monorepo".to_string(),
+                    "docker".to_string(),
+                    "typescript".to_string(),
+                ],
                 categories: vec!["development-tools".to_string()],
                 rust_edition: String::new(),
             },
             workspace: WorkspaceSection {
-                name: format!("airis-{}", name),  // Prefix to avoid Docker name collisions
+                name: format!("airis-{}", name), // Prefix to avoid Docker name collisions
                 scope: None,
                 package_manager: "pnpm@10.33.0".to_string(),
                 node: None,
@@ -466,8 +504,14 @@ impl Manifest {
             orchestration: OrchestrationSection::default(),
             commands: {
                 let mut cmds = IndexMap::new();
-                cmds.insert("up".to_string(), "docker compose up -d --build --remove-orphans".to_string());
-                cmds.insert("down".to_string(), "docker compose down --remove-orphans".to_string());
+                cmds.insert(
+                    "up".to_string(),
+                    "docker compose up -d --build --remove-orphans".to_string(),
+                );
+                cmds.insert(
+                    "down".to_string(),
+                    "docker compose down --remove-orphans".to_string(),
+                );
                 cmds.insert("ps".to_string(), "docker compose ps".to_string());
                 cmds
             },
@@ -623,20 +667,23 @@ fn default_workspace_name() -> String {
         .args(["rev-parse", "--show-toplevel"])
         .output()
         && output.status.success()
-            && let Ok(path_str) = String::from_utf8(output.stdout) {
-                let path = std::path::Path::new(path_str.trim());
-                if let Some(name) = path.file_name()
-                    && let Some(name_str) = name.to_str() {
-                        return name_str.to_string();
-                    }
-            }
+        && let Ok(path_str) = String::from_utf8(output.stdout)
+    {
+        let path = std::path::Path::new(path_str.trim());
+        if let Some(name) = path.file_name()
+            && let Some(name_str) = name.to_str()
+        {
+            return name_str.to_string();
+        }
+    }
 
     // Fallback: use current directory name
     if let Ok(cwd) = std::env::current_dir()
         && let Some(name) = cwd.file_name()
-            && let Some(name_str) = name.to_str() {
-                return name_str.to_string();
-            }
+        && let Some(name_str) = name.to_str()
+    {
+        return name_str.to_string();
+    }
 
     "workspace".to_string()
 }
@@ -1275,7 +1322,7 @@ pub struct K8sResources {
 pub struct ProjectDefinition {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,  // "app" | "lib" | "service"
+    pub kind: Option<String>, // "app" | "lib" | "service"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// Package name scope (e.g., "@agiletec"). Overrides default @workspace scope.
@@ -1318,7 +1365,7 @@ pub struct ProjectDefinition {
     #[serde(default)]
     pub files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub framework: Option<String>,  // "react-vite" | "nextjs" | "node" | "rust"
+    pub framework: Option<String>, // "react-vite" | "nextjs" | "node" | "rust"
     /// Runtime configuration for Docker builds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner: Option<RuntimeConfig>,
@@ -1348,7 +1395,6 @@ pub struct ProjectDefinition {
     pub deploy: Option<AppDeployConfig>,
 
     // ── v2 fields ──
-
     /// Preset name(s) to inherit deps/scripts/deploy defaults from
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<PresetRef>,
@@ -1480,16 +1526,18 @@ impl ProjectDefinition {
     pub fn resolve(&mut self, workspace: &WorkspaceSection) {
         // name: derive from path
         if self.name.is_empty()
-            && let Some(ref path) = self.path {
-                self.name = crate::conventions::name_from_path(path).to_string();
-            }
+            && let Some(ref path) = self.path
+        {
+            self.name = crate::conventions::name_from_path(path).to_string();
+        }
 
         // kind: derive from path
         if self.kind.is_none()
             && let Some(ref path) = self.path
-                && path.starts_with("libs/") {
-                    self.kind = Some("lib".to_string());
-                }
+            && path.starts_with("libs/")
+        {
+            self.kind = Some("lib".to_string());
+        }
 
         // framework: default to "node" for libs
         if self.framework.is_none() && self.kind.as_deref() == Some("lib") {
@@ -1522,18 +1570,28 @@ impl ProjectDefinition {
                 // Default: "." = { types = "./dist/index.d.ts", import = "./dist/index.js" }
                 let mut export_map = toml::map::Map::new();
                 let mut dot_export = toml::map::Map::new();
-                dot_export.insert("types".to_string(), toml::Value::String("./dist/index.d.ts".to_string()));
-                dot_export.insert("import".to_string(), toml::Value::String("./dist/index.js".to_string()));
+                dot_export.insert(
+                    "types".to_string(),
+                    toml::Value::String("./dist/index.d.ts".to_string()),
+                );
+                dot_export.insert(
+                    "import".to_string(),
+                    toml::Value::String("./dist/index.js".to_string()),
+                );
                 export_map.insert(".".to_string(), toml::Value::Table(dot_export));
                 self.exports = Some(toml::Value::Table(export_map));
             }
 
             // default scripts
             if !self.scripts.contains_key("build") {
-                self.scripts.insert("build".to_string(), "tsup src/index.ts --format esm --dts --clean".to_string());
+                self.scripts.insert(
+                    "build".to_string(),
+                    "tsup src/index.ts --format esm --dts --clean".to_string(),
+                );
             }
             if !self.scripts.contains_key("typecheck") {
-                self.scripts.insert("typecheck".to_string(), "tsc --noEmit".to_string());
+                self.scripts
+                    .insert("typecheck".to_string(), "tsc --noEmit".to_string());
             }
         }
 
@@ -1773,8 +1831,7 @@ fn default_ci_jobs() -> IndexMap<String, u8> {
 }
 
 /// E2E staging workflow configuration
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct E2eSection {
     /// Enable E2E staging workflow generation
     #[serde(default)]
@@ -1789,7 +1846,6 @@ pub struct E2eSection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_workflow: Option<String>,
 }
-
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ActionsVersions {
@@ -1816,10 +1872,18 @@ pub struct ActionsVersions {
     pub download_artifact: String,
 }
 
-fn default_v7() -> String { "v7".to_string() }
-fn default_v6() -> String { "v6".to_string() }
-fn default_v5() -> String { "v5".to_string() }
-fn default_v3() -> String { "v3".to_string() }
+fn default_v7() -> String {
+    "v7".to_string()
+}
+fn default_v6() -> String {
+    "v6".to_string()
+}
+fn default_v5() -> String {
+    "v5".to_string()
+}
+fn default_v3() -> String {
+    "v3".to_string()
+}
 
 impl Default for ActionsVersions {
     fn default() -> Self {
@@ -2089,8 +2153,7 @@ pub struct TemplatesSection {
 }
 
 /// Template configuration
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[derive(Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct TemplateConfig {
     /// Entry point file (e.g., "src/index.ts", "src/main.rs")
     #[serde(default)]
@@ -2114,7 +2177,6 @@ pub struct TemplateConfig {
     #[serde(default)]
     pub package_config: String,
 }
-
 
 /// Runtime aliases configuration
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -2199,8 +2261,8 @@ impl GlobalConfig {
         let content = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read {:?}", config_path))?;
 
-        let config: GlobalConfig = toml::from_str(&content)
-            .with_context(|| "Failed to parse global-config.toml")?;
+        let config: GlobalConfig =
+            toml::from_str(&content).with_context(|| "Failed to parse global-config.toml")?;
 
         Ok(config)
     }
@@ -2211,8 +2273,7 @@ impl GlobalConfig {
 
         // Create parent directory if needed
         if let Some(parent) = config_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create {:?}", parent))?;
+            fs::create_dir_all(parent).with_context(|| format!("Failed to create {:?}", parent))?;
         }
 
         let content = toml::to_string_pretty(self)

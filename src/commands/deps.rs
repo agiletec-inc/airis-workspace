@@ -8,8 +8,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use crate::dag::{build_dag, Dag, DagNode};
-use crate::pnpm::{build_workspace_map, PnpmLock};
+use crate::dag::{Dag, DagNode, build_dag};
+use crate::pnpm::{PnpmLock, build_workspace_map};
 
 /// Dependency graph output for JSON serialization
 #[derive(Serialize)]
@@ -71,8 +71,7 @@ pub fn tree() -> Result<()> {
     println!();
     println!(
         "{}",
-        format!("Total: {} packages", dag.nodes.len())
-            .dimmed()
+        format!("Total: {} packages", dag.nodes.len()).dimmed()
     );
 
     Ok(())
@@ -197,7 +196,10 @@ pub fn show(pkg: &str) -> Result<()> {
 pub fn check() -> Result<()> {
     let dag = load_dag()?;
 
-    println!("{}", "🔍 Checking for circular dependencies...".bright_blue());
+    println!(
+        "{}",
+        "🔍 Checking for circular dependencies...".bright_blue()
+    );
     println!();
 
     let cycles = detect_cycles(&dag);
@@ -351,7 +353,14 @@ fn detect_cycles(dag: &Dag) -> Vec<Vec<String>> {
 
     for id in dag.nodes.keys() {
         if !visited.contains(id) {
-            find_cycles_dfs(dag, id, &mut visited, &mut rec_stack, &mut path, &mut cycles);
+            find_cycles_dfs(
+                dag,
+                id,
+                &mut visited,
+                &mut rec_stack,
+                &mut path,
+                &mut cycles,
+            );
         }
     }
 
@@ -414,10 +423,7 @@ fn check_architecture(dag: &Dag) -> Vec<String> {
             for dep in &node.deps {
                 // Check if app depends on another app
                 if dep.starts_with("apps/") {
-                    violations.push(format!(
-                        "Cross-app dependency: {} → {}",
-                        node.id, dep
-                    ));
+                    violations.push(format!("Cross-app dependency: {} → {}", node.id, dep));
                 }
             }
         }
@@ -450,7 +456,12 @@ mod tests {
 
         let dependents = build_dependents_map(&dag);
 
-        assert!(dependents.get("libs/ui").unwrap().contains(&"apps/web".to_string()));
+        assert!(
+            dependents
+                .get("libs/ui")
+                .unwrap()
+                .contains(&"apps/web".to_string())
+        );
         assert!(dependents.get("apps/web").unwrap().is_empty());
     }
 

@@ -6,7 +6,7 @@
 //! - Forbidden files detection
 //! - Secret scanning
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -210,7 +210,12 @@ pub fn check(project: Option<&str>) -> Result<PolicyResult> {
             .collect();
 
         if !errors.is_empty() {
-            println!("{}", format!("❌ {} policy violation(s):", errors.len()).red().bold());
+            println!(
+                "{}",
+                format!("❌ {} policy violation(s):", errors.len())
+                    .red()
+                    .bold()
+            );
             for v in &errors {
                 println!("   {} {}", "•".red(), v.message);
             }
@@ -251,7 +256,10 @@ fn check_git_clean(result: &mut PolicyResult) -> Result<()> {
     if dirty_files.is_empty() {
         println!("{}", "clean".green());
     } else {
-        println!("{}", format!("{} uncommitted changes", dirty_files.len()).red());
+        println!(
+            "{}",
+            format!("{} uncommitted changes", dirty_files.len()).red()
+        );
         result.violations.push(PolicyViolation {
             rule: "require_clean_git".to_string(),
             message: format!(
@@ -361,7 +369,9 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
 
     print!("🔍 Scanning for secrets... ");
 
-    let scan_dir = project.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let scan_dir = project
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
 
     if !scan_dir.exists() {
         println!("{}", "skipped (directory not found)".dimmed());
@@ -373,11 +383,23 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
 
     // Secret patterns to detect
     let secret_patterns: &[(&str, &str)] = &[
-        (r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{20,}["']"#, "API key"),
-        (r#"(?i)secret[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{20,}["']"#, "Secret key"),
+        (
+            r#"(?i)api[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{20,}["']"#,
+            "API key",
+        ),
+        (
+            r#"(?i)secret[_-]?key\s*[:=]\s*["'][a-zA-Z0-9]{20,}["']"#,
+            "Secret key",
+        ),
         (r#"(?i)password\s*[:=]\s*["'][^"']{8,}["']"#, "Password"),
-        (r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']?[A-Z0-9]{16,}["']?"#, "AWS Access Key"),
-        (r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["']?[a-zA-Z0-9/+=]{40}["']?"#, "AWS Secret Key"),
+        (
+            r#"(?i)aws[_-]?access[_-]?key[_-]?id\s*[:=]\s*["']?[A-Z0-9]{16,}["']?"#,
+            "AWS Access Key",
+        ),
+        (
+            r#"(?i)aws[_-]?secret[_-]?access[_-]?key\s*[:=]\s*["']?[a-zA-Z0-9/+=]{40}["']?"#,
+            "AWS Secret Key",
+        ),
         (r"ghp_[a-zA-Z0-9]{36}", "GitHub Personal Access Token"),
         (r"gho_[a-zA-Z0-9]{36}", "GitHub OAuth Token"),
         (r"sk-[a-zA-Z0-9]{48}", "OpenAI API Key"),
@@ -401,7 +423,20 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if !matches!(
             ext,
-            "js" | "ts" | "jsx" | "tsx" | "py" | "rs" | "go" | "java" | "rb" | "php" | "env" | "json" | "yaml" | "yml" | "toml"
+            "js" | "ts"
+                | "jsx"
+                | "tsx"
+                | "py"
+                | "rs"
+                | "go"
+                | "java"
+                | "rb"
+                | "php"
+                | "env"
+                | "json"
+                | "yaml"
+                | "yml"
+                | "toml"
         ) {
             continue;
         }
@@ -418,9 +453,10 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
 
         // Check file size
         if let Ok(meta) = path.metadata()
-            && meta.len() > max_size {
-                continue;
-            }
+            && meta.len() > max_size
+        {
+            continue;
+        }
 
         // Read and scan
         if let Ok(content) = fs::read_to_string(path) {
@@ -436,7 +472,10 @@ fn scan_secrets(project: Option<&str>, max_size_mb: u64, result: &mut PolicyResu
     if secrets_found.is_empty() {
         println!("{}", "none found".green());
     } else {
-        println!("{}", format!("{} potential secret(s)", secrets_found.len()).yellow());
+        println!(
+            "{}",
+            format!("{} potential secret(s)", secrets_found.len()).yellow()
+        );
         for (file, secret_type) in &secrets_found {
             result.violations.push(PolicyViolation {
                 rule: "scan_secrets".to_string(),
@@ -507,7 +546,11 @@ mod tests {
         check_required_env(&["DEFINITELY_NOT_SET_12345".to_string()], &mut result);
 
         assert!(!result.violations.is_empty());
-        assert!(result.violations[0].message.contains("DEFINITELY_NOT_SET_12345"));
+        assert!(
+            result.violations[0]
+                .message
+                .contains("DEFINITELY_NOT_SET_12345")
+        );
     }
 
     #[test]

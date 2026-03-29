@@ -12,10 +12,10 @@ use std::fs;
 use std::path::Path;
 
 use crate::commands::manifest_cmd::WorkspaceTruth;
-use crate::version_resolver::resolve_version;
-use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
-use crate::ownership::{get_ownership, Ownership};
+use crate::manifest::{CatalogEntry, MANIFEST_FILE, Manifest};
+use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
+use crate::version_resolver::resolve_version;
 
 /// Issue severity levels
 #[derive(Debug, Clone, PartialEq)]
@@ -46,8 +46,7 @@ pub fn run_truth(json_output: bool) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path)
-        .context("Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).context("Failed to load manifest.toml")?;
 
     let truth = WorkspaceTruth::from_manifest(&manifest)?;
 
@@ -60,7 +59,11 @@ pub fn run_truth(json_output: bool) -> Result<()> {
         println!("{}", "━".repeat(44).dimmed());
         println!();
         println!("{:<12} {}", "Root:".bright_yellow(), truth.workspace_root);
-        println!("{:<12} {}", "Compose:".bright_yellow(), truth.compose_command);
+        println!(
+            "{:<12} {}",
+            "Compose:".bright_yellow(),
+            truth.compose_command
+        );
         println!("{:<12} {}", "Service:".bright_yellow(), truth.service);
         println!("{:<12} {}", "Workdir:".bright_yellow(), truth.workdir);
         println!("{:<12} {}", "PM:".bright_yellow(), truth.package_manager);
@@ -94,8 +97,7 @@ pub fn run(fix: bool) -> Result<()> {
     }
 
     // Load manifest
-    let manifest = Manifest::load(manifest_path)
-        .context("Failed to load manifest.toml")?;
+    let manifest = Manifest::load(manifest_path).context("Failed to load manifest.toml")?;
 
     // Collect issues
     let mut issues: Vec<Issue> = Vec::new();
@@ -137,7 +139,10 @@ pub fn run(fix: bool) -> Result<()> {
         println!();
         println!("{}", "✨ Workspace healed successfully!".green().bold());
     } else {
-        println!("{}", "💡 Run `airis doctor --fix` to auto-repair".bright_yellow());
+        println!(
+            "{}",
+            "💡 Run `airis doctor --fix` to auto-repair".bright_yellow()
+        );
     }
 
     Ok(())
@@ -204,8 +209,8 @@ where
     }
 
     // Read current file
-    let current = fs::read_to_string(path)
-        .with_context(|| format!("Failed to read {}", filename))?;
+    let current =
+        fs::read_to_string(path).with_context(|| format!("Failed to read {}", filename))?;
 
     // Generate expected content
     let expected = generate()?;
@@ -228,16 +233,19 @@ where
         let line_diff = (current_lines.len() as i32 - expected_lines.len() as i32).abs();
 
         let description = if line_diff > 0 {
-            format!("Content mismatch ({} lines differ, {} lines added/removed)", diff_count, line_diff)
+            format!(
+                "Content mismatch ({} lines differ, {} lines added/removed)",
+                diff_count, line_diff
+            )
         } else {
             format!("Content mismatch ({} lines differ)", diff_count.max(1))
         };
 
         // Severity depends on ownership
         let severity = match ownership {
-            Ownership::Tool => Severity::Error,      // Tool files must match
-            Ownership::Hybrid => Severity::Warning,  // Hybrid files may have user edits
-            Ownership::User => Severity::Warning,    // User files are their responsibility
+            Ownership::Tool => Severity::Error,     // Tool files must match
+            Ownership::Hybrid => Severity::Warning, // Hybrid files may have user edits
+            Ownership::User => Severity::Warning,   // User files are their responsibility
         };
 
         issues.push(Issue {
@@ -253,11 +261,7 @@ where
 /// Check for orphaned packages (exist on disk but not in manifest)
 fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<()> {
     // Get declared apps from manifest.apps keys
-    let declared_apps: std::collections::HashSet<String> = manifest
-        .apps
-        .keys()
-        .cloned()
-        .collect();
+    let declared_apps: std::collections::HashSet<String> = manifest.apps.keys().cloned().collect();
 
     // Check apps directory
     let apps_dir = Path::new("apps");
@@ -266,9 +270,7 @@ fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Resu
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
-                let app_name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let app_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 // Check if this app has a package.json but isn't in manifest
                 let pkg_json = path.join("package.json");
@@ -284,11 +286,7 @@ fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Resu
     }
 
     // Get declared libs from manifest
-    let declared_libs: std::collections::HashSet<String> = manifest
-        .libs
-        .keys()
-        .cloned()
-        .collect();
+    let declared_libs: std::collections::HashSet<String> = manifest.libs.keys().cloned().collect();
 
     // Check libs directory
     let libs_dir = Path::new("libs");
@@ -297,9 +295,7 @@ fn check_orphaned_packages(manifest: &Manifest, issues: &mut Vec<Issue>) -> Resu
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
-                let lib_name = path.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("");
+                let lib_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
                 // Check if this lib has a package.json but isn't in manifest
                 let pkg_json = path.join("package.json");
@@ -349,11 +345,18 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
         let output = std::process::Command::new("find")
             .args([
                 ".",
-                "-name", name,
-                "-type", "d",
-                "-not", "-path", "./.git/*",
-                "-not", "-path", "*/node_modules/*",
-                "-maxdepth", "4",
+                "-name",
+                name,
+                "-type",
+                "d",
+                "-not",
+                "-path",
+                "./.git/*",
+                "-not",
+                "-path",
+                "*/node_modules/*",
+                "-maxdepth",
+                "4",
             ])
             .output()
             .with_context(|| format!("Failed to run find for {}", name))?;
@@ -378,10 +381,7 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
 
             issues.push(Issue {
                 file: trimmed.to_string(),
-                description: format!(
-                    "Host artifact `{}` leaked from container ({})",
-                    name, hint
-                ),
+                description: format!("Host artifact `{}` leaked from container ({})", name, hint),
                 severity,
             });
         }

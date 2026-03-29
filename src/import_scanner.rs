@@ -15,7 +15,7 @@ use walkdir::WalkDir;
 /// Pre-compiled import regex — compiled once, reused across all calls.
 static IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r#"(?:^|[\s})])from\s+['"]([^'"]+)['"]|(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)"#
+        r#"(?:^|[\s})])from\s+['"]([^'"]+)['"]|(?:import|require)\s*\(\s*['"]([^'"]+)['"]\s*\)"#,
     )
     .expect("import regex should compile")
 });
@@ -81,12 +81,7 @@ pub fn scan_content(content: &str, workspace_scope: &str) -> ScannedDeps {
 /// - JSDoc lines (`* ...`, `/** ...`)
 ///
 /// This prevents false positives from import examples in documentation.
-fn extract_packages(
-    content: &str,
-    re: &Regex,
-    workspace_scope: &str,
-    deps: &mut ScannedDeps,
-) {
+fn extract_packages(content: &str, re: &Regex, workspace_scope: &str, deps: &mut ScannedDeps) {
     let mut in_block_comment = false;
 
     for line in content.lines() {
@@ -156,7 +151,7 @@ fn extract_package_name(specifier: &str) -> &str {
         // Scoped package: @scope/name or @scope/name/subpath
         // Find the second '/' (after @scope/name)
         let after_scope = match stripped.find('/') {
-            Some(i) => i + 1, // position of first '/' in original string
+            Some(i) => i + 1,         // position of first '/' in original string
             None => return specifier, // just "@scope" (unusual but handle it)
         };
         // Find the next '/' after "@scope/name"
@@ -199,7 +194,10 @@ fn is_ignored_dir(entry: &walkdir::DirEntry) -> bool {
 
 /// Check if a file should be scanned for imports.
 fn is_scannable_file(path: &Path) -> bool {
-    matches!(path.extension().and_then(|e| e.to_str()), Some("ts" | "tsx" | "js" | "jsx" | "mts" | "mjs"))
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
+    )
 }
 
 /// Check if a module specifier is a Node.js built-in module.
@@ -271,18 +269,12 @@ mod tests {
             "@fastify/formbody"
         );
         assert_eq!(extract_package_name("@agiletec/ui"), "@agiletec/ui");
-        assert_eq!(
-            extract_package_name("@agiletec/ui/button"),
-            "@agiletec/ui"
-        );
+        assert_eq!(extract_package_name("@agiletec/ui/button"), "@agiletec/ui");
         assert_eq!(
             extract_package_name("@radix-ui/react-dialog"),
             "@radix-ui/react-dialog"
         );
-        assert_eq!(
-            extract_package_name("@slack/web-api"),
-            "@slack/web-api"
-        );
+        assert_eq!(extract_package_name("@slack/web-api"), "@slack/web-api");
     }
 
     #[test]
@@ -410,18 +402,14 @@ const c = require("express")
 
     #[test]
     fn test_scan_real_agiletec_voice_gateway() {
-        let app_path = Path::new(
-            "/Users/kazuki/github/agiletec-inc/agiletec/products/airis/voice-gateway",
-        );
+        let app_path =
+            Path::new("/Users/kazuki/github/agiletec-inc/agiletec/products/airis/voice-gateway");
         if !app_path.exists() {
             return;
         }
         let deps = scan_imports(app_path, "@agiletec").unwrap();
 
-        assert!(
-            deps.external.contains("fastify"),
-            "should detect 'fastify'"
-        );
+        assert!(deps.external.contains("fastify"), "should detect 'fastify'");
         assert!(
             deps.workspace.contains("@agiletec/logger"),
             "should detect '@agiletec/logger'"
@@ -537,7 +525,10 @@ import {
 import { cn } from '../lib/utils'
 "#;
         let deps = scan_content(content, "@agiletec");
-        assert!(deps.external.contains("react-hook-form"), "should detect multi-line import");
+        assert!(
+            deps.external.contains("react-hook-form"),
+            "should detect multi-line import"
+        );
         assert!(!deps.external.contains("../lib/utils"));
     }
 

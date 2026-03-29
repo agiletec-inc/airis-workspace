@@ -115,9 +115,10 @@ pub fn discover_from_workspaces(
                 .to_string();
 
             // Check exclusion patterns
-            if exclude_patterns.iter().any(|ex| {
-                glob::Pattern::new(ex).is_ok_and(|p| p.matches(&rel_path))
-            }) {
+            if exclude_patterns
+                .iter()
+                .any(|ex| glob::Pattern::new(ex).is_ok_and(|p| p.matches(&rel_path)))
+            {
                 continue;
             }
 
@@ -271,11 +272,7 @@ fn print_discovery_result(result: &DiscoveryResult) {
     if !result.libs.is_empty() {
         println!("{}", "📚 Detected Libraries:".green());
         for lib in &result.libs {
-            println!(
-                "   {:<18} {}",
-                lib.path.bright_cyan(),
-                "TypeScript".white()
-            );
+            println!("   {:<18} {}", lib.path.bright_cyan(), "TypeScript".white());
         }
         println!();
     }
@@ -285,11 +282,9 @@ fn print_discovery_result(result: &DiscoveryResult) {
         println!("{}", "🐳 Docker Compose Files:".green());
         for compose in &result.compose_files {
             let status = match compose.location {
-                ComposeLocation::Root => format!(
-                    "{} {}",
-                    "→".yellow(),
-                    "workspace/compose.yml".yellow()
-                ),
+                ComposeLocation::Root => {
+                    format!("{} {}", "→".yellow(), "workspace/compose.yml".yellow())
+                }
                 _ => format!("{} (correct location)", "✓".green()),
             };
             println!("   {:<35} {}", compose.path.bright_cyan(), status);
@@ -379,7 +374,12 @@ fn scan_libs(catalog: &IndexMap<String, String>) -> Result<Vec<DetectedLib>> {
     for nested in nested_dirs {
         let nested_path = libs_dir.join(nested);
         if nested_path.exists() && nested_path.is_dir() {
-            scan_libs_in_dir(&nested_path, &format!("libs/{}", nested), catalog, &mut libs)?;
+            scan_libs_in_dir(
+                &nested_path,
+                &format!("libs/{}", nested),
+                catalog,
+                &mut libs,
+            )?;
         }
     }
 
@@ -396,7 +396,8 @@ fn scan_libs_in_dir(
     catalog: &IndexMap<String, String>,
     libs: &mut Vec<DetectedLib>,
 ) -> Result<()> {
-    let entries = fs::read_dir(dir).with_context(|| format!("Failed to read {} directory", prefix))?;
+    let entries =
+        fs::read_dir(dir).with_context(|| format!("Failed to read {} directory", prefix))?;
 
     for entry in entries.flatten() {
         let path = entry.path();
@@ -763,7 +764,11 @@ mod tests {
     #[test]
     fn test_detect_framework_python() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("pyproject.toml"), "[project]\nname = \"test\"").unwrap();
+        fs::write(
+            dir.path().join("pyproject.toml"),
+            "[project]\nname = \"test\"",
+        )
+        .unwrap();
 
         assert_eq!(detect_framework(dir.path()), Framework::Python);
     }
@@ -872,7 +877,10 @@ mod tests {
 
         // react and typescript should be converted to "catalog:"
         assert_eq!(info.deps.get("react"), Some(&"catalog:".to_string()));
-        assert_eq!(info.dev_deps.get("typescript"), Some(&"catalog:".to_string()));
+        assert_eq!(
+            info.dev_deps.get("typescript"),
+            Some(&"catalog:".to_string())
+        );
         // lodash is not in catalog, should keep original version
         assert_eq!(info.deps.get("lodash"), Some(&"^4.0.0".to_string()));
     }
@@ -908,7 +916,8 @@ mod tests {
         fs::write(
             app_dir.join("package.json"),
             r#"{"name": "corporate", "dependencies": {"next": "15.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create libs/ui with plain Node
         let lib_dir = root.join("libs/ui");
@@ -916,7 +925,8 @@ mod tests {
         fs::write(
             lib_dir.join("package.json"),
             r#"{"name": "ui", "dependencies": {"react": "19.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Create a non-project directory (no package.json)
         fs::create_dir_all(root.join("apps/empty")).unwrap();
@@ -964,13 +974,17 @@ mod tests {
         fs::write(
             vg_dir.join("package.json"),
             r#"{"name": "voice-gateway", "dependencies": {"hono": "4.0.0"}}"#,
-        ).unwrap();
+        )
+        .unwrap();
 
         let patterns = vec!["products/**".to_string()];
         let discovered = discover_from_workspaces(&patterns, root).unwrap();
 
         assert!(discovered.iter().any(|p| p.name == "voice-gateway"));
-        let vg = discovered.iter().find(|p| p.name == "voice-gateway").unwrap();
+        let vg = discovered
+            .iter()
+            .find(|p| p.name == "voice-gateway")
+            .unwrap();
         assert_eq!(vg.framework, Framework::Hono);
     }
 }

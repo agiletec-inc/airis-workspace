@@ -1,15 +1,15 @@
 pub mod affected;
 pub mod bump_version;
 pub mod bundle;
+pub mod claude_setup;
 pub mod clean;
 pub mod deps;
 pub mod diff;
 pub mod discover;
-pub mod doctor;
 pub mod docs;
+pub mod doctor;
 pub mod generate;
 pub mod generate_types;
-pub mod claude_setup;
 pub mod guards;
 pub mod hooks;
 pub mod init;

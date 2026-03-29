@@ -2,20 +2,20 @@
 //!
 //! Implements `airis build --docker <app>` functionality
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::channel::{resolve_channel, RuntimeChannel, RuntimeFamily, Toolchain};
+use crate::channel::{RuntimeChannel, RuntimeFamily, Toolchain, resolve_channel};
 use crate::dag::Dag;
-use crate::pnpm::{build_workspace_map, PnpmLock};
+use crate::pnpm::{PnpmLock, build_workspace_map};
 
 /// Build configuration
 #[derive(Debug, Clone)]
 pub struct BuildConfig {
-    pub target: String,          // e.g., "apps/focustoday-api"
+    pub target: String, // e.g., "apps/focustoday-api"
     pub image_name: Option<String>,
     pub push: bool,
     pub no_cache: bool,
@@ -89,8 +89,7 @@ pub fn cache_store(project: &str, hash: &str, artifact: &CachedArtifact) -> Resu
         .with_context(|| format!("Failed to create cache directory: {}", dir.display()))?;
 
     let artifact_path = dir.join("artifact.json");
-    let content = serde_json::to_string_pretty(artifact)
-        .context("Failed to serialize artifact")?;
+    let content = serde_json::to_string_pretty(artifact).context("Failed to serialize artifact")?;
 
     fs::write(&artifact_path, content)
         .with_context(|| format!("Failed to write cache: {}", artifact_path.display()))?;
@@ -138,7 +137,11 @@ impl<'a> ContextBuilder<'a> {
             }
         };
 
-        println!("📦 Building context for {} ({} packages)", self.target, dep_paths.len());
+        println!(
+            "📦 Building context for {} ({} packages)",
+            self.target,
+            dep_paths.len()
+        );
 
         // 1. Copy root files
         self.copy_root_files(&ctx_dir)?;
@@ -169,8 +172,7 @@ impl<'a> ContextBuilder<'a> {
             let src = self.root.join(file);
             if src.exists() {
                 let dst = ctx.join(file);
-                fs::copy(&src, &dst)
-                    .with_context(|| format!("Failed to copy {}", file))?;
+                fs::copy(&src, &dst).with_context(|| format!("Failed to copy {}", file))?;
             }
         }
 
@@ -188,7 +190,12 @@ impl<'a> ContextBuilder<'a> {
         fs::create_dir_all(&dst_dir)?;
 
         // Files to copy for each package
-        let essential_files = ["package.json", "tsconfig.json", "tsconfig.build.json", ".npmrc"];
+        let essential_files = [
+            "package.json",
+            "tsconfig.json",
+            "tsconfig.build.json",
+            ".npmrc",
+        ];
 
         for file in &essential_files {
             let src = src_dir.join(file);
@@ -295,7 +302,6 @@ pub fn generate_dockerfile_for_toolchain(
         RuntimeFamily::Python => generate_python_dockerfile(target, build_args),
     }
 }
-
 
 // Dockerfile templates — inline string literals (no external template files)
 const NEXTJS_DOCKERFILE: &str = r#"# syntax=docker/dockerfile:1.7
@@ -489,7 +495,10 @@ EXPOSE {{port}}
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "{{port}}"]
 "#;
 
-fn render_dockerfile_template(template: &str, vars: &std::collections::HashMap<&str, String>) -> String {
+fn render_dockerfile_template(
+    template: &str,
+    vars: &std::collections::HashMap<&str, String>,
+) -> String {
     let mut result = template.to_string();
     for (key, value) in vars {
         result = result.replace(&format!("{{{{{}}}}}", key), value);
@@ -502,13 +511,26 @@ fn generate_nextjs_dockerfile(
     node_version: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("node_version", node_version.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("port", crate::conventions::framework_defaults("nextjs").port.to_string());
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("nextjs")
+            .port
+            .to_string(),
+    );
     vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
     render_dockerfile_template(NEXTJS_DOCKERFILE, &vars)
 }
@@ -518,13 +540,26 @@ fn generate_node_dockerfile(
     node_version: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("node_version", node_version.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("port", crate::conventions::framework_defaults("node").port.to_string());
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("node")
+            .port
+            .to_string(),
+    );
     vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
     render_dockerfile_template(NODE_DOCKERFILE, &vars)
 }
@@ -534,13 +569,26 @@ fn generate_bun_dockerfile(
     image: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("image", image.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("port", crate::conventions::framework_defaults("node").port.to_string());
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("node")
+            .port
+            .to_string(),
+    );
     render_dockerfile_template(BUN_DOCKERFILE, &vars)
 }
 
@@ -549,13 +597,26 @@ fn generate_deno_dockerfile(
     image: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("image", image.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("port", crate::conventions::framework_defaults("node").port.to_string());
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("node")
+            .port
+            .to_string(),
+    );
     render_dockerfile_template(DENO_DOCKERFILE, &vars)
 }
 
@@ -564,43 +625,82 @@ fn generate_edge_dockerfile(
     image: &str,
     build_args: &BTreeMap<String, String>,
 ) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("image", image.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("port", crate::conventions::framework_defaults("cloudflare-worker").port.to_string());
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("cloudflare-worker")
+            .port
+            .to_string(),
+    );
     render_dockerfile_template(EDGE_DOCKERFILE, &vars)
 }
 
-fn generate_rust_dockerfile(
-    target: &str,
-    build_args: &BTreeMap<String, String>,
-) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+fn generate_rust_dockerfile(target: &str, build_args: &BTreeMap<String, String>) -> String {
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let app_name = target.rsplit('/').next().unwrap_or(target);
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("app_name", app_name.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("rust_image", crate::channel::defaults::RUST_IMAGE.to_string());
-    vars.insert("port", crate::conventions::framework_defaults("rust").port.to_string());
+    vars.insert(
+        "rust_image",
+        crate::channel::defaults::RUST_IMAGE.to_string(),
+    );
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("rust")
+            .port
+            .to_string(),
+    );
     render_dockerfile_template(RUST_DOCKERFILE, &vars)
 }
 
-fn generate_python_dockerfile(
-    target: &str,
-    build_args: &BTreeMap<String, String>,
-) -> String {
-    let extra_args: String = build_args.keys().map(|k| format!("ARG {}
-", k)).collect();
+fn generate_python_dockerfile(target: &str, build_args: &BTreeMap<String, String>) -> String {
+    let extra_args: String = build_args
+        .keys()
+        .map(|k| {
+            format!(
+                "ARG {}
+",
+                k
+            )
+        })
+        .collect();
     let mut vars = std::collections::HashMap::new();
     vars.insert("target", target.to_string());
     vars.insert("extra_args", extra_args);
-    vars.insert("python_image", crate::channel::defaults::PYTHON_IMAGE.to_string());
-    vars.insert("port", crate::conventions::framework_defaults("python").port.to_string());
+    vars.insert(
+        "python_image",
+        crate::channel::defaults::PYTHON_IMAGE.to_string(),
+    );
+    vars.insert(
+        "port",
+        crate::conventions::framework_defaults("python")
+            .port
+            .to_string(),
+    );
     render_dockerfile_template(PYTHON_DOCKERFILE, &vars)
 }
 
@@ -780,7 +880,12 @@ pub fn docker_build(root: &Path, config: BuildConfig) -> Result<BuildResult> {
     println!("{}", "==================================".bright_blue());
     println!("{}", "airis build --docker".bright_blue().bold());
     println!("Target:  {}", config.target.cyan());
-    println!("Channel: {} → {} ({})", config.channel.yellow(), toolchain.image.green(), format!("{:?}", toolchain.family).dimmed());
+    println!(
+        "Channel: {} → {} ({})",
+        config.channel.yellow(),
+        toolchain.image.green(),
+        format!("{:?}", toolchain.family).dimmed()
+    );
     println!("{}", "==================================".bright_blue());
 
     // 2. Load pnpm-lock.yaml
@@ -796,7 +901,11 @@ pub fn docker_build(root: &Path, config: BuildConfig) -> Result<BuildResult> {
         bail!(
             "Target '{}' not found in workspace. Available:\n{}",
             config.target,
-            dag.nodes.keys().map(|k| format!("  - {}", k)).collect::<Vec<_>>().join("\n")
+            dag.nodes
+                .keys()
+                .map(|k| format!("  - {}", k))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
     }
 
@@ -813,24 +922,26 @@ pub fn docker_build(root: &Path, config: BuildConfig) -> Result<BuildResult> {
 
     // 7. Check cache (skip if --no-cache)
     if !config.no_cache
-        && let Some(cached) = cache_hit(&config.target, &final_hash) {
-            println!();
-            println!("{}", "==================================".bright_blue());
-            println!("{}", "⚡ Cache hit! Skipping build.".green().bold());
-            println!("   Image: {}", cached.image_ref);
-            println!("   Hash:  {}", cached.hash);
-            println!("   Built: {}", cached.built_at);
-            println!("{}", "==================================".bright_blue());
+        && let Some(cached) = cache_hit(&config.target, &final_hash)
+    {
+        println!();
+        println!("{}", "==================================".bright_blue());
+        println!("{}", "⚡ Cache hit! Skipping build.".green().bold());
+        println!("   Image: {}", cached.image_ref);
+        println!("   Hash:  {}", cached.hash);
+        println!("   Built: {}", cached.built_at);
+        println!("{}", "==================================".bright_blue());
 
-            return Ok(BuildResult {
-                image_ref: cached.image_ref,
-                hash: cached.hash,
-                duration_secs: 0,
-            });
-        }
+        return Ok(BuildResult {
+            image_ref: cached.image_ref,
+            hash: cached.hash,
+            duration_secs: 0,
+        });
+    }
 
     // 8. Generate Dockerfile based on runtime family
-    let dockerfile = generate_dockerfile_for_toolchain(&config.target, &toolchain, &config.build_args);
+    let dockerfile =
+        generate_dockerfile_for_toolchain(&config.target, &toolchain, &config.build_args);
 
     // 9. Run BuildKit
     let result = run_buildkit(&ctx_dir, &dockerfile, &config, &final_hash)?;
@@ -964,11 +1075,7 @@ mod tests {
 
     #[test]
     fn test_generate_nextjs_dockerfile() {
-        let dockerfile = generate_nextjs_dockerfile(
-            "apps/web",
-            "22",
-            &BTreeMap::new(),
-        );
+        let dockerfile = generate_nextjs_dockerfile("apps/web", "22", &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM node:22-alpine"));
         assert!(dockerfile.contains("apps/web"));
@@ -978,11 +1085,8 @@ mod tests {
 
     #[test]
     fn test_generate_bun_dockerfile() {
-        let dockerfile = generate_bun_dockerfile(
-            "apps/api",
-            "oven/bun:1.1-alpine",
-            &BTreeMap::new(),
-        );
+        let dockerfile =
+            generate_bun_dockerfile("apps/api", "oven/bun:1.1-alpine", &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM oven/bun:1.1-alpine"));
         assert!(dockerfile.contains("bun install"));
@@ -991,10 +1095,7 @@ mod tests {
 
     #[test]
     fn test_generate_rust_dockerfile() {
-        let dockerfile = generate_rust_dockerfile(
-            "apps/cli",
-            &BTreeMap::new(),
-        );
+        let dockerfile = generate_rust_dockerfile("apps/cli", &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM rust:"));
         assert!(dockerfile.contains("cargo build --release"));
@@ -1003,10 +1104,7 @@ mod tests {
 
     #[test]
     fn test_generate_python_dockerfile() {
-        let dockerfile = generate_python_dockerfile(
-            "apps/api",
-            &BTreeMap::new(),
-        );
+        let dockerfile = generate_python_dockerfile("apps/api", &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM python:"));
         assert!(dockerfile.contains("pip install"));
@@ -1015,11 +1113,8 @@ mod tests {
 
     #[test]
     fn test_generate_deno_dockerfile() {
-        let dockerfile = generate_deno_dockerfile(
-            "apps/api",
-            "denoland/deno:alpine",
-            &BTreeMap::new(),
-        );
+        let dockerfile =
+            generate_deno_dockerfile("apps/api", "denoland/deno:alpine", &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM denoland/deno:alpine"));
         assert!(dockerfile.contains("deno"));
@@ -1030,11 +1125,7 @@ mod tests {
         let mut build_args = BTreeMap::new();
         build_args.insert("API_KEY".to_string(), "secret".to_string());
 
-        let dockerfile = generate_nextjs_dockerfile(
-            "apps/web",
-            "22",
-            &build_args,
-        );
+        let dockerfile = generate_nextjs_dockerfile("apps/web", "22", &build_args);
 
         assert!(dockerfile.contains("ARG API_KEY"));
     }

@@ -43,9 +43,7 @@ pub struct WorkspaceTruth {
 impl WorkspaceTruth {
     /// Build WorkspaceTruth from manifest
     pub fn from_manifest(manifest: &Manifest) -> Result<Self> {
-        let workspace_root = std::env::current_dir()?
-            .to_string_lossy()
-            .to_string();
+        let workspace_root = std::env::current_dir()?.to_string_lossy().to_string();
 
         // Collect compose files
         let mut compose_files = Vec::new();
@@ -58,9 +56,10 @@ impl WorkspaceTruth {
         // Add from orchestration config if present
         if let Some(dev) = &manifest.orchestration.dev {
             if let Some(workspace) = &dev.workspace
-                && !compose_files.contains(workspace) {
-                    compose_files.push(workspace.clone());
-                }
+                && !compose_files.contains(workspace)
+            {
+                compose_files.push(workspace.clone());
+            }
             if let Some(supabase) = &dev.supabase {
                 for f in supabase {
                     if !compose_files.contains(f) {
@@ -69,9 +68,10 @@ impl WorkspaceTruth {
                 }
             }
             if let Some(traefik) = &dev.traefik
-                && !compose_files.contains(traefik) {
-                    compose_files.push(traefik.clone());
-                }
+                && !compose_files.contains(traefik)
+            {
+                compose_files.push(traefik.clone());
+            }
         }
 
         // Add from dev section
@@ -83,9 +83,10 @@ impl WorkspaceTruth {
             }
         }
         if let Some(traefik) = &manifest.dev.traefik
-            && !compose_files.contains(traefik) {
-                compose_files.push(traefik.clone());
-            }
+            && !compose_files.contains(traefik)
+        {
+            compose_files.push(traefik.clone());
+        }
 
         // If still empty, use docker.compose from manifest
         if compose_files.is_empty() && !manifest.docker.compose.is_empty() {
@@ -96,9 +97,8 @@ impl WorkspaceTruth {
         let compose_command = if compose_files.is_empty() {
             "docker compose".to_string()
         } else {
-            let file_args: Vec<String> = compose_files.iter()
-                .map(|f| format!("-f {}", f))
-                .collect();
+            let file_args: Vec<String> =
+                compose_files.iter().map(|f| format!("-f {}", f)).collect();
             format!("docker compose {}", file_args.join(" "))
         };
 
@@ -258,9 +258,18 @@ name = "test"
 
         let result = std::panic::catch_unwind(|| {
             let truth = WorkspaceTruth::from_manifest(&manifest).unwrap();
-            assert_eq!(truth.recommended_commands.get("up"), Some(&"airis up".to_string()));
-            assert_eq!(truth.recommended_commands.get("dev"), Some(&"airis dev".to_string()));
-            assert_eq!(truth.recommended_commands.get("shell"), Some(&"airis shell".to_string()));
+            assert_eq!(
+                truth.recommended_commands.get("up"),
+                Some(&"airis up".to_string())
+            );
+            assert_eq!(
+                truth.recommended_commands.get("dev"),
+                Some(&"airis dev".to_string())
+            );
+            assert_eq!(
+                truth.recommended_commands.get("shell"),
+                Some(&"airis shell".to_string())
+            );
         });
 
         std::env::set_current_dir(original_dir).unwrap();
@@ -295,8 +304,16 @@ traefik = "traefik/compose.yml"
 
             // Should have all compose files
             assert!(truth.compose_files.contains(&"compose.yml".to_string()));
-            assert!(truth.compose_files.contains(&"supabase/compose.yml".to_string()));
-            assert!(truth.compose_files.contains(&"traefik/compose.yml".to_string()));
+            assert!(
+                truth
+                    .compose_files
+                    .contains(&"supabase/compose.yml".to_string())
+            );
+            assert!(
+                truth
+                    .compose_files
+                    .contains(&"traefik/compose.yml".to_string())
+            );
 
             // Compose command should include all -f flags
             assert!(truth.compose_command.contains("-f compose.yml"));

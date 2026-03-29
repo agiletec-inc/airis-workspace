@@ -25,7 +25,9 @@ fn test_help_flag() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Docker-first monorepo manager for the vibe coding era"));
+        .stdout(predicate::str::contains(
+            "Docker-first monorepo manager for the vibe coding era",
+        ));
 }
 
 #[test]
@@ -56,15 +58,14 @@ fn test_invalid_channel() {
         .assert()
         .failure()
         // Should fail due to missing pnpm-lock.yaml, not channel parsing
-        .stderr(predicate::str::contains("pnpm-lock.yaml").or(predicate::str::contains("not found")));
+        .stderr(
+            predicate::str::contains("pnpm-lock.yaml").or(predicate::str::contains("not found")),
+        );
 }
 
 #[test]
 fn test_clean_dry_run() {
-    airis()
-        .args(["clean", "--dry-run"])
-        .assert()
-        .success();
+    airis().args(["clean", "--dry-run"]).assert().success();
 }
 
 #[test]
@@ -89,10 +90,7 @@ fn test_bundle_help() {
 #[test]
 fn test_bundle_requires_project() {
     // Bundle without project argument should fail
-    airis()
-        .arg("bundle")
-        .assert()
-        .failure();
+    airis().arg("bundle").assert().failure();
 }
 
 #[test]
@@ -109,10 +107,7 @@ fn test_policy_help() {
 #[test]
 fn test_policy_check_no_config() {
     // Should succeed with default config (no policies.toml)
-    airis()
-        .args(["policy", "check"])
-        .assert()
-        .success();
+    airis().args(["policy", "check"]).assert().success();
 }
 
 #[test]

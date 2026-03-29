@@ -7,18 +7,16 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-use crate::manifest::{GlobalConfig, Manifest, Mode, MANIFEST_FILE};
+use crate::manifest::{GlobalConfig, MANIFEST_FILE, Manifest, Mode};
 
 /// Additional commands blocked in strict mode
 const STRICT_MODE_DENY: &[&str] = &[
-    "cargo", "rustc", "python", "python3", "pip", "pip3", "uv",
-    "go", "java", "javac", "gradle", "mvn",
+    "cargo", "rustc", "python", "python3", "pip", "pip3", "uv", "go", "java", "javac", "gradle",
+    "mvn",
 ];
 
 /// Commands allowed in hybrid mode (local builds)
-const HYBRID_MODE_ALLOW: &[&str] = &[
-    "cargo", "rustc", "python", "python3", "pip", "pip3", "uv",
-];
+const HYBRID_MODE_ALLOW: &[&str] = &["cargo", "rustc", "python", "python3", "pip", "pip3", "uv"];
 
 const GUARDS_DIR: &str = ".airis/bin";
 
@@ -27,9 +25,7 @@ pub fn install() -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if !manifest_path.exists() {
-        anyhow::bail!(
-            "manifest.toml not found. Run `airis init` first."
-        );
+        anyhow::bail!("manifest.toml not found. Run `airis init` first.");
     }
 
     let manifest = Manifest::load(manifest_path)?;
@@ -61,8 +57,12 @@ pub fn install() -> Result<()> {
 
     if effective_deny.is_empty()
         && manifest.guards.wrap.is_empty()
-        && manifest.guards.deny_with_message.is_empty() {
-        println!("{}", "⚠️  No guards to install (all commands allowed in this mode)".yellow());
+        && manifest.guards.deny_with_message.is_empty()
+    {
+        println!(
+            "{}",
+            "⚠️  No guards to install (all commands allowed in this mode)".yellow()
+        );
         return Ok(());
     }
 
@@ -70,8 +70,7 @@ pub fn install() -> Result<()> {
     println!();
 
     let guards_dir = PathBuf::from(GUARDS_DIR);
-    fs::create_dir_all(&guards_dir)
-        .with_context(|| format!("Failed to create {}", GUARDS_DIR))?;
+    fs::create_dir_all(&guards_dir).with_context(|| format!("Failed to create {}", GUARDS_DIR))?;
 
     let mut installed_count = 0;
 
@@ -86,18 +85,29 @@ pub fn install() -> Result<()> {
     for (cmd, wrapper) in &manifest.guards.wrap {
         install_wrap_guard(&guards_dir, cmd, wrapper)?;
         installed_count += 1;
-        println!("   {} {}", "✓".green(), format!("{} → {}", cmd, wrapper).dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            format!("{} → {}", cmd, wrapper).dimmed()
+        );
     }
 
     // Install deny with message guards
     for (cmd, message) in &manifest.guards.deny_with_message {
         install_deny_guard(&guards_dir, cmd, Some(message))?;
         installed_count += 1;
-        println!("   {} {}", "✓".green(), format!("{} (deny with message)", cmd).dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            format!("{} (deny with message)", cmd).dimmed()
+        );
     }
 
     println!();
-    println!("{}", format!("✅ {} command guards installed", installed_count).green());
+    println!(
+        "{}",
+        format!("✅ {} command guards installed", installed_count).green()
+    );
     println!();
     println!("{}", "To activate guards:".bright_yellow());
     println!("  export PATH=\"$PWD/{}:$PATH\"", GUARDS_DIR);
@@ -114,7 +124,10 @@ fn install_deny_guard(guards_dir: &Path, cmd: &str, custom_message: Option<&Stri
     let message = if let Some(msg) = custom_message {
         msg.clone()
     } else {
-        format!("'{}' is denied by manifest.toml [guards.deny].\n\nUse Docker-first workflow instead:\n  airis shell     # Enter container\n  {}              # Run inside container", cmd, cmd)
+        format!(
+            "'{}' is denied by manifest.toml [guards.deny].\n\nUse Docker-first workflow instead:\n  airis shell     # Enter container\n  {}              # Run inside container",
+            cmd, cmd
+        )
     };
 
     let content = format!(
@@ -173,7 +186,9 @@ pub fn check_docker() -> Result<()> {
     // Load manifest to check mode
     let manifest_path = Path::new(MANIFEST_FILE);
     let mode = if manifest_path.exists() {
-        Manifest::load(manifest_path).map(|m| m.mode).unwrap_or_default()
+        Manifest::load(manifest_path)
+            .map(|m| m.mode)
+            .unwrap_or_default()
     } else {
         Mode::default()
     };
@@ -188,22 +203,32 @@ pub fn check_docker() -> Result<()> {
 
     // Check DOCKER_CONTAINER environment variable
     if std::env::var("DOCKER_CONTAINER").unwrap_or_default() == "true" {
-        println!("{}", "✅ Running inside Docker container (DOCKER_CONTAINER=true)".green());
+        println!(
+            "{}",
+            "✅ Running inside Docker container (DOCKER_CONTAINER=true)".green()
+        );
         return Ok(());
     }
 
     // Check for /.dockerenv file
     if Path::new("/.dockerenv").exists() {
-        println!("{}", "✅ Running inside Docker container (/.dockerenv exists)".green());
+        println!(
+            "{}",
+            "✅ Running inside Docker container (/.dockerenv exists)".green()
+        );
         return Ok(());
     }
 
     // Check /proc/1/cgroup for Docker
     if let Ok(content) = fs::read_to_string("/proc/1/cgroup")
-        && (content.contains("docker") || content.contains("containerd")) {
-            println!("{}", "✅ Running inside Docker container (cgroup detected)".green());
-            return Ok(());
-        }
+        && (content.contains("docker") || content.contains("containerd"))
+    {
+        println!(
+            "{}",
+            "✅ Running inside Docker container (cgroup detected)".green()
+        );
+        return Ok(());
+    }
 
     // Check for CI environment
     if std::env::var("CI").unwrap_or_default() == "true"
@@ -217,7 +242,12 @@ pub fn check_docker() -> Result<()> {
     // Not in Docker - show error
     println!();
     println!("{}", "=".repeat(70).red());
-    println!("{}", "❌ CRITICAL ERROR: Not running inside Docker container".red().bold());
+    println!(
+        "{}",
+        "❌ CRITICAL ERROR: Not running inside Docker container"
+            .red()
+            .bold()
+    );
     println!("{}", "=".repeat(70).red());
     println!();
     println!("{}", "【問題】".bright_yellow());
@@ -225,14 +255,22 @@ pub fn check_docker() -> Result<()> {
     println!("  Docker-First開発では、全てのコマンドはDocker内で実行する必要があります。");
     println!();
     println!("{}", "【正しい使用方法】".bright_yellow());
-    println!("  1. {} # Docker ワークスペースに入る", "airis shell".cyan());
+    println!(
+        "  1. {} # Docker ワークスペースに入る",
+        "airis shell".cyan()
+    );
     println!("  2. コマンドを実行");
     println!();
     println!("{}", "【または】".bright_yellow());
-    println!("  {} # コンテナ内で直接実行", "airis exec workspace <command>".cyan());
+    println!(
+        "  {} # コンテナ内で直接実行",
+        "airis exec workspace <command>".cyan()
+    );
     println!();
     println!("{}", "【ヒント】".bright_yellow());
-    println!("  ホストでの実行を許可するには、manifest.toml で mode = \"hybrid\" を設定してください");
+    println!(
+        "  ホストでの実行を許可するには、manifest.toml で mode = \"hybrid\" を設定してください"
+    );
     println!();
     println!("{}", "=".repeat(70).red());
 
@@ -256,7 +294,10 @@ pub fn status() -> Result<()> {
 
     // Check if guards directory exists
     if !guards_dir.exists() {
-        println!("{}", "Guards not installed. Run: airis guards install".yellow());
+        println!(
+            "{}",
+            "Guards not installed. Run: airis guards install".yellow()
+        );
         return Ok(());
     }
 
@@ -265,7 +306,11 @@ pub fn status() -> Result<()> {
         println!("{}", "Deny guards:".bright_yellow());
         for cmd in &manifest.guards.deny {
             let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            let status = if guard_path.exists() {
+                "✓".green()
+            } else {
+                "✗".red()
+            };
             println!("  {} {}", status, cmd);
         }
         println!();
@@ -276,7 +321,11 @@ pub fn status() -> Result<()> {
         println!("{}", "Wrap guards:".bright_yellow());
         for (cmd, wrapper) in &manifest.guards.wrap {
             let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            let status = if guard_path.exists() {
+                "✓".green()
+            } else {
+                "✗".red()
+            };
             println!("  {} {} → {}", status, cmd, wrapper.dimmed());
         }
         println!();
@@ -287,7 +336,11 @@ pub fn status() -> Result<()> {
         println!("{}", "Deny with message:".bright_yellow());
         for (cmd, _) in &manifest.guards.deny_with_message {
             let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() { "✓".green() } else { "✗".red() };
+            let status = if guard_path.exists() {
+                "✓".green()
+            } else {
+                "✗".red()
+            };
             println!("  {} {}", status, cmd);
         }
     }
@@ -300,7 +353,10 @@ pub fn uninstall() -> Result<()> {
     let guards_dir = PathBuf::from(GUARDS_DIR);
 
     if !guards_dir.exists() {
-        println!("{}", "⚠️  Guards not installed (no .airis/bin directory)".yellow());
+        println!(
+            "{}",
+            "⚠️  Guards not installed (no .airis/bin directory)".yellow()
+        );
         return Ok(());
     }
 
@@ -317,7 +373,11 @@ pub fn uninstall() -> Result<()> {
         if path.is_file() && is_airis_guard(&path)? {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             fs::remove_file(&path)?;
-            println!("   {} {}", "✓".green(), format!("Removed {}", name).dimmed());
+            println!(
+                "   {} {}",
+                "✓".green(),
+                format!("Removed {}", name).dimmed()
+            );
             removed_count += 1;
         }
     }
@@ -325,11 +385,18 @@ pub fn uninstall() -> Result<()> {
     // Remove directory if empty
     if guards_dir.read_dir()?.next().is_none() {
         fs::remove_dir(&guards_dir)?;
-        println!("   {} {}", "✓".green(), "Removed .airis/bin directory".dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            "Removed .airis/bin directory".dimmed()
+        );
     }
 
     println!();
-    println!("{}", format!("✅ {} guard(s) uninstalled", removed_count).green());
+    println!(
+        "{}",
+        format!("✅ {} guard(s) uninstalled", removed_count).green()
+    );
 
     Ok(())
 }
@@ -351,13 +418,16 @@ pub fn install_global() -> Result<()> {
     let bin_dir = GlobalConfig::bin_dir()?;
 
     // Create directories
-    fs::create_dir_all(&bin_dir)
-        .with_context(|| format!("Failed to create {:?}", bin_dir))?;
+    fs::create_dir_all(&bin_dir).with_context(|| format!("Failed to create {:?}", bin_dir))?;
 
     // Save default config if it doesn't exist
     if !config_path.exists() {
         config.save()?;
-        println!("   {} {}", "✓".green(), format!("Created {}", config_path.display()).dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            format!("Created {}", config_path.display()).dimmed()
+        );
     }
 
     let mut installed_count = 0;
@@ -366,7 +436,11 @@ pub fn install_global() -> Result<()> {
     for cmd in &config.guards.deny {
         install_global_guard(&bin_dir, cmd)?;
         installed_count += 1;
-        println!("   {} {}", "✓".green(), format!("{} (global guard)", cmd).dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            format!("{} (global guard)", cmd).dimmed()
+        );
     }
 
     // Auto-add PATH to shell profiles
@@ -385,7 +459,11 @@ pub fn install_global() -> Result<()> {
             .with_context(|| format!("Failed to read ~/{}", rc_file))?;
 
         if content.contains(".airis/bin") {
-            println!("   {} {}", "✓".green(), format!("~/{} already has PATH entry", rc_file).dimmed());
+            println!(
+                "   {} {}",
+                "✓".green(),
+                format!("~/{} already has PATH entry", rc_file).dimmed()
+            );
             continue;
         }
 
@@ -399,12 +477,19 @@ pub fn install_global() -> Result<()> {
         writeln!(file)?;
         writeln!(file, "{}", path_line)?;
 
-        println!("   {} {}", "✓".green(), format!("Added PATH to ~/{}", rc_file).cyan());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            format!("Added PATH to ~/{}", rc_file).cyan()
+        );
         path_added = true;
     }
 
     println!();
-    println!("{}", format!("✅ {} global guard(s) installed", installed_count).green());
+    println!(
+        "{}",
+        format!("✅ {} global guard(s) installed", installed_count).green()
+    );
     println!();
     println!("{}", "📁 Config:".bright_yellow());
     println!("   {}", config_path.display());
@@ -484,7 +569,11 @@ pub fn status_global() -> Result<()> {
     if config_path.exists() {
         println!("   {} {}", "✓".green(), config_path.display());
     } else {
-        println!("   {} {} (will use defaults)", "✗".yellow(), config_path.display());
+        println!(
+            "   {} {} (will use defaults)",
+            "✗".yellow(),
+            config_path.display()
+        );
     }
     println!();
 
@@ -495,7 +584,10 @@ pub fn status_global() -> Result<()> {
     } else {
         println!("   {} {} (not created)", "✗".yellow(), bin_dir.display());
         println!();
-        println!("{}", "Run 'airis guards --global install' to install guards".yellow());
+        println!(
+            "{}",
+            "Run 'airis guards --global install' to install guards".yellow()
+        );
         return Ok(());
     }
     println!();
@@ -538,7 +630,10 @@ pub fn uninstall_global() -> Result<()> {
     let bin_dir = GlobalConfig::bin_dir()?;
 
     if !bin_dir.exists() {
-        println!("{}", "⚠️  Global guards not installed (no ~/.airis/bin directory)".yellow());
+        println!(
+            "{}",
+            "⚠️  Global guards not installed (no ~/.airis/bin directory)".yellow()
+        );
         return Ok(());
     }
 
@@ -555,7 +650,11 @@ pub fn uninstall_global() -> Result<()> {
         if path.is_file() && is_global_guard(&path)? {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
             fs::remove_file(&path)?;
-            println!("   {} {}", "✓".green(), format!("Removed {}", name).dimmed());
+            println!(
+                "   {} {}",
+                "✓".green(),
+                format!("Removed {}", name).dimmed()
+            );
             removed_count += 1;
         }
     }
@@ -563,11 +662,18 @@ pub fn uninstall_global() -> Result<()> {
     // Remove directory if empty
     if bin_dir.read_dir()?.next().is_none() {
         fs::remove_dir(&bin_dir)?;
-        println!("   {} {}", "✓".green(), "Removed ~/.airis/bin directory".dimmed());
+        println!(
+            "   {} {}",
+            "✓".green(),
+            "Removed ~/.airis/bin directory".dimmed()
+        );
     }
 
     println!();
-    println!("{}", format!("✅ {} global guard(s) uninstalled", removed_count).green());
+    println!(
+        "{}",
+        format!("✅ {} global guard(s) uninstalled", removed_count).green()
+    );
 
     Ok(())
 }
@@ -618,17 +724,25 @@ pub fn verify_global() -> Result<()> {
 
     // 4. Check which <cmd> points to guard script
     for cmd in &config.guards.deny {
-        let output = std::process::Command::new("which")
-            .arg(cmd)
-            .output();
+        let output = std::process::Command::new("which").arg(cmd).output();
 
         match output {
             Ok(out) if out.status.success() => {
                 let resolved = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if resolved.contains(".airis/bin") {
-                    println!("  {} which {} → {} (guarded)", "✓".green(), cmd, resolved.dimmed());
+                    println!(
+                        "  {} which {} → {} (guarded)",
+                        "✓".green(),
+                        cmd,
+                        resolved.dimmed()
+                    );
                 } else {
-                    println!("  {} which {} → {} (NOT guarded)", "✗".red(), cmd, resolved.yellow());
+                    println!(
+                        "  {} which {} → {} (NOT guarded)",
+                        "✗".red(),
+                        cmd,
+                        resolved.yellow()
+                    );
                     all_ok = false;
                 }
             }
@@ -642,7 +756,10 @@ pub fn verify_global() -> Result<()> {
     if all_ok {
         println!("{}", "✅ All guards are active!".green().bold());
     } else {
-        println!("{}", "⚠️  Some guards are not properly configured.".yellow());
+        println!(
+            "{}",
+            "⚠️  Some guards are not properly configured.".yellow()
+        );
         println!();
         println!("Run to fix:");
         println!("  {}", "airis guards --global install".cyan());
@@ -985,7 +1102,10 @@ bun = "bun is not supported. Use pnpm via airis."
 
             // Verify deny_with_message guard
             let bun_script = guards_dir.join("bun");
-            assert!(bun_script.exists(), "bun deny_with_message guard should exist");
+            assert!(
+                bun_script.exists(),
+                "bun deny_with_message guard should exist"
+            );
             let bun_content = fs::read_to_string(&bun_script).unwrap();
             assert!(bun_content.contains("bun is not supported. Use pnpm via airis."));
             assert!(bun_content.contains("exit 1"));

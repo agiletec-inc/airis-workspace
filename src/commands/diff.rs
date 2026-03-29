@@ -10,9 +10,9 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
-use crate::version_resolver::resolve_version;
-use crate::manifest::{CatalogEntry, Manifest, MANIFEST_FILE};
+use crate::manifest::{CatalogEntry, MANIFEST_FILE, Manifest};
 use crate::templates::TemplateEngine;
+use crate::version_resolver::resolve_version;
 
 /// Diff output format
 #[derive(Debug, Clone)]

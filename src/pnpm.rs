@@ -52,8 +52,8 @@ impl PnpmLock {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
-        let lock: PnpmLock = serde_yml::from_str(&content)
-            .with_context(|| "Failed to parse pnpm-lock.yaml")?;
+        let lock: PnpmLock =
+            serde_yml::from_str(&content).with_context(|| "Failed to parse pnpm-lock.yaml")?;
 
         if !lock.lockfile_version.starts_with("9.") {
             anyhow::bail!(
@@ -126,7 +126,6 @@ impl PnpmLock {
 
         Some(components.join("/"))
     }
-
 }
 
 /// Build workspace package map from lockfile
@@ -142,11 +141,7 @@ pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage>
         // Extract package name from dependencies (the key in the deps map)
         // For workspace packages, we need to find the name from package.json
         // For now, derive from path: apps/focustoday-api -> focustoday-api
-        let name = path
-            .rsplit('/')
-            .next()
-            .unwrap_or(path)
-            .to_string();
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
 
         let workspace_deps = lock.get_workspace_deps(path);
 

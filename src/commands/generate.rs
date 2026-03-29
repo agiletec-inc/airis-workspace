@@ -6,18 +6,15 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::version_resolver::resolve_version;
 use crate::commands::discover::discover_from_workspaces;
-use crate::manifest::{CatalogEntry, InjectValue, Manifest, ProjectDefinition, MANIFEST_FILE};
-use crate::ownership::{get_ownership, Ownership};
+use crate::manifest::{CatalogEntry, InjectValue, MANIFEST_FILE, Manifest, ProjectDefinition};
+use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
+use crate::version_resolver::resolve_version;
 
 /// Legacy compose file names that should be migrated to compose.yml
-const LEGACY_COMPOSE_FILES: &[&str] = &[
-    "docker-compose.yml",
-    "docker-compose.yaml",
-    "compose.yaml",
-];
+const LEGACY_COMPOSE_FILES: &[&str] =
+    &["docker-compose.yml", "docker-compose.yaml", "compose.yaml"];
 
 /// Compose override/variant files that should not exist (use manifest.toml instead)
 const COMPOSE_VARIANTS: &[&str] = &[
@@ -55,7 +52,10 @@ pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
         println!("{}", "To create manifest.toml, use the MCP tool:".yellow());
         println!("  /airis:init");
         println!();
-        println!("{}", "This analyzes your repository and generates an optimized manifest.".cyan());
+        println!(
+            "{}",
+            "This analyzes your repository and generates an optimized manifest.".cyan()
+        );
         return Ok(());
     }
 
@@ -67,9 +67,18 @@ pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
             println!("   {} {}", "•".red(), f);
         }
         println!();
-        println!("Only {} is supported. Choose an action:", "compose.yml".bright_cyan());
-        println!("  {} — ignore legacy files and generate compose.yml", "airis gen --force".bright_cyan());
-        println!("  {} — delete legacy files and generate compose.yml", "airis gen --migrate".bright_cyan());
+        println!(
+            "Only {} is supported. Choose an action:",
+            "compose.yml".bright_cyan()
+        );
+        println!(
+            "  {} — ignore legacy files and generate compose.yml",
+            "airis gen --force".bright_cyan()
+        );
+        println!(
+            "  {} — delete legacy files and generate compose.yml",
+            "airis gen --migrate".bright_cyan()
+        );
         anyhow::bail!("Legacy compose files exist. Use --force or --migrate.");
     }
 
@@ -87,7 +96,10 @@ pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
     let manifest = Manifest::load(manifest_path)?;
 
     if dry_run {
-        println!("{}", "🔍 Dry-run mode: showing what would be generated...".bright_blue());
+        println!(
+            "{}",
+            "🔍 Dry-run mode: showing what would be generated...".bright_blue()
+        );
         println!();
         preview_from_manifest(&manifest)?;
         println!();
@@ -116,15 +128,19 @@ fn backup_file(path: &Path) -> Result<()> {
 
     // Create .airis/backups directory
     let backup_dir = Path::new(".airis/backups");
-    fs::create_dir_all(backup_dir)
-        .with_context(|| "Failed to create .airis/backups directory")?;
+    fs::create_dir_all(backup_dir).with_context(|| "Failed to create .airis/backups directory")?;
 
     // Create backup filename: replace / with _ for nested paths
     let path_str = path.to_string_lossy().replace('/', "_");
     let backup_path = backup_dir.join(format!("{}.latest", path_str));
 
-    fs::copy(path, &backup_path)
-        .with_context(|| format!("Failed to backup {} to {}", path.display(), backup_path.display()))?;
+    fs::copy(path, &backup_path).with_context(|| {
+        format!(
+            "Failed to backup {} to {}",
+            path.display(),
+            backup_path.display()
+        )
+    })?;
 
     Ok(())
 }
@@ -132,8 +148,7 @@ fn backup_file(path: &Path) -> Result<()> {
 /// Write a file with ownership-aware backup
 fn write_with_backup(path: &Path, content: &str) -> Result<()> {
     backup_file(path)?;
-    fs::write(path, content)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
 }
 
@@ -150,8 +165,14 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     let files_to_check = vec![
         ("package.json", has_workspace),
         ("compose.yml", has_workspace),
-        ("pnpm-workspace.yaml", has_workspace && !manifest.packages.workspaces.is_empty()),
-        ("tsconfig.base.json", has_workspace && !manifest.typescript.skip),
+        (
+            "pnpm-workspace.yaml",
+            has_workspace && !manifest.packages.workspaces.is_empty(),
+        ),
+        (
+            "tsconfig.base.json",
+            has_workspace && !manifest.typescript.skip,
+        ),
         ("tsconfig.json", has_workspace && !manifest.typescript.skip),
     ];
 
@@ -175,7 +196,10 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     }
 
     println!();
-    println!("   {} Use `airis diff` to preview changes before generating.", "💡".cyan());
+    println!(
+        "   {} Use `airis diff` to preview changes before generating.",
+        "💡".cyan()
+    );
 
     // Show project info
     println!();
@@ -212,7 +236,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
     // Node.js workspace files (only when [workspace] package_manager is set)
     if has_workspace {
-        let mut resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog, manifest.packages.default_policy.as_deref())?;
+        let mut resolved_catalog = resolve_catalog_versions(
+            &manifest.packages.catalog,
+            manifest.packages.default_policy.as_deref(),
+        )?;
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
         generate_docker_compose(manifest, &engine, force)?;
@@ -233,7 +260,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         // Generate individual app package.json files (auto-discovery + explicit)
         {
             println!();
-            println!("{}", "📦 Generating app package.json files (full-gen mode)...".bright_blue());
+            println!(
+                "{}",
+                "📦 Generating app package.json files (full-gen mode)...".bright_blue()
+            );
             let workspace_root = env::current_dir().context("Failed to get current directory")?;
 
             // Workspace scope for import scanner (e.g., "@agiletec")
@@ -247,11 +277,8 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             };
 
             // Build set of explicitly defined app names (these take priority)
-            let explicit_names: std::collections::HashSet<String> = manifest
-                .app
-                .iter()
-                .map(|a| a.name.clone())
-                .collect();
+            let explicit_names: std::collections::HashSet<String> =
+                manifest.app.iter().map(|a| a.name.clone()).collect();
 
             // Auto-discover projects from workspace patterns
             let mut app_count = 0;
@@ -270,12 +297,20 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
                     // Full-gen: scan imports + convention scripts
                     let resolved_data = resolve_package_data(
-                        &auto_app, &workspace_root, workspace_scope,
-                        &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
+                        &auto_app,
+                        &workspace_root,
+                        workspace_scope,
+                        &mut resolved_catalog,
+                        &manifest.packages.catalog,
+                        &manifest.preset,
+                        &manifest.dep_group,
                         manifest.packages.default_policy.as_deref(),
                     )?;
                     crate::generators::package_json::generate_full_package_json(
-                        &auto_app, &workspace_root, &resolved_catalog, &resolved_data,
+                        &auto_app,
+                        &workspace_root,
+                        &resolved_catalog,
+                        &resolved_data,
                     )?;
                     if let Some(ref path) = auto_app.path {
                         generated_paths.push(format!("{}/package.json", path));
@@ -287,12 +322,20 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             // Generate for explicitly defined apps
             for app in &manifest.app {
                 let resolved_data = resolve_package_data(
-                    app, &workspace_root, workspace_scope,
-                    &mut resolved_catalog, &manifest.packages.catalog, &manifest.preset, &manifest.dep_group,
+                    app,
+                    &workspace_root,
+                    workspace_scope,
+                    &mut resolved_catalog,
+                    &manifest.packages.catalog,
+                    &manifest.preset,
+                    &manifest.dep_group,
                     manifest.packages.default_policy.as_deref(),
                 )?;
                 crate::generators::package_json::generate_full_package_json(
-                    app, &workspace_root, &resolved_catalog, &resolved_data,
+                    app,
+                    &workspace_root,
+                    &resolved_catalog,
+                    &resolved_data,
                 )?;
                 if let Some(ref path) = app.path {
                     generated_paths.push(format!("{}/package.json", path));
@@ -305,7 +348,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
         // Generate production Dockerfiles for services with [app.deploy] enabled
         generate_service_dockerfiles(manifest, &engine)?;
-        let deploy_apps: Vec<_> = manifest.app.iter()
+        let deploy_apps: Vec<_> = manifest
+            .app
+            .iter()
             .filter(|a| a.deploy.as_ref().is_some_and(|d| d.enabled))
             .collect();
         if !deploy_apps.is_empty() {
@@ -314,7 +359,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     generated_paths.push(format!("{}/Dockerfile", path));
                 }
             }
-            generated_files.push(format!("{} service Dockerfiles (turbo prune)", deploy_apps.len()));
+            generated_files.push(format!(
+                "{} service Dockerfiles (turbo prune)",
+                deploy_apps.len()
+            ));
         }
 
         // Generate .npmrc for pnpm store isolation
@@ -344,8 +392,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         generate_git_hooks(&engine)?;
         generate_native_hooks()?;
         generated_paths.extend([
-            ".husky/pre-commit".into(), ".husky/pre-push".into(),
-            "hooks/pre-commit".into(), "hooks/pre-push".into(),
+            ".husky/pre-commit".into(),
+            ".husky/pre-push".into(),
+            "hooks/pre-commit".into(),
+            "hooks/pre-push".into(),
         ]);
         generated_files.extend([
             ".husky/pre-commit".into(),
@@ -384,7 +434,8 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     }
 
     // Clean orphaned generated files (previously generated but no longer needed)
-    let orphan_count = crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
+    let orphan_count =
+        crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
     if orphan_count > 0 {
         println!("   🧹 Removed {} orphaned file(s)", orphan_count);
     }
@@ -399,14 +450,20 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         println!("   - {}", file);
     }
     if inject_count > 0 {
-        println!("   - {} files updated via airis:inject markers", inject_count);
+        println!(
+            "   - {} files updated via airis:inject markers",
+            inject_count
+        );
     }
 
-    let is_rust_project = !manifest.project.rust_edition.is_empty()
-        || !manifest.project.binary_name.is_empty();
+    let is_rust_project =
+        !manifest.project.rust_edition.is_empty() || !manifest.project.binary_name.is_empty();
     if is_rust_project {
         println!();
-        println!("{}", "ℹ️  Cargo.toml is not generated (it's the source of truth)".cyan());
+        println!(
+            "{}",
+            "ℹ️  Cargo.toml is not generated (it's the source of truth)".cyan()
+        );
         println!("   Use `airis bump-version` to sync versions");
     }
 
@@ -415,7 +472,9 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         println!("{}", "Next steps:".bright_yellow());
         println!("  1. Run `airis up` to start the workspace");
         println!("  2. Run `airis hooks install` to install Git hooks");
-        println!("  3. Cache directories (.next, .swc, .turbo, node_modules) stay in Docker volumes");
+        println!(
+            "  3. Cache directories (.next, .swc, .turbo, node_modules) stay in Docker volumes"
+        );
     }
 
     Ok(())
@@ -430,7 +489,10 @@ fn generate_package_json(
     let path = Path::new("package.json");
     let content = engine.render_package_json(manifest, resolved_catalog)?;
     write_with_backup(path, &content)?;
-    println!("   {} package.json (synced from manifest.toml)", "✓".green());
+    println!(
+        "   {} package.json (synced from manifest.toml)",
+        "✓".green()
+    );
     Ok(())
 }
 
@@ -445,7 +507,10 @@ fn generate_pnpm_workspace(
     // pnpm-workspace.yaml is Tool-owned — always overwrite from manifest.toml
     write_with_backup(path, &content)?;
     if path.exists() {
-        println!("   {} pnpm-workspace.yaml (synced from manifest.toml)", "✓".green());
+        println!(
+            "   {} pnpm-workspace.yaml (synced from manifest.toml)",
+            "✓".green()
+        );
     }
     Ok(())
 }
@@ -463,7 +528,10 @@ fn resolve_catalog_versions(
         return Ok(IndexMap::new());
     }
 
-    println!("{}", "📦 Resolving catalog versions from npm registry...".bright_blue());
+    println!(
+        "{}",
+        "📦 Resolving catalog versions from npm registry...".bright_blue()
+    );
 
     let mut resolved: IndexMap<String, String> = IndexMap::new();
 
@@ -525,7 +593,11 @@ fn resolve_catalog_versions(
     Ok(resolved)
 }
 
-fn generate_docker_compose(manifest: &Manifest, engine: &TemplateEngine, _force: bool) -> Result<()> {
+fn generate_docker_compose(
+    manifest: &Manifest,
+    engine: &TemplateEngine,
+    _force: bool,
+) -> Result<()> {
     let compose_content = engine.render_docker_compose(manifest)?;
 
     let compose_path = Path::new("compose.yml");
@@ -540,14 +612,15 @@ fn generate_env_example(manifest: &Manifest, engine: &TemplateEngine) -> Result<
     let content = engine.render_env_example(manifest)?;
     let path = Path::new(".env.example");
 
-    fs::write(path, &content)
-        .with_context(|| "Failed to write .env.example")?;
+    fs::write(path, &content).with_context(|| "Failed to write .env.example")?;
 
-    println!("   {} Generated .env.example from [env] section", "📄".green());
+    println!(
+        "   {} Generated .env.example from [env] section",
+        "📄".green()
+    );
 
     Ok(())
 }
-
 
 fn generate_npmrc(engine: &TemplateEngine) -> Result<()> {
     let content = engine.render_npmrc()?;
@@ -572,8 +645,7 @@ fn generate_envrc(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     }
 
     let content = engine.render_envrc(manifest)?;
-    fs::write(path, &content)
-        .with_context(|| "Failed to write .envrc")?;
+    fs::write(path, &content).with_context(|| "Failed to write .envrc")?;
     println!("   {} Generated .envrc for direnv", "📁".green());
 
     Ok(())
@@ -689,10 +761,7 @@ fn generate_ci_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Result<
 
     let content = engine.render_ci_workflow(manifest)?;
     write_with_backup(&ci_path, &content)?;
-    println!(
-        "   {} .github/workflows/ci.yml",
-        "✓".green()
-    );
+    println!("   {} .github/workflows/ci.yml", "✓".green());
     Ok(())
 }
 
@@ -716,10 +785,7 @@ fn generate_deploy_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Res
 
     let content = engine.render_deploy_workflow(manifest)?;
     write_with_backup(&deploy_path, &content)?;
-    println!(
-        "   {} .github/workflows/deploy.yml",
-        "✓".green()
-    );
+    println!("   {} .github/workflows/deploy.yml", "✓".green());
     Ok(())
 }
 
@@ -743,10 +809,7 @@ fn generate_e2e_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Result
 
     let content = engine.render_e2e_workflow(manifest)?;
     write_with_backup(&path, &content)?;
-    println!(
-        "   {} .github/workflows/e2e-staging.yml",
-        "✓".green()
-    );
+    println!("   {} .github/workflows/e2e-staging.yml", "✓".green());
     Ok(())
 }
 
@@ -770,21 +833,22 @@ fn generate_release_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Re
 
     let content = engine.render_release_workflow(manifest)?;
     write_with_backup(&path, &content)?;
-    println!(
-        "   {} .github/workflows/release.yml",
-        "✓".green()
-    );
+    println!("   {} .github/workflows/release.yml", "✓".green());
     Ok(())
 }
 
 fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     // Extract pnpm version from package_manager field (e.g., "pnpm@10.30.3" → "10.30.3")
-    let pnpm_version = manifest.workspace.package_manager
+    let pnpm_version = manifest
+        .workspace
+        .package_manager
         .split('@')
         .nth(1)
         .unwrap_or("latest");
 
-    let deployable_apps: Vec<_> = manifest.app.iter()
+    let deployable_apps: Vec<_> = manifest
+        .app
+        .iter()
         .filter(|a| a.deploy.as_ref().is_some_and(|d| d.enabled))
         .collect();
 
@@ -793,7 +857,10 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
     }
 
     println!();
-    println!("{}", "🐳 Generating service Dockerfiles (turbo prune)...".bright_blue());
+    println!(
+        "{}",
+        "🐳 Generating service Dockerfiles (turbo prune)...".bright_blue()
+    );
 
     for app in &deployable_apps {
         let app_path = app.path.as_deref().unwrap_or(&app.name);
@@ -808,7 +875,9 @@ fn generate_service_dockerfiles(manifest: &Manifest, engine: &TemplateEngine) ->
         let content = engine.render_service_dockerfile(app, pnpm_version)?;
         write_with_backup(&dockerfile_path, &content)?;
 
-        let variant = app.deploy.as_ref()
+        let variant = app
+            .deploy
+            .as_ref()
             .and_then(|d| d.variant.as_deref())
             .unwrap_or(match app.framework.as_deref() {
                 Some("nextjs") => "nextjs",
@@ -849,7 +918,9 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
     let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
 
     // Find a service to use
-    let docker_service = manifest.docker.workspace
+    let docker_service = manifest
+        .docker
+        .workspace
         .as_ref()
         .map(|w| w.service.as_str())
         .filter(|s| !s.is_empty())
@@ -869,30 +940,64 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
 
         // Try exec first (fast, uses running container)
         let exec_status = Command::new("docker")
-            .args(["compose", "exec", "-T", svc, "pnpm", "install", "--lockfile-only"])
+            .args([
+                "compose",
+                "exec",
+                "-T",
+                svc,
+                "pnpm",
+                "install",
+                "--lockfile-only",
+            ])
             .status();
 
         match exec_status {
             Ok(s) if s.success() => Ok(s),
             _ => {
                 // Container not running — use doppler + docker compose run to inject env vars
-                println!("   {} container not running, trying with doppler...", "↻".yellow());
+                println!(
+                    "   {} container not running, trying with doppler...",
+                    "↻".yellow()
+                );
                 let doppler_status = Command::new("doppler")
-                    .args(["run", "--", "docker", "compose", "run", "--rm", "--no-deps", "-T", svc, "pnpm", "install", "--lockfile-only"])
+                    .args([
+                        "run",
+                        "--",
+                        "docker",
+                        "compose",
+                        "run",
+                        "--rm",
+                        "--no-deps",
+                        "-T",
+                        svc,
+                        "pnpm",
+                        "install",
+                        "--lockfile-only",
+                    ])
                     .status();
 
                 match doppler_status {
                     Ok(s) if s.success() => Ok(s),
                     _ => {
                         // Doppler not available — use lightweight docker run with base image
-                        println!("   {} doppler unavailable, using docker run...", "↻".yellow());
+                        println!(
+                            "   {} doppler unavailable, using docker run...",
+                            "↻".yellow()
+                        );
                         let pm = &manifest.workspace.package_manager;
                         let image = &manifest.workspace.image;
                         Command::new("docker")
                             .args([
-                                "run", "--rm", "-v", &format!("{}:/app", std::env::current_dir()?.display()),
-                                "-w", "/app", image,
-                                "sh", "-c", &format!("npm install -g {} && pnpm install --lockfile-only", pm),
+                                "run",
+                                "--rm",
+                                "-v",
+                                &format!("{}:/app", std::env::current_dir()?.display()),
+                                "-w",
+                                "/app",
+                                image,
+                                "sh",
+                                "-c",
+                                &format!("npm install -g {} && pnpm install --lockfile-only", pm),
                             ])
                             .status()
                     }
@@ -917,11 +1022,7 @@ fn sync_lockfile(manifest: &Manifest) -> Result<()> {
             );
         }
         Err(e) => {
-            println!(
-                "   {} pnpm-lock.yaml sync skipped: {}",
-                "⚠".yellow(),
-                e
-            );
+            println!("   {} pnpm-lock.yaml sync skipped: {}", "⚠".yellow(), e);
         }
     }
 
@@ -963,7 +1064,17 @@ fn inject_values(
         .filter_entry(|e| {
             let name = e.file_name().to_str().unwrap_or("");
             // Skip .git directory, node_modules, dist, .next, .turbo
-            !matches!(name, ".git" | "node_modules" | "dist" | ".next" | ".turbo" | ".pnpm" | ".cache" | "coverage")
+            !matches!(
+                name,
+                ".git"
+                    | "node_modules"
+                    | "dist"
+                    | ".next"
+                    | ".turbo"
+                    | ".pnpm"
+                    | ".cache"
+                    | "coverage"
+            )
         });
 
     for entry in walker {
@@ -982,8 +1093,19 @@ fn inject_values(
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         if matches!(
             ext,
-            "png" | "jpg" | "jpeg" | "gif" | "ico" | "woff" | "woff2" | "ttf" | "eot" | "lock"
-                | "zst" | "tar" | "gz"
+            "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "ico"
+                | "woff"
+                | "woff2"
+                | "ttf"
+                | "eot"
+                | "lock"
+                | "zst"
+                | "tar"
+                | "gz"
         ) {
             continue;
         }
@@ -1030,8 +1152,9 @@ fn inject_values(
 
         if file_modified {
             backup_file(path)?;
-            fs::write(path, lines.join("\n") + "\n")
-                .with_context(|| format!("Failed to write injected values to {}", path.display()))?;
+            fs::write(path, lines.join("\n") + "\n").with_context(|| {
+                format!("Failed to write injected values to {}", path.display())
+            })?;
             println!("   {} {}", "→".green(), path.display());
             modified_count += 1;
         }
@@ -1104,7 +1227,10 @@ fn generate_tsconfig(
     let base_content = engine.render_tsconfig_base(manifest)?;
     let base_path = Path::new("tsconfig.base.json");
     write_with_backup(base_path, &base_content)?;
-    println!("   {} tsconfig.base.json (shared compilerOptions)", "✓".green());
+    println!(
+        "   {} tsconfig.base.json (shared compilerOptions)",
+        "✓".green()
+    );
 
     // 2. Collect workspace paths for IDE path aliases
     let workspace_root = env::current_dir().context("Failed to get current directory")?;
@@ -1128,9 +1254,10 @@ fn generate_tsconfig(
             let pkg_json_path = workspace_root.join(&disc.path).join("package.json");
             if let Ok(content) = fs::read_to_string(&pkg_json_path)
                 && let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
-                    && let Some(name) = json.get("name").and_then(|n| n.as_str()) {
-                        path_entries.push((name.to_string(), disc.path.clone()));
-                    }
+                && let Some(name) = json.get("name").and_then(|n| n.as_str())
+            {
+                path_entries.push((name.to_string(), disc.path.clone()));
+            }
         }
     }
 
@@ -1172,7 +1299,11 @@ fn generate_tsconfig(
                 let matched = path_entries.iter().find(|(name, _)| {
                     let scoped = format!(
                         "@{}/{}",
-                        manifest.workspace.scope.as_deref().unwrap_or(&manifest.workspace.name),
+                        manifest
+                            .workspace
+                            .scope
+                            .as_deref()
+                            .unwrap_or(&manifest.workspace.name),
                         app.name
                     );
                     name == &scoped || name == &app.name
@@ -1188,7 +1319,8 @@ fn generate_tsconfig(
             let depth = pkg_path.components().count();
             let rel_to_root = "../".repeat(depth);
 
-            let pkg_tsconfig = engine.render_package_tsconfig(app, manifest, &rel_to_root, ts_major)?;
+            let pkg_tsconfig =
+                engine.render_package_tsconfig(app, manifest, &rel_to_root, ts_major)?;
             let tsconfig_path = pkg_path.join("tsconfig.json");
             write_with_backup(&tsconfig_path, &pkg_tsconfig)?;
             pkg_count += 1;
@@ -1205,7 +1337,11 @@ fn generate_tsconfig(
             }
         }
         if pkg_count > 0 {
-            print!("   {} {} package tsconfig.json files", "✓".green(), pkg_count);
+            print!(
+                "   {} {} package tsconfig.json files",
+                "✓".green(),
+                pkg_count
+            );
             if css_count > 0 {
                 print!(" + {} css.d.ts", css_count);
             }
@@ -1217,10 +1353,7 @@ fn generate_tsconfig(
 }
 
 /// Detect TypeScript major version from manifest or resolved catalog.
-fn detect_ts_major(
-    manifest: &Manifest,
-    resolved_catalog: &IndexMap<String, String>,
-) -> u32 {
+fn detect_ts_major(manifest: &Manifest, resolved_catalog: &IndexMap<String, String>) -> u32 {
     // Explicit override in [typescript]
     if let Some(v) = manifest.typescript.version {
         return v;
@@ -1228,13 +1361,12 @@ fn detect_ts_major(
 
     // Auto-detect from resolved catalog
     if let Some(version_str) = resolved_catalog.get("typescript") {
-        let clean = version_str
-            .trim_start_matches('^')
-            .trim_start_matches('~');
+        let clean = version_str.trim_start_matches('^').trim_start_matches('~');
         if let Some(major_str) = clean.split('.').next()
-            && let Ok(major) = major_str.parse::<u32>() {
-                return major;
-            }
+            && let Ok(major) = major_str.parse::<u32>()
+        {
+            return major;
+        }
     }
 
     // Default: assume TS5 (safe, no ignoreDeprecations)
@@ -1289,7 +1421,10 @@ fn resolve_package_data(
                 let policy = default_policy.unwrap_or("latest");
                 match resolve_version(k, policy) {
                     Ok(version) => {
-                        println!("  ✓ {} (dep_group dev, default: {}) → {}", k, policy, version);
+                        println!(
+                            "  ✓ {} (dep_group dev, default: {}) → {}",
+                            k, policy, version
+                        );
                         resolved_catalog.insert(k.clone(), version);
                     }
                     Err(e) => {
@@ -1394,10 +1529,7 @@ fn resolve_package_data(
 
 /// Check if a package name matches any wildcard pattern in the catalog.
 /// Supports simple glob patterns like `@radix-ui/react-*`.
-fn matches_wildcard_catalog(
-    package: &str,
-    wildcards: &[(&str, &CatalogEntry)],
-) -> bool {
+fn matches_wildcard_catalog(package: &str, wildcards: &[(&str, &CatalogEntry)]) -> bool {
     for (pattern, _) in wildcards {
         if wildcard_matches(pattern, package) {
             return true;
@@ -1449,4 +1581,3 @@ fn save_generation_registry(path: &Path, paths: &[String]) -> Result<()> {
     fs::write(path, content).context("Failed to write generation registry")?;
     Ok(())
 }
-

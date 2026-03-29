@@ -10,7 +10,7 @@
 //! // => Toolchain { image: "node:24-alpine", digest: "sha256:...", family: Node }
 //! ```
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -45,7 +45,10 @@ impl RuntimeChannel {
                 if other.chars().next().is_some_and(|c| c.is_ascii_digit()) {
                     Ok(Self::Pinned(other.to_string()))
                 } else {
-                    bail!("Unknown runtime channel: '{}'. Valid channels: lts, current, edge, bun, deno, or a version number", other)
+                    bail!(
+                        "Unknown runtime channel: '{}'. Valid channels: lts, current, edge, bun, deno, or a version number",
+                        other
+                    )
                 }
             }
         }
@@ -163,7 +166,11 @@ fn fetch_image_digest(image: &str) -> Option<String> {
         };
 
         // Try to get digest from Descriptor.digest or from the manifest itself
-        if let Some(digest) = manifest.get("Descriptor").and_then(|d| d.get("digest")).and_then(|d| d.as_str()) {
+        if let Some(digest) = manifest
+            .get("Descriptor")
+            .and_then(|d| d.get("digest"))
+            .and_then(|d| d.as_str())
+        {
             return Some(digest.to_string());
         }
     }

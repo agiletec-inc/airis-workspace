@@ -5,7 +5,7 @@
 //! - image.tar: Docker image tarball (docker save)
 //! - artifact.tar.gz: Standalone build artifacts
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -68,8 +68,15 @@ pub fn run(project: &str, output_dir: Option<&Path>, k8s: bool) -> Result<Bundle
     let cache_hit_status = cached.is_some();
 
     if cached.is_none() {
-        println!("{}", "⚠️  No cached build found. Run 'airis build --docker' first.".yellow());
-        bail!("No cached build for {}. Run: airis build --docker {}", project, project);
+        println!(
+            "{}",
+            "⚠️  No cached build found. Run 'airis build --docker' first.".yellow()
+        );
+        bail!(
+            "No cached build for {}. Run: airis build --docker {}",
+            project,
+            project
+        );
     }
 
     let cached = cached.unwrap();
@@ -81,10 +88,17 @@ pub fn run(project: &str, output_dir: Option<&Path>, k8s: bool) -> Result<Bundle
         .unwrap_or_else(|| root.join("dist"));
     let project_name = project.rsplit('/').next().unwrap_or(project);
     let bundle_dir = dist_dir.join(project_name);
-    fs::create_dir_all(&bundle_dir)
-        .with_context(|| format!("Failed to create bundle directory: {}", bundle_dir.display()))?;
+    fs::create_dir_all(&bundle_dir).with_context(|| {
+        format!(
+            "Failed to create bundle directory: {}",
+            bundle_dir.display()
+        )
+    })?;
 
-    println!("📦 Bundle output: {}", bundle_dir.display().to_string().cyan());
+    println!(
+        "📦 Bundle output: {}",
+        bundle_dir.display().to_string().cyan()
+    );
 
     // 5. Generate bundle.json
     let metadata = generate_metadata(project, &hash, &cached.image_ref, cache_hit_status)?;
@@ -106,7 +120,10 @@ pub fn run(project: &str, output_dir: Option<&Path>, k8s: bool) -> Result<Bundle
     let artifact_tar = package_artifacts(&root, project, &artifact_tar_path)?;
     if artifact_tar.is_some() {
         let size = fs::metadata(&artifact_tar_path)?.len();
-        println!("✅ Generated: artifact.tar.gz ({})", format_size(size).dimmed());
+        println!(
+            "✅ Generated: artifact.tar.gz ({})",
+            format_size(size).dimmed()
+        );
     }
 
     // 8. Generate Kubernetes manifests (if --k8s flag)
@@ -327,7 +344,11 @@ fn get_project_version(project: &str) -> Option<String> {
         .map(|s| s.to_string())
         .or_else(|| {
             // Fallback to workspace version
-            manifest.get("workspace")?.get("version")?.as_str().map(|s| s.to_string())
+            manifest
+                .get("workspace")?
+                .get("version")?
+                .as_str()
+                .map(|s| s.to_string())
         })
 }
 
@@ -392,10 +413,10 @@ fn generate_k8s_manifests(bundle_dir: &Path, project: &str, image_ref: &str) -> 
         .with_context(|| format!("Failed to create k8s directory: {}", k8s_dir.display()))?;
 
     // Load manifest.toml to get project config
-    let manifest_content = fs::read_to_string("manifest.toml")
-        .with_context(|| "Failed to read manifest.toml")?;
-    let manifest: Manifest = toml::from_str(&manifest_content)
-        .with_context(|| "Failed to parse manifest.toml")?;
+    let manifest_content =
+        fs::read_to_string("manifest.toml").with_context(|| "Failed to read manifest.toml")?;
+    let manifest: Manifest =
+        toml::from_str(&manifest_content).with_context(|| "Failed to parse manifest.toml")?;
 
     // Find project config in [[app]] array
     let project_name = project.rsplit('/').next().unwrap_or(project);
@@ -404,7 +425,8 @@ fn generate_k8s_manifests(bundle_dir: &Path, project: &str, image_ref: &str) -> 
     });
 
     // Get K8s configuration with defaults
-    let port = app_config.and_then(|c| c.port)
+    let port = app_config
+        .and_then(|c| c.port)
         .unwrap_or(crate::conventions::framework_defaults("node").port);
     let replicas = app_config.and_then(|c| c.replicas).unwrap_or(1);
     let resources = app_config
@@ -423,14 +445,12 @@ fn generate_k8s_manifests(bundle_dir: &Path, project: &str, image_ref: &str) -> 
     // Generate deployment.yaml
     let deployment = generate_deployment_yaml(project_name, image_ref, port, replicas, &resources);
     let deployment_path = k8s_dir.join("deployment.yaml");
-    fs::write(&deployment_path, &deployment)
-        .with_context(|| "Failed to write deployment.yaml")?;
+    fs::write(&deployment_path, &deployment).with_context(|| "Failed to write deployment.yaml")?;
 
     // Generate service.yaml
     let service = generate_service_yaml(project_name, port);
     let service_path = k8s_dir.join("service.yaml");
-    fs::write(&service_path, &service)
-        .with_context(|| "Failed to write service.yaml")?;
+    fs::write(&service_path, &service).with_context(|| "Failed to write service.yaml")?;
 
     Ok(k8s_dir)
 }
@@ -447,7 +467,9 @@ fn generate_deployment_yaml(
     let limits = resources.limits.as_ref();
 
     let requests_cpu = requests.and_then(|r| r.cpu.as_deref()).unwrap_or("100m");
-    let requests_memory = requests.and_then(|r| r.memory.as_deref()).unwrap_or("128Mi");
+    let requests_memory = requests
+        .and_then(|r| r.memory.as_deref())
+        .unwrap_or("128Mi");
     let limits_cpu = limits.and_then(|l| l.cpu.as_deref()).unwrap_or("500m");
     let limits_memory = limits.and_then(|l| l.memory.as_deref()).unwrap_or("512Mi");
 
