@@ -4,7 +4,7 @@ use std::io::BufRead;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
 use crate::manifest::{GlobalConfig, MANIFEST_FILE, Manifest, Mode};
@@ -118,8 +118,43 @@ pub fn install() -> Result<()> {
     Ok(())
 }
 
+/// Ensure a guard script path is safe to write to.
+///
+/// Rejects symlinks and non-regular files to prevent symlink attacks where
+/// an attacker replaces a guard script with a symlink to a malicious binary.
+/// Returns the validated path, or an error if the path is unsafe.
+fn ensure_safe_guard_path(path: &Path) -> Result<()> {
+    // Check symlink BEFORE following it (lstat, not stat)
+    if path.is_symlink() {
+        let target = fs::read_link(path)
+            .map(|t| t.display().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+        // Remove the symlink to prevent execution
+        fs::remove_file(path)
+            .with_context(|| format!("Failed to remove symlink at {}", path.display()))?;
+        eprintln!(
+            "🚨 {} Symlink detected at {} → {}. Removed for security.",
+            "SECURITY".red().bold(),
+            path.display(),
+            target
+        );
+    } else if path.exists() {
+        let metadata = fs::symlink_metadata(path)?;
+        let file_type = metadata.file_type();
+        if !file_type.is_file() {
+            bail!(
+                "Guard path {} is not a regular file (type: {:?}). Refusing to overwrite.",
+                path.display(),
+                file_type
+            );
+        }
+    }
+    Ok(())
+}
+
 fn install_deny_guard(guards_dir: &Path, cmd: &str, custom_message: Option<&String>) -> Result<()> {
     let script_path = guards_dir.join(cmd);
+    ensure_safe_guard_path(&script_path)?;
 
     let message = if let Some(msg) = custom_message {
         msg.clone()
@@ -151,6 +186,7 @@ exit 1
 
 fn install_wrap_guard(guards_dir: &Path, cmd: &str, wrapper: &str) -> Result<()> {
     let script_path = guards_dir.join(cmd);
+    ensure_safe_guard_path(&script_path)?;
 
     let content = format!(
         r#"#!/usr/bin/env bash
@@ -306,12 +342,13 @@ pub fn status() -> Result<()> {
         println!("{}", "Deny guards:".bright_yellow());
         for cmd in &manifest.guards.deny {
             let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() {
-                "✓".green()
+            if guard_path.is_symlink() {
+                println!("  {} {} (SYMLINK — security risk!)", "🚨".red(), cmd);
+            } else if guard_path.exists() {
+                println!("  {} {}", "✓".green(), cmd);
             } else {
-                "✗".red()
-            };
-            println!("  {} {}", status, cmd);
+                println!("  {} {}", "✗".red(), cmd);
+            }
         }
         println!();
     }
@@ -321,12 +358,18 @@ pub fn status() -> Result<()> {
         println!("{}", "Wrap guards:".bright_yellow());
         for (cmd, wrapper) in &manifest.guards.wrap {
             let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() {
-                "✓".green()
+            if guard_path.is_symlink() {
+                println!(
+                    "  {} {} → {} (SYMLINK — security risk!)",
+                    "🚨".red(),
+                    cmd,
+                    wrapper.dimmed()
+                );
+            } else if guard_path.exists() {
+                println!("  {} {} → {}", "✓".green(), cmd, wrapper.dimmed());
             } else {
-                "✗".red()
-            };
-            println!("  {} {} → {}", status, cmd, wrapper.dimmed());
+                println!("  {} {} → {}", "✗".red(), cmd, wrapper.dimmed());
+            }
         }
         println!();
     }
@@ -505,6 +548,7 @@ pub fn install_global() -> Result<()> {
 
 fn install_global_guard(bin_dir: &Path, cmd: &str) -> Result<()> {
     let script_path = bin_dir.join(cmd);
+    ensure_safe_guard_path(&script_path)?;
 
     // Global guard script that:
     // 1. Inside Docker/CI: pass through to real command
@@ -696,10 +740,21 @@ pub fn verify_global() -> Result<()> {
         all_ok = false;
     }
 
-    // 2. Check each guard script exists and has correct marker
+    // 2. Check each guard script exists, is not a symlink, and has correct marker
     for cmd in &config.guards.deny {
         let guard_path = bin_dir.join(cmd);
-        if guard_path.exists() {
+        if guard_path.is_symlink() {
+            let target = fs::read_link(&guard_path)
+                .map(|t| t.display().to_string())
+                .unwrap_or_else(|_| "unknown".to_string());
+            println!(
+                "  {} {} is a SYMLINK → {} (security risk!)",
+                "🚨".red(),
+                cmd,
+                target.red()
+            );
+            all_ok = false;
+        } else if guard_path.exists() {
             if is_global_guard(&guard_path)? {
                 println!("  {} {} guard installed", "✓".green(), cmd);
             } else {
@@ -1115,5 +1170,81 @@ bun = "bun is not supported. Use pnpm via airis."
 
         std::env::set_current_dir(original_dir).unwrap();
         result.unwrap();
+    }
+
+    // ── symlink attack protection tests ──
+
+    #[cfg(unix)]
+    #[test]
+    fn test_ensure_safe_guard_path_removes_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("malicious");
+        fs::write(&target, "#!/bin/bash\necho pwned").unwrap();
+
+        let guard_path = dir.path().join("npm");
+        std::os::unix::fs::symlink(&target, &guard_path).unwrap();
+        assert!(guard_path.is_symlink());
+
+        // ensure_safe_guard_path should remove the symlink
+        ensure_safe_guard_path(&guard_path).unwrap();
+        assert!(!guard_path.exists(), "symlink should have been removed");
+        // Target should still exist (not the symlink's target)
+        assert!(target.exists(), "symlink target should not be removed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_install_deny_guard_replaces_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("malicious");
+        fs::write(&target, "#!/bin/bash\necho pwned").unwrap();
+
+        let guard_path = dir.path().join("npm");
+        std::os::unix::fs::symlink(&target, &guard_path).unwrap();
+
+        // install_deny_guard should succeed (removes symlink, writes real file)
+        install_deny_guard(dir.path(), "npm", None).unwrap();
+
+        assert!(!guard_path.is_symlink(), "should no longer be a symlink");
+        assert!(guard_path.is_file(), "should be a regular file");
+        let content = fs::read_to_string(&guard_path).unwrap();
+        assert!(content.contains("Auto-generated by airis guards install"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_install_wrap_guard_replaces_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("malicious");
+        fs::write(&target, "#!/bin/bash\necho pwned").unwrap();
+
+        let guard_path = dir.path().join("pnpm");
+        std::os::unix::fs::symlink(&target, &guard_path).unwrap();
+
+        install_wrap_guard(dir.path(), "pnpm", "docker compose exec workspace pnpm").unwrap();
+
+        assert!(!guard_path.is_symlink());
+        let content = fs::read_to_string(&guard_path).unwrap();
+        assert!(content.contains("guards.wrap"));
+    }
+
+    #[test]
+    fn test_ensure_safe_guard_path_allows_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("npm");
+        fs::write(&path, "existing content").unwrap();
+
+        // Should succeed for regular files
+        ensure_safe_guard_path(&path).unwrap();
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn test_ensure_safe_guard_path_allows_nonexistent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nonexistent");
+
+        // Should succeed for non-existent paths
+        ensure_safe_guard_path(&path).unwrap();
     }
 }
