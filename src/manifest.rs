@@ -176,8 +176,13 @@ impl Manifest {
     /// 1. No duplicate ports across service entries
     /// 2. Catalog follow references point to existing catalog keys
     /// 3. No command appears in both guards.deny and guards.wrap
+    /// 4. dep_group / env_group references resolve to defined groups
+    /// 5. Catalog follow chains have no cycles
+    /// 6. env.validation keys exist in env.required or env.optional
+    /// 7. Catalog version strings that look like typos of "latest" / "lts" (warning only)
     pub fn validate(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
+        let mut warnings: Vec<String> = Vec::new();
 
         // 1. Check for duplicate ports in service entries
         {
@@ -217,11 +222,171 @@ impl Manifest {
             }
         }
 
+        // 4. Validate dep_group / env_group references
+        self.validate_group_references(&mut errors);
+
+        // 5. Detect cycles in catalog follow chains
+        self.validate_catalog_cycles(&mut errors);
+
+        // 6. Detect orphaned env.validation keys
+        self.validate_env_validation_keys(&mut errors);
+
+        // 7. Detect likely typos of "latest" / "lts" in catalog versions (warning)
+        self.detect_catalog_typos(&mut warnings);
+
+        for w in &warnings {
+            eprintln!("⚠️  {w}");
+        }
+
         if !errors.is_empty() {
             bail!("Manifest validation failed:\n{}", errors.join("\n"));
         }
 
         Ok(())
+    }
+
+    /// Check that all dep_group and env_group references point to defined groups.
+    fn validate_group_references(&self, errors: &mut Vec<String>) {
+        // [[app]] dep_groups / dev_dep_groups
+        for app in &self.app {
+            let label = if app.name.is_empty() {
+                "[[app]]".to_string()
+            } else {
+                format!("[[app]] \"{}\"", app.name)
+            };
+            for g in &app.dep_groups {
+                if !self.dep_group.contains_key(g) {
+                    errors.push(format!(
+                        "{label}: dep_groups references undefined [dep_group.{g}]"
+                    ));
+                }
+            }
+            for g in &app.dev_dep_groups {
+                if !self.dep_group.contains_key(g) {
+                    errors.push(format!(
+                        "{label}: dev_dep_groups references undefined [dep_group.{g}]"
+                    ));
+                }
+            }
+        }
+
+        // [service.*] env_groups
+        for (name, svc) in &self.service {
+            for g in &svc.env_groups {
+                if !self.env_group.contains_key(g) {
+                    errors.push(format!(
+                        "[service.{name}]: env_groups references undefined [env_group.{g}]"
+                    ));
+                }
+            }
+        }
+
+        // [[app]] deploy.env_groups
+        for app in &self.app {
+            if let Some(ref deploy) = app.deploy {
+                let label = if app.name.is_empty() {
+                    "[[app]]".to_string()
+                } else {
+                    format!("[[app]] \"{}\"", app.name)
+                };
+                for g in &deploy.env_groups {
+                    if !self.env_group.contains_key(g) {
+                        errors.push(format!(
+                            "{label}: deploy.env_groups references undefined [env_group.{g}]"
+                        ));
+                    }
+                }
+            }
+        }
+
+        // [preset.*] dep_groups / dev_dep_groups
+        for (name, preset) in &self.preset {
+            for g in &preset.dep_groups {
+                if !self.dep_group.contains_key(g) {
+                    errors.push(format!(
+                        "[preset.{name}]: dep_groups references undefined [dep_group.{g}]"
+                    ));
+                }
+            }
+            for g in &preset.dev_dep_groups {
+                if !self.dep_group.contains_key(g) {
+                    errors.push(format!(
+                        "[preset.{name}]: dev_dep_groups references undefined [dep_group.{g}]"
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Detect cycles in catalog follow chains (e.g. A→B→C→A).
+    fn validate_catalog_cycles(&self, errors: &mut Vec<String>) {
+        for key in self.packages.catalog.keys() {
+            let mut visited = std::collections::HashSet::new();
+            let mut current = key.as_str();
+            visited.insert(current);
+
+            while let Some(CatalogEntry::Follow(f)) = self.packages.catalog.get(current) {
+                let next = f.follow.as_str();
+                if !visited.insert(next) {
+                    // Cycle detected — build readable chain
+                    let chain: Vec<&str> = visited.iter().copied().collect();
+                    errors.push(format!(
+                        "Catalog follow cycle detected: {} → {}",
+                        chain.join(" → "),
+                        next
+                    ));
+                    break;
+                }
+                current = next;
+            }
+        }
+    }
+
+    /// Warn when env.validation defines rules for variables not in env.required or env.optional.
+    fn validate_env_validation_keys(&self, errors: &mut Vec<String>) {
+        let declared: std::collections::HashSet<&str> = self
+            .env
+            .required
+            .iter()
+            .chain(self.env.optional.iter())
+            .map(|s| s.as_str())
+            .collect();
+
+        for key in self.env.validation.keys() {
+            if !declared.contains(key.as_str()) {
+                errors.push(format!(
+                    "[env.validation.{key}] defines rules but \"{key}\" is not listed in env.required or env.optional"
+                ));
+            }
+        }
+    }
+
+    /// Emit warnings for catalog version strings that look like typos of "latest" or "lts".
+    fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
+        const KNOWN_POLICIES: &[&str] = &["latest", "lts"];
+
+        for (key, entry) in &self.packages.catalog {
+            if let CatalogEntry::Version(v) = entry {
+                let lower = v.to_lowercase();
+                // Skip semver-like strings (start with digit or caret/tilde/comparison)
+                if lower.starts_with(|c: char| c.is_ascii_digit() || "^~<>=".contains(c)) {
+                    continue;
+                }
+                // Skip exact matches
+                if KNOWN_POLICIES.contains(&lower.as_str()) {
+                    continue;
+                }
+                // Check Levenshtein distance against known policies
+                for policy in KNOWN_POLICIES {
+                    if levenshtein_distance(&lower, policy) <= 2 {
+                        warnings.push(format!(
+                            "Catalog \"{key}\" = \"{v}\" looks like a typo of \"{policy}\""
+                        ));
+                        break;
+                    }
+                }
+            }
+        }
     }
 
     /// Get the effective Node.js version.
@@ -2305,6 +2470,23 @@ pub enum InjectValue {
     },
 }
 
+/// Simple Levenshtein distance for short strings (catalog typo detection).
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let b_len = b.len();
+    let mut prev: Vec<usize> = (0..=b_len).collect();
+    let mut curr = vec![0; b_len + 1];
+
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, cb) in b.chars().enumerate() {
+            let cost = if ca == cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_len]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2568,5 +2750,243 @@ pnpm = "docker compose exec workspace pnpm"
         assert_eq!(deploy.variant.as_deref(), Some("node"));
         assert_eq!(deploy.port, Some(8080));
         assert_eq!(deploy.health_path.as_deref(), Some("/custom-health"));
+    }
+
+    // ── dep_group / env_group reference validation ──
+
+    #[test]
+    fn test_validate_dep_group_missing_reference() {
+        let toml = r#"
+version = 1
+
+[dep_group.shadcn]
+"@radix-ui/react-slot" = "^1.0.0"
+
+[[app]]
+name = "dashboard"
+path = "apps/dashboard"
+dep_groups = ["shadcn", "nonexistent"]
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("nonexistent"), "got: {msg}");
+        assert!(msg.contains("dep_group"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_dep_group_valid_reference() {
+        let toml = r#"
+version = 1
+
+[dep_group.shadcn]
+"@radix-ui/react-slot" = "^1.0.0"
+
+[[app]]
+name = "dashboard"
+path = "apps/dashboard"
+dep_groups = ["shadcn"]
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_dev_dep_group_missing_reference() {
+        let toml = r#"
+version = 1
+
+[[app]]
+name = "dashboard"
+path = "apps/dashboard"
+dev_dep_groups = ["missing-group"]
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("missing-group"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_env_group_missing_reference() {
+        let toml = r#"
+version = 1
+
+[env_group.supabase]
+SUPABASE_URL = "${SUPABASE_URL}"
+
+[service.api]
+image = "node:22"
+env_groups = ["supabase", "nonexistent"]
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("nonexistent"), "got: {msg}");
+        assert!(msg.contains("env_group"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_env_group_valid_reference() {
+        let toml = r#"
+version = 1
+
+[env_group.supabase]
+SUPABASE_URL = "${SUPABASE_URL}"
+
+[service.api]
+image = "node:22"
+env_groups = ["supabase"]
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_preset_dep_group_missing_reference() {
+        let toml = r#"
+version = 1
+
+[preset.nextjs-app]
+framework = "nextjs"
+dep_groups = ["nonexistent"]
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("preset.nextjs-app") && msg.contains("nonexistent"),
+            "got: {msg}"
+        );
+    }
+
+    // ── catalog follow cycle detection ──
+
+    #[test]
+    fn test_validate_catalog_follow_cycle_direct() {
+        let toml = r#"
+version = 1
+
+[packages.catalog.a]
+follow = "b"
+
+[packages.catalog.b]
+follow = "a"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cycle"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_catalog_follow_cycle_indirect() {
+        let toml = r#"
+version = 1
+
+[packages.catalog.a]
+follow = "b"
+
+[packages.catalog.b]
+follow = "c"
+
+[packages.catalog.c]
+follow = "a"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cycle"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_catalog_follow_chain_no_cycle() {
+        let toml = r#"
+version = 1
+
+[packages.catalog]
+react = "latest"
+
+[packages.catalog.react-dom]
+follow = "react"
+
+[packages.catalog."@types/react"]
+follow = "react"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    // ── env.validation orphan detection ──
+
+    #[test]
+    fn test_validate_env_validation_orphan() {
+        let toml = r#"
+version = 1
+
+[env]
+required = ["DATABASE_URL"]
+
+[env.validation.DATABASE_URL]
+pattern = "^postgresql://"
+
+[env.validation.ORPHAN_VAR]
+pattern = "^https://"
+description = "Some URL"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("ORPHAN_VAR"), "got: {msg}");
+        // DATABASE_URL is in required, so it should NOT appear in the error
+        assert!(!msg.contains("DATABASE_URL"), "got: {msg}");
+    }
+
+    #[test]
+    fn test_validate_env_validation_all_declared() {
+        let toml = r#"
+version = 1
+
+[env]
+required = ["DATABASE_URL"]
+optional = ["SENTRY_DSN"]
+
+[env.validation.DATABASE_URL]
+pattern = "^postgresql://"
+
+[env.validation.SENTRY_DSN]
+pattern = "^https://"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    // ── catalog typo detection ──
+
+    #[test]
+    fn test_validate_catalog_typo_warning_lates() {
+        // "lates" is Levenshtein distance 1 from "latest" — should warn but not error
+        let toml = r#"
+version = 1
+
+[packages.catalog]
+react = "lates"
+"#;
+        // Should load successfully (warning only, not error)
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    #[test]
+    fn test_validate_catalog_no_false_positive_semver() {
+        // Semver strings should not trigger typo warnings
+        let toml = r#"
+version = 1
+
+[packages.catalog]
+react = "^18.2.0"
+zod = "~3.22.0"
+"#;
+        assert!(load_from_str(toml).is_ok());
+    }
+
+    // ── levenshtein_distance unit tests ──
+
+    #[test]
+    fn test_levenshtein_distance() {
+        assert_eq!(levenshtein_distance("latest", "latest"), 0);
+        assert_eq!(levenshtein_distance("lates", "latest"), 1);
+        assert_eq!(levenshtein_distance("latets", "latest"), 2);
+        assert_eq!(levenshtein_distance("lts", "lts"), 0);
+        assert_eq!(levenshtein_distance("lst", "lts"), 2);
+        assert_eq!(levenshtein_distance("react", "latest"), 5);
     }
 }
