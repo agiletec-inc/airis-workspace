@@ -94,6 +94,7 @@ pub fn get_npm_lts(package: &str) -> Result<String> {
 ///
 /// Maps action short names to their GitHub repos, then queries
 /// the GitHub API for the latest major version tag (e.g., "v6").
+#[allow(dead_code)]
 const GITHUB_ACTIONS: &[(&str, &str)] = &[
     ("checkout", "actions/checkout"),
     ("pnpm", "pnpm/action-setup"),
@@ -108,6 +109,7 @@ const GITHUB_ACTIONS: &[(&str, &str)] = &[
 ///
 /// - "latest" → fetch latest major version tag from GitHub
 /// - "v5", "v6" etc. → pass through as-is
+#[allow(dead_code)]
 pub fn resolve_action_version(action_key: &str, policy: &str) -> Result<String> {
     if policy != "latest" {
         return Ok(policy.to_string());
@@ -125,6 +127,7 @@ pub fn resolve_action_version(action_key: &str, policy: &str) -> Result<String> 
 /// Fetch the latest major version tag (e.g., "v6") from a GitHub repo.
 ///
 /// Looks for tags matching `vN` (major-only), sorted descending.
+#[allow(dead_code)]
 fn get_github_latest_major_tag(repo: &str) -> Result<String> {
     let url = format!("https://api.github.com/repos/{repo}/tags?per_page=100");
     let mut req = ureq::get(&url)
@@ -186,6 +189,7 @@ fn get_github_latest_major_tag(repo: &str) -> Result<String> {
         .context(format!("No major version tags found for {repo}"))
 }
 
+#[allow(dead_code)]
 /// Resolve all action versions in an ActionsVersions struct.
 ///
 /// Any field set to "latest" will be resolved to the actual latest major tag.

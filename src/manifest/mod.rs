@@ -67,6 +67,7 @@ impl Manifest {
 
     /// Get the effective Node.js version.
     /// Priority: [workspace].node > [ci].node_version > extracted from [workspace].image > "22"
+    #[allow(dead_code)]
     pub fn node_version(&self) -> String {
         // v2: explicit node field
         if let Some(ref v) = self.workspace.node {
@@ -89,6 +90,7 @@ impl Manifest {
 
     /// Get deploy profiles from [profile] section.
     /// Returns profiles that have a branch (i.e., are deploy targets).
+    #[allow(dead_code)]
     pub fn deploy_profiles(&self) -> Vec<(&str, &ProfileSection)> {
         self.profile
             .iter()

@@ -19,10 +19,9 @@ mod lockfile;
 mod package_gen;
 mod registry;
 mod tsconfig_gen;
-mod workflow_gen;
 
 use catalog::{resolve_catalog_versions, resolve_package_data};
-use docker_gen::{generate_docker_compose, generate_service_dockerfiles};
+use docker_gen::generate_docker_compose;
 use env_gen::{generate_env_example, generate_envrc, generate_npmrc};
 use hooks_gen::{generate_git_hooks, generate_native_hooks};
 use inject::inject_values;
@@ -30,10 +29,6 @@ use lockfile::sync_lockfile;
 use package_gen::{generate_package_json, generate_pnpm_workspace};
 use registry::{load_generation_registry, save_generation_registry};
 use tsconfig_gen::generate_tsconfig;
-use workflow_gen::{
-    generate_ci_workflow, generate_deploy_workflow, generate_e2e_workflow,
-    generate_release_workflow,
-};
 
 #[cfg(test)]
 mod tests;
@@ -372,25 +367,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generated_files.push(format!("{} app package.json files (full-gen)", app_count));
         }
 
-        // Generate production Dockerfiles for services with [app.deploy] enabled
-        generate_service_dockerfiles(manifest, &engine)?;
-        let deploy_apps: Vec<_> = manifest
-            .app
-            .iter()
-            .filter(|a| a.deploy.as_ref().is_some_and(|d| d.enabled))
-            .collect();
-        if !deploy_apps.is_empty() {
-            for app in &deploy_apps {
-                if let Some(ref path) = app.path {
-                    generated_paths.push(format!("{}/Dockerfile", path));
-                }
-            }
-            generated_files.push(format!(
-                "{} service Dockerfiles (turbo prune)",
-                deploy_apps.len()
-            ));
-        }
-
         // Generate .npmrc for pnpm store isolation
         generate_npmrc(&engine)?;
         generated_paths.push(".npmrc".into());
@@ -439,24 +415,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         // Inject values even without workspace
         let resolved_catalog = IndexMap::new();
         inject_count = inject_values(&manifest.inject, &resolved_catalog)?;
-    }
-
-    // CI/CD workflow generation
-    if manifest.ci.enabled {
-        println!();
-        println!("{}", "🚀 Generating CI/CD workflows...".bright_blue());
-        if !manifest.deploy_profiles().is_empty() {
-            generate_ci_workflow(manifest, &engine)?;
-            generated_paths.push(".github/workflows/ci.yml".into());
-            generate_deploy_workflow(manifest, &engine)?;
-            generated_paths.push(".github/workflows/deploy.yml".into());
-            if manifest.ci.e2e.enabled {
-                generate_e2e_workflow(manifest, &engine)?;
-                generated_paths.push(".github/workflows/e2e-staging.yml".into());
-            }
-        }
-        generate_release_workflow(manifest, &engine)?;
-        generated_paths.push(".github/workflows/release.yml".into());
     }
 
     // Clean orphaned generated files (previously generated but no longer needed)

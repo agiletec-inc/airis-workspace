@@ -1201,6 +1201,7 @@ impl ProjectDefinition {
     }
 
     /// Check if this app deploys via Cloudflare Workers (not Docker).
+    #[allow(dead_code)]
     pub fn is_worker_deploy(&self) -> bool {
         self.deploy
             .as_ref()
@@ -1553,6 +1554,7 @@ pub struct ProfileSection {
 impl ProfileSection {
     /// Resolve the effective role of this profile.
     /// Explicit `role` field takes priority; otherwise inferred from profile name.
+    #[allow(dead_code)]
     pub fn effective_role(&self, name: &str) -> &str {
         if let Some(ref role) = self.role {
             return role.as_str();
@@ -1601,6 +1603,7 @@ impl Default for EnvSource {
 
 impl EnvSource {
     /// Get Doppler config if available
+    #[allow(dead_code)]
     pub fn doppler_config(&self) -> Option<&DopplerConfig> {
         match self {
             EnvSource::Doppler { doppler } => Some(doppler),

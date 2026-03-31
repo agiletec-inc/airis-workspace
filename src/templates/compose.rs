@@ -1,22 +1,97 @@
 use super::TemplateEngine;
 use crate::manifest::{MANIFEST_FILE, Manifest};
 use anyhow::Result;
-use serde_json::json;
+use indexmap::IndexMap;
+use serde::Serialize;
+
+/// Top-level Docker Compose file structure.
+#[derive(Debug, Serialize)]
+pub(crate) struct ComposeFile {
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub services: IndexMap<String, ComposeService>,
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub networks: IndexMap<String, ComposeNetwork>,
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub volumes: IndexMap<String, serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ComposeService {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build: Option<ComposeBuild>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub profiles: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub extra_hosts: Vec<String>,
+    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    pub environment: IndexMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shm_size: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub devices: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_mode: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub healthcheck: Option<ComposeHealthcheck>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ComposeBuild {
+    pub context: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dockerfile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ComposeNetwork {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub external: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ComposeHealthcheck {
+    pub test: Vec<String>,
+    pub interval: String,
+    pub timeout: String,
+    pub retries: u64,
+    pub start_period: String,
+}
 
 impl TemplateEngine {
     pub fn render_docker_compose(&self, manifest: &Manifest) -> Result<String> {
-        let data = self.prepare_docker_compose_data(manifest, ".")?;
-        let project = data["project"].as_str().unwrap_or("");
-        let services = data["services"].as_array();
-        let volume_names = data["volume_names"].as_array();
-        let proxy_network = data["proxy_network"].as_str();
-        let default_external = data["default_external"].as_bool().unwrap_or(false);
-        let network_defs = data["network_defs"].as_object();
+        let compose = self.build_compose_file(manifest, ".")?;
 
-        let mut out = String::new();
+        let yaml = serde_yml::to_string(&compose)?;
 
-        // Header comment block
-        out.push_str(&format!(
+        let project = &manifest.workspace.name;
+        let header = format!(
             "# ============================================================\n\
              # {project}\n\
              # ============================================================\n\
@@ -24,299 +99,17 @@ impl TemplateEngine {
              # Source of truth: manifest.toml\n\
              #\n\
              # Use `airis up` to start. Profiles control which services run.\n\
-             # ============================================================\n\
-             \n\
-             services:\n"
-        ));
+             # ============================================================\n\n"
+        );
 
-        // Services section
-        if let Some(services) = services {
-            for svc in services {
-                let name = svc["name"].as_str().unwrap_or("");
-                out.push_str(&format!("  {name}:\n"));
-
-                // container_name
-                if let Some(cn) = svc["container_name"].as_str() {
-                    out.push_str(&format!("    container_name: {cn}\n"));
-                }
-
-                // build or image
-                if let Some(build) = svc["build"].as_object() {
-                    out.push_str("    build:\n");
-                    if let Some(ctx) = build.get("context").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("      context: {ctx}\n"));
-                    }
-                    if let Some(df) = build.get("dockerfile").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("      dockerfile: {df}\n"));
-                    }
-                    if let Some(target) = build.get("target").and_then(|v| v.as_str()) {
-                        out.push_str(&format!("      target: {target}\n"));
-                    }
-                } else if let Some(image) = svc["image"].as_str() {
-                    out.push_str(&format!("    image: {image}\n"));
-                }
-
-                // working_dir
-                if let Some(wd) = svc["working_dir"].as_str() {
-                    out.push_str(&format!("    working_dir: {wd}\n"));
-                }
-
-                // gpu deploy or replicas deploy
-                if let Some(gpu) = svc["gpu"].as_object() {
-                    let driver = gpu
-                        .get("driver")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("nvidia");
-                    let count = gpu.get("count").and_then(|v| v.as_str()).unwrap_or("all");
-                    let capabilities = gpu.get("capabilities").and_then(|v| v.as_array());
-                    let caps_str = capabilities
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        })
-                        .unwrap_or_else(|| "gpu".to_string());
-                    out.push_str("    deploy:\n");
-                    out.push_str("      resources:\n");
-                    out.push_str("        reservations:\n");
-                    out.push_str("          devices:\n");
-                    out.push_str(&format!(
-                        "            - driver: {driver}\n\
-                         \x20             count: {count}\n\
-                         \x20             capabilities: [{caps_str}]\n"
-                    ));
-                } else if let Some(deploy) = svc["deploy"].as_object()
-                    && let Some(replicas) = deploy.get("replicas").and_then(|v| v.as_u64())
-                {
-                    out.push_str(&format!("    deploy:\n      replicas: {replicas}\n"));
-                }
-
-                // command (raw, unescaped)
-                if let Some(cmd) = svc["command"].as_str() {
-                    out.push_str(&format!("    command: {cmd}\n"));
-                }
-
-                // profiles
-                if let Some(profiles) = svc["profiles"].as_array()
-                    && !profiles.is_empty()
-                {
-                    out.push_str("    profiles:\n");
-                    for p in profiles {
-                        if let Some(s) = p.as_str() {
-                            out.push_str(&format!("      - \"{s}\"\n"));
-                        }
-                    }
-                }
-
-                // depends_on
-                if let Some(deps) = svc["depends_on"].as_array()
-                    && !deps.is_empty()
-                {
-                    out.push_str("    depends_on:\n");
-                    for d in deps {
-                        if let Some(s) = d.as_str() {
-                            out.push_str(&format!("      - {s}\n"));
-                        }
-                    }
-                }
-
-                // ports
-                if let Some(ports) = svc["ports"].as_array()
-                    && !ports.is_empty()
-                {
-                    out.push_str("    ports:\n");
-                    for p in ports {
-                        if let Some(s) = p.as_str() {
-                            out.push_str(&format!("      - \"{s}\"\n"));
-                        }
-                    }
-                }
-
-                // extra_hosts
-                if let Some(hosts) = svc["extra_hosts"].as_array()
-                    && !hosts.is_empty()
-                {
-                    out.push_str("    extra_hosts:\n");
-                    for h in hosts {
-                        if let Some(s) = h.as_str() {
-                            out.push_str(&format!("      - \"{s}\"\n"));
-                        }
-                    }
-                }
-
-                // environment
-                if let Some(env) = svc["env"].as_object()
-                    && !env.is_empty()
-                {
-                    out.push_str("    environment:\n");
-                    for (k, v) in env {
-                        let val = v.as_str().unwrap_or("");
-                        out.push_str(&format!("      {k}: \"{val}\"\n"));
-                    }
-                }
-
-                // volumes
-                if let Some(vols) = svc["volumes"].as_array()
-                    && !vols.is_empty()
-                {
-                    out.push_str("    volumes:\n");
-                    for v in vols {
-                        if let Some(s) = v.as_str() {
-                            out.push_str(&format!("      - {s}\n"));
-                        }
-                    }
-                }
-
-                // shm_size
-                if let Some(shm) = svc["shm_size"].as_str() {
-                    out.push_str(&format!("    shm_size: \"{shm}\"\n"));
-                }
-
-                // restart
-                if let Some(restart) = svc["restart"].as_str() {
-                    out.push_str(&format!("    restart: {restart}\n"));
-                }
-
-                // runtime
-                if let Some(runtime) = svc["runtime"].as_str() {
-                    out.push_str(&format!("    runtime: {runtime}\n"));
-                }
-
-                // devices
-                if let Some(devices) = svc["devices"].as_array()
-                    && !devices.is_empty()
-                {
-                    out.push_str("    devices:\n");
-                    for d in devices {
-                        if let Some(s) = d.as_str() {
-                            out.push_str(&format!("      - {s}\n"));
-                        }
-                    }
-                }
-
-                // network_mode
-                if let Some(nm) = svc["network_mode"].as_str() {
-                    out.push_str(&format!("    network_mode: {nm}\n"));
-                }
-
-                // labels
-                if let Some(labels) = svc["labels"].as_array()
-                    && !labels.is_empty()
-                {
-                    out.push_str("    labels:\n");
-                    for l in labels {
-                        if let Some(s) = l.as_str() {
-                            out.push_str(&format!("      - \"{s}\"\n"));
-                        }
-                    }
-                }
-
-                // networks
-                if let Some(networks) = svc["networks"].as_array()
-                    && !networks.is_empty()
-                {
-                    out.push_str("    networks:\n");
-                    for n in networks {
-                        if let Some(s) = n.as_str() {
-                            out.push_str(&format!("      - {s}\n"));
-                        }
-                    }
-                }
-
-                // healthcheck
-                if let Some(hp) = svc["health_path"].as_str() {
-                    let port = svc["port"].as_u64().unwrap_or(3000);
-                    let interval = svc
-                        .get("health_interval")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("30s");
-                    let timeout = svc
-                        .get("health_timeout")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("10s");
-                    let retries = svc
-                        .get("health_retries")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(3);
-                    let start_period = svc
-                        .get("health_start_period")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("40s");
-                    out.push_str("    healthcheck:\n");
-                    out.push_str(&format!(
-                        "      test: [\"CMD-SHELL\", \"node -e \\\"require('http').request({{hostname:'localhost',port:{port},path:'{hp}',timeout:5000}},(r)=>{{process.exit(r.statusCode===200?0:1)}}).on('error',()=>process.exit(1)).end()\\\"\"]\n"
-                    ));
-                    out.push_str(&format!("      interval: {interval}\n"));
-                    out.push_str(&format!("      timeout: {timeout}\n"));
-                    out.push_str(&format!("      retries: {retries}\n"));
-                    out.push_str(&format!("      start_period: {start_period}\n"));
-                }
-
-                // Blank line after each service
-                out.push('\n');
-            }
-        }
-
-        // Extra blank line after services
-        out.push('\n');
-
-        // Networks section
-        if let Some(defs) = network_defs {
-            out.push_str("networks:\n");
-            out.push_str(&format!(
-                "  default:\n    name: {project}_default\n    external: {default_external}\n"
-            ));
-            for (net_name, net_val) in defs {
-                let external = net_val
-                    .get("external")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                out.push_str(&format!("  {net_name}:\n    external: {external}\n"));
-                if let Some(n) = net_val.get("name").and_then(|v| v.as_str()) {
-                    out.push_str(&format!("    name: {n}\n"));
-                }
-            }
-        } else {
-            out.push_str("networks:\n");
-            out.push_str(&format!(
-                "  default:\n    name: {project}_default\n    external: {default_external}\n"
-            ));
-            out.push_str("  traefik:\n    name: traefik_default\n    external: true\n");
-            if let Some(pn) = proxy_network {
-                out.push_str(&format!("  {pn}:\n    external: true\n"));
-            }
-        }
-
-        // Volumes section
-        out.push_str("\nvolumes:\n");
-        if let Some(vols) = volume_names {
-            for v in vols {
-                if let Some(s) = v.as_str() {
-                    out.push_str(&format!("  {s}:\n"));
-                }
-            }
-        }
-
-        Ok(out)
+        Ok(format!("{header}{yaml}"))
     }
 
-    pub(super) fn prepare_pnpm_workspace_data(
-        &self,
-        manifest: &Manifest,
-    ) -> Result<serde_json::Value> {
-        Ok(json!({
-            "packages": manifest.packages.workspaces,
-            "manifest": MANIFEST_FILE,
-        }))
-    }
-
-    pub(super) fn prepare_docker_compose_data(
+    pub(crate) fn build_compose_file(
         &self,
         manifest: &Manifest,
         root: &str,
-    ) -> Result<serde_json::Value> {
-        // Get proxy network from orchestration.networks config (None if not set)
+    ) -> Result<ComposeFile> {
         let proxy_network = manifest
             .orchestration
             .networks
@@ -350,104 +143,128 @@ impl TemplateEngine {
             }
         }
 
-        // Build services — each service defines its own build/image in manifest
-        let services: Vec<serde_json::Value> = manifest
-            .service
-            .iter()
-            .map(|(name, svc)| {
-                // Merge artifact volumes into services that have a build config (not external images)
-                let merged_volumes = if svc.build.is_some() {
-                    [artifact_volume_mounts.clone(), svc.volumes.clone()].concat()
-                } else {
-                    svc.volumes.clone()
-                };
+        // Build services
+        let mut services = IndexMap::new();
+        for (name, svc) in &manifest.service {
+            // Merge artifact volumes into services that have a build config
+            let merged_volumes = if svc.build.is_some() {
+                [artifact_volume_mounts.clone(), svc.volumes.clone()].concat()
+            } else {
+                svc.volumes.clone()
+            };
 
-                // Resolve env_groups: expand group references into env map
-                let mut resolved_env = indexmap::IndexMap::new();
-                for group_name in &svc.env_groups {
-                    if let Some(group) = manifest.env_group.get(group_name) {
-                        for (k, v) in group {
-                            resolved_env.insert(k.clone(), v.clone());
+            // Resolve env_groups into env map
+            let mut resolved_env = IndexMap::new();
+            for group_name in &svc.env_groups {
+                if let Some(group) = manifest.env_group.get(group_name) {
+                    for (k, v) in group {
+                        resolved_env.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            for (k, v) in &svc.env {
+                resolved_env.insert(k.clone(), v.clone());
+            }
+
+            let internal_port = svc.port.unwrap_or_else(|| {
+                svc.ports
+                    .first()
+                    .and_then(|p| p.split(':').next_back())
+                    .and_then(|p| p.parse::<u16>().ok())
+                    .unwrap_or(crate::conventions::framework_defaults("node").port)
+            });
+
+            let container_name = svc
+                .container_name
+                .clone()
+                .unwrap_or_else(|| format!("{}-{}", manifest.workspace.name, name));
+
+            let build = svc.build.as_ref().map(|b| {
+                let dockerfile = b.dockerfile.clone().unwrap_or_else(|| {
+                    manifest
+                        .app
+                        .iter()
+                        .find(|a| a.name == *name)
+                        .and_then(|a| a.path.as_ref())
+                        .map(|path| format!("{}/Dockerfile", path))
+                        .unwrap_or_else(|| format!("{}/Dockerfile", name))
+                });
+                ComposeBuild {
+                    context: b.context.clone(),
+                    dockerfile: Some(dockerfile),
+                    target: b.target.clone(),
+                }
+            });
+
+            // GPU deploy section
+            let deploy = if let Some(gpu) = &svc.gpu {
+                Some(serde_json::json!({
+                    "resources": {
+                        "reservations": {
+                            "devices": [{
+                                "driver": gpu.driver,
+                                "count": gpu.count,
+                                "capabilities": gpu.capabilities,
+                            }]
                         }
                     }
+                }))
+            } else if let Some(deploy) = &svc.deploy {
+                deploy
+                    .replicas
+                    .map(|r| serde_json::json!({ "replicas": r }))
+            } else {
+                None
+            };
+
+            // Healthcheck from service config
+            let healthcheck = svc.health_path.as_ref().map(|hp| {
+                let port = internal_port;
+                ComposeHealthcheck {
+                    test: vec![
+                        "CMD-SHELL".to_string(),
+                        format!(
+                            "node -e \"require('http').request({{hostname:'localhost',port:{port},path:'{hp}',timeout:5000}},(r)=>{{process.exit(r.statusCode===200?0:1)}}).on('error',()=>process.exit(1)).end()\""
+                        ),
+                    ],
+                    interval: "30s".to_string(),
+                    timeout: "10s".to_string(),
+                    retries: 3,
+                    start_period: "40s".to_string(),
                 }
-                // Explicit env overrides env_group values
-                for (k, v) in &svc.env {
-                    resolved_env.insert(k.clone(), v.clone());
-                }
+            });
 
-                // No auto-watch — bind mount is gone, use `airis up` to rebuild
-                // Extract internal port: explicit port > ports mapping > default 3000
-                let internal_port = svc.port.unwrap_or_else(|| {
-                    svc.ports
-                        .first()
-                        .and_then(|p| p.split(':').next_back())
-                        .and_then(|p| p.parse::<u16>().ok())
-                        .unwrap_or(crate::conventions::framework_defaults("node").port)
-                });
+            services.insert(
+                name.clone(),
+                ComposeService {
+                    container_name: Some(container_name),
+                    build,
+                    image: svc.image.clone(),
+                    working_dir: svc.working_dir.clone(),
+                    deploy,
+                    command: svc.command.clone(),
+                    profiles: svc.profiles.clone(),
+                    depends_on: svc.depends_on.clone(),
+                    ports: svc.ports.clone(),
+                    extra_hosts: svc.extra_hosts.clone(),
+                    environment: resolved_env,
+                    volumes: merged_volumes,
+                    shm_size: svc.shm_size.clone(),
+                    restart: svc.restart.clone(),
+                    runtime: svc.runtime.clone(),
+                    devices: svc.devices.clone(),
+                    network_mode: svc.network_mode.clone(),
+                    labels: svc.labels.clone(),
+                    networks: svc.networks.clone(),
+                    healthcheck,
+                },
+            );
+        }
 
-                // Convention defaults: derive values from manifest when not explicitly set
-                let container_name = svc
-                    .container_name
-                    .clone()
-                    .unwrap_or_else(|| format!("{}-{}", manifest.workspace.name, name));
-
-                // Apply build defaults: dockerfile from matching app path
-                let build = svc.build.as_ref().map(|b| {
-                    let dockerfile = b.dockerfile.clone().unwrap_or_else(|| {
-                        manifest
-                            .app
-                            .iter()
-                            .find(|a| a.name == *name)
-                            .and_then(|a| a.path.as_ref())
-                            .map(|path| format!("{}/Dockerfile", path))
-                            .unwrap_or_else(|| format!("{}/Dockerfile", name))
-                    });
-                    let mut build_json = json!({
-                        "context": b.context,
-                        "dockerfile": dockerfile,
-                    });
-                    if let Some(ref target) = b.target {
-                        build_json["target"] = json!(target);
-                    }
-                    build_json
-                });
-
-                json!({
-                    "name": name,
-                    "image": svc.image,
-                    "build": build,
-                    "port": internal_port,
-                    "ports": svc.ports,
-                    "command": svc.command,
-                    "volumes": merged_volumes,
-                    "env": resolved_env,
-                    "profiles": svc.profiles,
-                    "depends_on": svc.depends_on,
-                    "restart": svc.restart,
-                    "shm_size": svc.shm_size,
-                    "container_name": container_name,
-                    "working_dir": svc.working_dir,
-                    "extra_hosts": svc.extra_hosts,
-                    "deploy": svc.deploy,
-                    "devices": svc.devices,
-                    "runtime": svc.runtime,
-                    "gpu": svc.gpu,
-                    "health_path": svc.health_path,
-                    "mem_limit": svc.mem_limit,
-                    "cpus": svc.cpus,
-                    "network_mode": svc.network_mode,
-                    "labels": svc.labels,
-                    "networks": svc.networks,
-                })
-            })
-            .collect();
-
-        // Collect all named volume declarations: artifact volumes + service-specific volumes
+        // Collect volume names
         let mut volume_names: Vec<String> = artifact_volume_names;
         for svc in manifest.service.values() {
             for vol in &svc.volumes {
-                // Named volumes have format "name:/path" (no ./ or / prefix)
                 if let Some(name) = vol.split(':').next()
                     && !name.starts_with('.')
                     && !name.starts_with('/')
@@ -458,6 +275,8 @@ impl TemplateEngine {
             }
         }
 
+        // Build networks
+        let mut networks = IndexMap::new();
         let network_defs = manifest
             .orchestration
             .networks
@@ -465,14 +284,102 @@ impl TemplateEngine {
             .map(|n| &n.define)
             .filter(|d| !d.is_empty());
 
-        Ok(json!({
+        networks.insert(
+            "default".to_string(),
+            ComposeNetwork {
+                name: Some(format!("{}_default", manifest.workspace.name)),
+                external: default_external,
+            },
+        );
+
+        if let Some(defs) = network_defs {
+            for (net_name, net_val) in defs {
+                networks.insert(
+                    net_name.clone(),
+                    ComposeNetwork {
+                        name: net_val.name.clone(),
+                        external: net_val.external,
+                    },
+                );
+            }
+        } else {
+            networks.insert(
+                "traefik".to_string(),
+                ComposeNetwork {
+                    name: Some("traefik_default".to_string()),
+                    external: true,
+                },
+            );
+            if let Some(pn) = &proxy_network {
+                networks.insert(
+                    pn.clone(),
+                    ComposeNetwork {
+                        name: None,
+                        external: true,
+                    },
+                );
+            }
+        }
+
+        // Build volumes map (just empty objects for declarations)
+        let mut volumes = IndexMap::new();
+        for vol_name in &volume_names {
+            volumes.insert(vol_name.clone(), serde_json::json!(null));
+        }
+
+        Ok(ComposeFile {
+            services,
+            networks,
+            volumes,
+        })
+    }
+
+    pub(super) fn prepare_pnpm_workspace_data(
+        &self,
+        manifest: &Manifest,
+    ) -> Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "packages": manifest.packages.workspaces,
+            "manifest": MANIFEST_FILE,
+        }))
+    }
+
+    // Keep prepare_docker_compose_data for backward compatibility with tests
+    #[cfg(test)]
+    pub(super) fn prepare_docker_compose_data(
+        &self,
+        manifest: &Manifest,
+        root: &str,
+    ) -> Result<serde_json::Value> {
+        let compose = self.build_compose_file(manifest, root)?;
+
+        // Convert to JSON for test backward compatibility
+        let services: Vec<serde_json::Value> = compose
+            .services
+            .iter()
+            .map(|(name, svc)| {
+                let mut val = serde_json::json!({
+                    "name": name,
+                    "volumes": svc.volumes,
+                    "port": svc.ports.first()
+                        .and_then(|p| p.split(':').next_back())
+                        .and_then(|p| p.parse::<u64>().ok())
+                        .unwrap_or(3000),
+                });
+                if let Some(ref hp) = svc.healthcheck {
+                    val["health_path"] = serde_json::json!(hp.test.get(1).unwrap_or(&String::new()));
+                }
+                val
+            })
+            .collect();
+
+        let volume_names: Vec<String> = compose.volumes.keys().cloned().collect();
+
+        Ok(serde_json::json!({
             "project": manifest.workspace.name,
             "workdir": manifest.workspace.workdir,
             "services": services,
-            "proxy_network": proxy_network,
-            "default_external": default_external,
             "volume_names": volume_names,
-            "network_defs": network_defs,
         }))
     }
 }
