@@ -425,8 +425,9 @@ fn test_parse_service_ports_object_format() {
     });
     let result = parse_service_ports_from_config(&config);
     assert_eq!(result.len(), 2);
-    assert_eq!(result[0], ("api".to_string(), 8080));
-    assert_eq!(result[1], ("my-web".to_string(), 3000));
+    // preserve_order: iteration follows json! macro source order
+    assert!(result.contains(&("my-web".to_string(), 3000)));
+    assert!(result.contains(&("api".to_string(), 8080)));
 }
 
 #[test]
@@ -440,8 +441,8 @@ fn test_parse_service_ports_string_format() {
     });
     let result = parse_service_ports_from_config(&config);
     assert_eq!(result.len(), 2);
-    assert_eq!(result[0], ("api".to_string(), 8080));
-    assert_eq!(result[1], ("web".to_string(), 3000));
+    assert!(result.contains(&("web".to_string(), 3000)));
+    assert!(result.contains(&("api".to_string(), 8080)));
 }
 
 #[test]

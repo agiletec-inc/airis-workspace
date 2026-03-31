@@ -180,8 +180,9 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
 
     if !manifest_path.exists() {
-        if matches!(task, "up" | "down") {
-            if let Some(compose_file) = find_compose_file() {
+        if matches!(task, "up" | "down")
+            && let Some(compose_file) = find_compose_file()
+        {
                 if task == "up" {
                     ensure_env_file();
                 }
@@ -214,7 +215,6 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                     display_compose_urls(&[compose_file.to_string()]);
                 }
                 return Ok(());
-            }
         }
 
         bail!(
