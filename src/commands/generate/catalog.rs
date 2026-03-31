@@ -241,10 +241,7 @@ pub(super) fn resolve_package_data(
 
 /// Check if a package name matches any wildcard pattern in the catalog.
 /// Supports simple glob patterns like `@radix-ui/react-*`.
-pub(super) fn matches_wildcard_catalog(
-    package: &str,
-    wildcards: &[(&str, &CatalogEntry)],
-) -> bool {
+pub(super) fn matches_wildcard_catalog(package: &str, wildcards: &[(&str, &CatalogEntry)]) -> bool {
     for (pattern, _) in wildcards {
         if wildcard_matches(pattern, package) {
             return true;

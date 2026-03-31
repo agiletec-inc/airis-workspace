@@ -1,5 +1,5 @@
-use super::actions::ResolvedActions;
 use super::TemplateEngine;
+use super::actions::ResolvedActions;
 use crate::manifest::Manifest;
 use anyhow::{Context, Result};
 

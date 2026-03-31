@@ -19,9 +19,7 @@ pub(super) struct DiscoveredService {
 
 /// Extract the host port from a manifest ServiceConfig.
 /// Handles formats: "${VAR:-DEFAULT}:CONTAINER", "HOST:CONTAINER", single port
-pub(super) fn extract_host_port_from_service(
-    svc: &crate::manifest::ServiceConfig,
-) -> Option<u16> {
+pub(super) fn extract_host_port_from_service(svc: &crate::manifest::ServiceConfig) -> Option<u16> {
     // Try ports array first, then fallback to deprecated port field
     let port_str = svc.ports.first().map(|s| s.as_str());
     if let Some(port_str) = port_str {
@@ -132,10 +130,7 @@ pub(super) fn display_compose_urls(compose_files: &[String]) {
 
 /// Wait for services to become reachable, polling every REACHABILITY_POLL_INTERVAL_SECS
 /// until all are reachable or timeout_secs expires. If timeout_secs is 0, check once only.
-pub(super) fn wait_for_services_reachable(
-    services: &mut [DiscoveredService],
-    timeout_secs: u64,
-) {
+pub(super) fn wait_for_services_reachable(services: &mut [DiscoveredService], timeout_secs: u64) {
     use std::time::{Duration, Instant};
 
     if services.is_empty() {

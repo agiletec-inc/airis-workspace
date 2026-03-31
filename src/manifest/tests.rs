@@ -1,5 +1,5 @@
-use super::*;
 use super::validation::levenshtein_distance;
+use super::*;
 use std::io::Write;
 
 /// Helper: create a minimal valid manifest TOML string

@@ -4,10 +4,10 @@ use std::fs;
 use crate::manifest::{CatalogEntry, InjectValue, Manifest};
 
 use super::catalog::{matches_wildcard_catalog, wildcard_matches};
+use super::detect_legacy_compose_files;
 use super::inject::resolve_inject_values;
 use super::registry::{load_generation_registry, save_generation_registry};
 use super::tsconfig_gen::detect_ts_major;
-use super::detect_legacy_compose_files;
 
 // ── wildcard_matches ──
 

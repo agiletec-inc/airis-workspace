@@ -262,10 +262,7 @@ pub(crate) fn detect_nextjs(target: &str) -> bool {
 }
 
 fn build_extra_args(build_args: &BTreeMap<String, String>) -> String {
-    build_args
-        .keys()
-        .map(|k| format!("ARG {}\n", k))
-        .collect()
+    build_args.keys().map(|k| format!("ARG {}\n", k)).collect()
 }
 
 fn generate_nextjs_dockerfile(

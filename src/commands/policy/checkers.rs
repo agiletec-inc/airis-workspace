@@ -70,10 +70,7 @@ pub(super) fn check_required_env(required: &[String], result: &mut PolicyResult)
 }
 
 /// Check for forbidden files
-pub(super) fn check_forbidden_files(
-    forbidden: &[String],
-    result: &mut PolicyResult,
-) -> Result<()> {
+pub(super) fn check_forbidden_files(forbidden: &[String], result: &mut PolicyResult) -> Result<()> {
     print!("🔍 Checking forbidden files... ");
 
     let mut found = Vec::new();

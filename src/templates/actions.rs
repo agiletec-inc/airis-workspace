@@ -23,10 +23,7 @@ impl ResolvedActions {
             cache: format!("actions/cache@{}", resolved.cache),
             doppler: format!("dopplerhq/cli-action@{}", resolved.doppler),
             upload_artifact: format!("actions/upload-artifact@{}", resolved.upload_artifact),
-            download_artifact: format!(
-                "actions/download-artifact@{}",
-                resolved.download_artifact
-            ),
+            download_artifact: format!("actions/download-artifact@{}", resolved.download_artifact),
         })
     }
 }

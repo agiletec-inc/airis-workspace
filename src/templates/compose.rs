@@ -1,5 +1,5 @@
 use super::TemplateEngine;
-use crate::manifest::{Manifest, MANIFEST_FILE};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 use anyhow::Result;
 use serde_json::json;
 

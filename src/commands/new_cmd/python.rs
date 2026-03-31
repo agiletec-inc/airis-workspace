@@ -70,7 +70,7 @@ dist/
 "#;
     fs::write(project_dir.join(".gitignore"), gitignore)?;
 
-    println!("  {} pyproject.toml", "✓".green(), );
+    println!("  {} pyproject.toml", "✓".green(),);
     println!("  {} src/{}/__init__.py", "✓".green(), pkg_name);
     println!("  {} .gitignore", "✓".green());
 

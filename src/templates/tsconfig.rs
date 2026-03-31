@@ -1,4 +1,4 @@
-use super::{toml_value_to_json, TemplateEngine};
+use super::{TemplateEngine, toml_value_to_json};
 use crate::manifest::Manifest;
 use anyhow::{Context, Result};
 use serde_json::json;

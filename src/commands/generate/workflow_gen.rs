@@ -8,10 +8,7 @@ use crate::templates::TemplateEngine;
 
 use super::write_with_backup;
 
-pub(super) fn generate_ci_workflow(
-    manifest: &Manifest,
-    engine: &TemplateEngine,
-) -> Result<()> {
+pub(super) fn generate_ci_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let workflows_dir = Path::new(".github/workflows");
     fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 
@@ -35,10 +32,7 @@ pub(super) fn generate_ci_workflow(
     Ok(())
 }
 
-pub(super) fn generate_deploy_workflow(
-    manifest: &Manifest,
-    engine: &TemplateEngine,
-) -> Result<()> {
+pub(super) fn generate_deploy_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let workflows_dir = Path::new(".github/workflows");
     fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 
@@ -62,10 +56,7 @@ pub(super) fn generate_deploy_workflow(
     Ok(())
 }
 
-pub(super) fn generate_e2e_workflow(
-    manifest: &Manifest,
-    engine: &TemplateEngine,
-) -> Result<()> {
+pub(super) fn generate_e2e_workflow(manifest: &Manifest, engine: &TemplateEngine) -> Result<()> {
     let workflows_dir = Path::new(".github/workflows");
     fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 

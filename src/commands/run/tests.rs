@@ -2,8 +2,8 @@ use super::*;
 use indexmap::IndexMap;
 use tempfile::tempdir;
 
-use crate::test_lock::DIR_LOCK;
 use crate::manifest::Manifest;
+use crate::test_lock::DIR_LOCK;
 
 #[test]
 fn test_run_missing_manifest() {
@@ -15,7 +15,12 @@ fn test_run_missing_manifest() {
     let result = std::panic::catch_unwind(|| {
         let result = run("test", &[]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("manifest.toml not found"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("manifest.toml not found")
+        );
     });
 
     std::env::set_current_dir(original_dir).unwrap();
@@ -442,7 +447,8 @@ fn test_parse_service_ports_string_format() {
 #[test]
 fn test_parse_service_ports_no_ports() {
     use services::parse_service_ports_from_config;
-    let config: serde_json::Value = serde_json::json!({"services": {"db": {"image": "postgres:15"}}});
+    let config: serde_json::Value =
+        serde_json::json!({"services": {"db": {"image": "postgres:15"}}});
     let result = parse_service_ports_from_config(&config);
     assert!(result.is_empty());
 }
@@ -551,17 +557,21 @@ fn test_ensure_env_file_noop_when_no_example() {
 
 #[test]
 fn test_dev_section_post_up_default_empty() {
-    let manifest: Manifest = toml::from_str(r#"
+    let manifest: Manifest = toml::from_str(
+        r#"
 version = 1
 [workspace]
 name = "test"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert!(manifest.dev.post_up.is_empty());
 }
 
 #[test]
 fn test_dev_section_post_up_with_hooks() {
-    let manifest: Manifest = toml::from_str(r#"
+    let manifest: Manifest = toml::from_str(
+        r#"
 version = 1
 [workspace]
 name = "test"
@@ -570,10 +580,18 @@ post_up = [
     "docker compose exec workspace pnpm db:migrate",
     "docker compose exec workspace pnpm db:seed",
 ]
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert_eq!(manifest.dev.post_up.len(), 2);
-    assert_eq!(manifest.dev.post_up[0], "docker compose exec workspace pnpm db:migrate");
-    assert_eq!(manifest.dev.post_up[1], "docker compose exec workspace pnpm db:seed");
+    assert_eq!(
+        manifest.dev.post_up[0],
+        "docker compose exec workspace pnpm db:migrate"
+    );
+    assert_eq!(
+        manifest.dev.post_up[1],
+        "docker compose exec workspace pnpm db:seed"
+    );
 }
 
 #[test]
@@ -582,7 +600,9 @@ fn test_extra_args_blocks_shell_injection_semicolon() {
     let dir = tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
-    std::fs::write("manifest.toml", r#"
+    std::fs::write(
+        "manifest.toml",
+        r#"
 version = 1
 [workspace]
 name = "test"
@@ -591,12 +611,19 @@ service = "workspace"
 image = "node:22"
 [commands]
 test = "echo safe"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = std::panic::catch_unwind(|| {
         let result = run("test", &["; rm -rf /".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Shell metacharacters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Shell metacharacters")
+        );
     });
 
     std::env::set_current_dir(original_dir).unwrap();
@@ -609,7 +636,9 @@ fn test_extra_args_blocks_shell_injection_pipe() {
     let dir = tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
-    std::fs::write("manifest.toml", r#"
+    std::fs::write(
+        "manifest.toml",
+        r#"
 version = 1
 [workspace]
 name = "test"
@@ -618,12 +647,19 @@ service = "workspace"
 image = "node:22"
 [commands]
 test = "echo safe"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = std::panic::catch_unwind(|| {
         let result = run("test", &["| cat /etc/passwd".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Shell metacharacters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Shell metacharacters")
+        );
     });
 
     std::env::set_current_dir(original_dir).unwrap();
@@ -636,7 +672,9 @@ fn test_extra_args_blocks_command_substitution() {
     let dir = tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(&dir).unwrap();
-    std::fs::write("manifest.toml", r#"
+    std::fs::write(
+        "manifest.toml",
+        r#"
 version = 1
 [workspace]
 name = "test"
@@ -645,12 +683,19 @@ service = "workspace"
 image = "node:22"
 [commands]
 test = "echo safe"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = std::panic::catch_unwind(|| {
         let result = run("test", &["$(whoami)".to_string()]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Shell metacharacters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Shell metacharacters")
+        );
     });
 
     std::env::set_current_dir(original_dir).unwrap();
@@ -661,14 +706,32 @@ test = "echo safe"
 fn test_extract_host_port_env_var_default() {
     use services::extract_host_port_from_service;
     let svc = crate::manifest::ServiceConfig {
-        image: None, build: None, port: None,
+        image: None,
+        build: None,
+        port: None,
         ports: vec!["${CORPORATE_PORT:-3000}:3000".to_string()],
-        command: None, volumes: vec![], env: IndexMap::new(),
-        profiles: vec![], depends_on: vec![], restart: None, shm_size: None,
-        container_name: None, working_dir: None, extra_hosts: vec![],
-        deploy: None, watch: vec![], devices: vec![], runtime: None, gpu: None,
-        health_path: None, network_mode: None, labels: vec![], networks: vec![],
-        env_groups: vec![], mem_limit: None, cpus: None,
+        command: None,
+        volumes: vec![],
+        env: IndexMap::new(),
+        profiles: vec![],
+        depends_on: vec![],
+        restart: None,
+        shm_size: None,
+        container_name: None,
+        working_dir: None,
+        extra_hosts: vec![],
+        deploy: None,
+        watch: vec![],
+        devices: vec![],
+        runtime: None,
+        gpu: None,
+        health_path: None,
+        network_mode: None,
+        labels: vec![],
+        networks: vec![],
+        env_groups: vec![],
+        mem_limit: None,
+        cpus: None,
     };
     assert_eq!(extract_host_port_from_service(&svc), Some(3000));
 }
@@ -677,14 +740,32 @@ fn test_extract_host_port_env_var_default() {
 fn test_extract_host_port_plain_number() {
     use services::extract_host_port_from_service;
     let svc = crate::manifest::ServiceConfig {
-        image: None, build: None, port: None,
+        image: None,
+        build: None,
+        port: None,
         ports: vec!["8080:80".to_string()],
-        command: None, volumes: vec![], env: IndexMap::new(),
-        profiles: vec![], depends_on: vec![], restart: None, shm_size: None,
-        container_name: None, working_dir: None, extra_hosts: vec![],
-        deploy: None, watch: vec![], devices: vec![], runtime: None, gpu: None,
-        health_path: None, network_mode: None, labels: vec![], networks: vec![],
-        env_groups: vec![], mem_limit: None, cpus: None,
+        command: None,
+        volumes: vec![],
+        env: IndexMap::new(),
+        profiles: vec![],
+        depends_on: vec![],
+        restart: None,
+        shm_size: None,
+        container_name: None,
+        working_dir: None,
+        extra_hosts: vec![],
+        deploy: None,
+        watch: vec![],
+        devices: vec![],
+        runtime: None,
+        gpu: None,
+        health_path: None,
+        network_mode: None,
+        labels: vec![],
+        networks: vec![],
+        env_groups: vec![],
+        mem_limit: None,
+        cpus: None,
     };
     assert_eq!(extract_host_port_from_service(&svc), Some(8080));
 }
@@ -693,14 +774,32 @@ fn test_extract_host_port_plain_number() {
 fn test_extract_host_port_fallback_to_port_field() {
     use services::extract_host_port_from_service;
     let svc = crate::manifest::ServiceConfig {
-        image: None, build: None, port: Some(9090),
+        image: None,
+        build: None,
+        port: Some(9090),
         ports: vec![],
-        command: None, volumes: vec![], env: IndexMap::new(),
-        profiles: vec![], depends_on: vec![], restart: None, shm_size: None,
-        container_name: None, working_dir: None, extra_hosts: vec![],
-        deploy: None, watch: vec![], devices: vec![], runtime: None, gpu: None,
-        health_path: None, network_mode: None, labels: vec![], networks: vec![],
-        env_groups: vec![], mem_limit: None, cpus: None,
+        command: None,
+        volumes: vec![],
+        env: IndexMap::new(),
+        profiles: vec![],
+        depends_on: vec![],
+        restart: None,
+        shm_size: None,
+        container_name: None,
+        working_dir: None,
+        extra_hosts: vec![],
+        deploy: None,
+        watch: vec![],
+        devices: vec![],
+        runtime: None,
+        gpu: None,
+        health_path: None,
+        network_mode: None,
+        labels: vec![],
+        networks: vec![],
+        env_groups: vec![],
+        mem_limit: None,
+        cpus: None,
     };
     assert_eq!(extract_host_port_from_service(&svc), Some(9090));
 }
@@ -709,14 +808,32 @@ fn test_extract_host_port_fallback_to_port_field() {
 fn test_extract_host_port_no_ports() {
     use services::extract_host_port_from_service;
     let svc = crate::manifest::ServiceConfig {
-        image: None, build: None, port: None,
+        image: None,
+        build: None,
+        port: None,
         ports: vec![],
-        command: None, volumes: vec![], env: IndexMap::new(),
-        profiles: vec![], depends_on: vec![], restart: None, shm_size: None,
-        container_name: None, working_dir: None, extra_hosts: vec![],
-        deploy: None, watch: vec![], devices: vec![], runtime: None, gpu: None,
-        health_path: None, network_mode: None, labels: vec![], networks: vec![],
-        env_groups: vec![], mem_limit: None, cpus: None,
+        command: None,
+        volumes: vec![],
+        env: IndexMap::new(),
+        profiles: vec![],
+        depends_on: vec![],
+        restart: None,
+        shm_size: None,
+        container_name: None,
+        working_dir: None,
+        extra_hosts: vec![],
+        deploy: None,
+        watch: vec![],
+        devices: vec![],
+        runtime: None,
+        gpu: None,
+        health_path: None,
+        network_mode: None,
+        labels: vec![],
+        networks: vec![],
+        env_groups: vec![],
+        mem_limit: None,
+        cpus: None,
     };
     assert_eq!(extract_host_port_from_service(&svc), None);
 }
@@ -730,7 +847,10 @@ fn test_hash_file_deterministic() {
     let hash1 = hash_file(&file).unwrap();
     let hash2 = hash_file(&file).unwrap();
     assert_eq!(hash1, hash2);
-    assert_eq!(hash1, "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24");
+    assert_eq!(
+        hash1,
+        "d74981efa70a0c880b8d8c1985d075dbcbf679b99a5f9914e5aaf96b831a9e24"
+    );
 }
 
 #[test]
@@ -755,7 +875,8 @@ fn test_pre_command_hooks_default_is_none() {
 
 #[test]
 fn test_hooks_section_parses_from_toml() {
-    let manifest: Manifest = toml::from_str(r#"
+    let manifest: Manifest = toml::from_str(
+        r#"
 [workspace]
 name = "test"
 [hooks]
@@ -765,7 +886,9 @@ skip = ["up", "down", "ps"]
 key = "pnpm-lock.yaml"
 [versioning]
 strategy = "manual"
-"#).unwrap();
+"#,
+    )
+    .unwrap();
     assert_eq!(manifest.hooks.pre_command.as_deref(), Some("pnpm install"));
     assert_eq!(manifest.hooks.skip, vec!["up", "down", "ps"]);
     assert_eq!(manifest.hooks.cache.as_ref().unwrap().key, "pnpm-lock.yaml");

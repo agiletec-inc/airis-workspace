@@ -1,11 +1,11 @@
-mod compose;
-mod services;
-mod traefik;
 mod build_ops;
-mod monitoring;
+mod compose;
 mod hooks;
+mod monitoring;
+mod services;
 #[cfg(test)]
 mod tests;
+mod traefik;
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
@@ -16,13 +16,15 @@ use std::process::Command;
 
 use crate::manifest::Manifest;
 
-use compose::{ensure_env_file, find_compose_file, orchestrated_down, orchestrated_up, run_post_up};
+use compose::{
+    ensure_env_file, find_compose_file, orchestrated_down, orchestrated_up, run_post_up,
+};
 use hooks::ensure_pre_command;
 use services::{display_compose_urls, display_service_urls};
 
 // Re-export public API
 pub use build_ops::{run_build_prod, run_build_quick, run_test_coverage};
-pub use monitoring::{run_ps, run_logs, run_exec, run_restart};
+pub use monitoring::{run_exec, run_logs, run_ps, run_restart};
 
 // Internal timing constants for health probes
 const TCP_CONNECT_TIMEOUT_MS: u64 = 200;

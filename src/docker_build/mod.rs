@@ -2,11 +2,11 @@
 //!
 //! Implements `airis build --docker <app>` functionality
 
+pub mod buildkit;
 pub mod cache;
 pub mod context;
 pub mod dockerfile;
 pub mod hash;
-pub mod buildkit;
 
 #[cfg(test)]
 mod tests;
@@ -15,9 +15,9 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 // Re-export public API
+pub use buildkit::docker_build;
 pub use cache::{cache_hit, cache_store};
 pub use hash::compute_content_hash;
-pub use buildkit::docker_build;
 
 /// Build configuration
 #[derive(Debug, Clone)]

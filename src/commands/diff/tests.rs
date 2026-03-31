@@ -1,7 +1,7 @@
 //! Tests for the diff command
 
-use super::compute::{compute_unified_diff, format_new_file_diff};
 use super::FileStatus;
+use super::compute::{compute_unified_diff, format_new_file_diff};
 
 #[test]
 fn test_file_status_serialize() {

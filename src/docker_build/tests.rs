@@ -5,11 +5,11 @@ mod tests {
     use std::collections::BTreeMap;
     use tempfile::tempdir;
 
+    use crate::channel::{RuntimeFamily, Toolchain};
     use crate::docker_build::cache::{cache_dir, cache_hit, cache_store};
     use crate::docker_build::dockerfile::{detect_nextjs, generate_dockerfile_for_toolchain};
     use crate::docker_build::hash::compute_hash;
     use crate::docker_build::{BuildConfig, CachedArtifact};
-    use crate::channel::{RuntimeFamily, Toolchain};
 
     fn toolchain(family: RuntimeFamily, image: &str, version: &str) -> Toolchain {
         Toolchain {
@@ -103,8 +103,7 @@ mod tests {
     #[test]
     fn test_generate_nextjs_dockerfile() {
         let tc = toolchain(RuntimeFamily::Node, "node:22-alpine", "22");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/web", &tc, &BTreeMap::new());
+        let dockerfile = generate_dockerfile_for_toolchain("apps/web", &tc, &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM node:22-alpine"));
         assert!(dockerfile.contains("apps/web"));
@@ -116,8 +115,7 @@ mod tests {
     #[test]
     fn test_generate_bun_dockerfile() {
         let tc = toolchain(RuntimeFamily::Bun, "oven/bun:1.1-alpine", "1.1");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
+        let dockerfile = generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM oven/bun:1.1-alpine"));
         assert!(dockerfile.contains("bun install"));
@@ -127,8 +125,7 @@ mod tests {
     #[test]
     fn test_generate_rust_dockerfile() {
         let tc = toolchain(RuntimeFamily::Rust, "rust:latest", "latest");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/cli", &tc, &BTreeMap::new());
+        let dockerfile = generate_dockerfile_for_toolchain("apps/cli", &tc, &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM rust:"));
         assert!(dockerfile.contains("cargo build --release"));
@@ -138,8 +135,7 @@ mod tests {
     #[test]
     fn test_generate_python_dockerfile() {
         let tc = toolchain(RuntimeFamily::Python, "python:latest", "latest");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
+        let dockerfile = generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM python:"));
         assert!(dockerfile.contains("pip install"));
@@ -149,8 +145,7 @@ mod tests {
     #[test]
     fn test_generate_deno_dockerfile() {
         let tc = toolchain(RuntimeFamily::Deno, "denoland/deno:alpine", "latest");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
+        let dockerfile = generate_dockerfile_for_toolchain("apps/api", &tc, &BTreeMap::new());
 
         assert!(dockerfile.contains("FROM denoland/deno:alpine"));
         assert!(dockerfile.contains("deno"));
@@ -162,8 +157,7 @@ mod tests {
         build_args.insert("API_KEY".to_string(), "secret".to_string());
 
         let tc = toolchain(RuntimeFamily::Node, "node:22-alpine", "22");
-        let dockerfile =
-            generate_dockerfile_for_toolchain("apps/web", &tc, &build_args);
+        let dockerfile = generate_dockerfile_for_toolchain("apps/web", &tc, &build_args);
 
         assert!(dockerfile.contains("ARG API_KEY"));
     }
