@@ -858,4 +858,3 @@ fn test_profile_effective_role() {
     custom.role = Some("production".to_string());
     assert_eq!(custom.effective_role("stg"), "production");
 }
-

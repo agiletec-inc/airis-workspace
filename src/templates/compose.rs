@@ -367,7 +367,8 @@ impl TemplateEngine {
                         .unwrap_or(3000),
                 });
                 if let Some(ref hp) = svc.healthcheck {
-                    val["health_path"] = serde_json::json!(hp.test.get(1).unwrap_or(&String::new()));
+                    val["health_path"] =
+                        serde_json::json!(hp.test.get(1).unwrap_or(&String::new()));
                 }
                 val
             })
