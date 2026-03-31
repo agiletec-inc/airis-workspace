@@ -183,38 +183,38 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         if matches!(task, "up" | "down")
             && let Some(compose_file) = find_compose_file()
         {
-                if task == "up" {
-                    ensure_env_file();
-                }
-                let action = if task == "up" {
-                    "up -d --build --remove-orphans"
-                } else {
-                    "down"
-                };
-                let extra = if extra_args.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {}", extra_args.join(" "))
-                };
-                let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
+            if task == "up" {
+                ensure_env_file();
+            }
+            let action = if task == "up" {
+                "up -d --build --remove-orphans"
+            } else {
+                "down"
+            };
+            let extra = if extra_args.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", extra_args.join(" "))
+            };
+            let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
 
-                println!("🚀 Running: {}", cmd.cyan());
+            println!("🚀 Running: {}", cmd.cyan());
 
-                let status = if cfg!(target_os = "windows") {
-                    Command::new("cmd").args(["/C", &cmd]).status()
-                } else {
-                    Command::new("sh").arg("-c").arg(&cmd).status()
-                }
-                .with_context(|| format!("Failed to execute: {}", cmd))?;
+            let status = if cfg!(target_os = "windows") {
+                Command::new("cmd").args(["/C", &cmd]).status()
+            } else {
+                Command::new("sh").arg("-c").arg(&cmd).status()
+            }
+            .with_context(|| format!("Failed to execute: {}", cmd))?;
 
-                if !status.success() {
-                    bail!("Command failed with exit code: {:?}", status.code());
-                }
-                if task == "up" {
-                    println!("\n{}", "✅ All services started!".green().bold());
-                    display_compose_urls(&[compose_file.to_string()]);
-                }
-                return Ok(());
+            if !status.success() {
+                bail!("Command failed with exit code: {:?}", status.code());
+            }
+            if task == "up" {
+                println!("\n{}", "✅ All services started!".green().bold());
+                display_compose_urls(&[compose_file.to_string()]);
+            }
+            return Ok(());
         }
 
         bail!(
