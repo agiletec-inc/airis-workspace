@@ -269,6 +269,7 @@ impl Manifest {
                 "pnpm".to_string(),
                 "bun".to_string(),
             ],
+            allow: vec![],
             wrap: IndexMap::new(),
             deny_with_message: IndexMap::new(),
             forbid: vec![
@@ -380,6 +381,7 @@ impl Manifest {
             external: IndexMap::new(),
             root: None,
             overrides: IndexMap::new(),
+            mcp: McpSection::default(),
         }
     }
 }

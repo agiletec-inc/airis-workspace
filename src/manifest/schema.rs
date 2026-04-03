@@ -118,6 +118,9 @@ pub struct Manifest {
     /// pnpm overrides (v2: replaces packages.root.pnpm.overrides)
     #[serde(default)]
     pub overrides: IndexMap<String, String>,
+    /// MCP Gateway configuration for this project
+    #[serde(default)]
+    pub mcp: McpSection,
 }
 
 /// Project metadata - Source of Truth for Cargo.toml, Homebrew formula, etc.
@@ -1335,7 +1338,17 @@ pub enum VersioningStrategy {
     ConventionalCommits,
 }
 
-/// Documentation management configuration
+/// MCP Gateway configuration for this project
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct McpSection {
+    /// MCP Gateway endpoint (e.g., "http://localhost:9400/sse")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    /// Active MCP server names for this project (e.g., ["context7", "supabase", "stripe"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub servers: Vec<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DocsSection {
     /// List of documentation files to manage (e.g., ["CLAUDE.md", ".cursorrules"])
@@ -1375,10 +1388,11 @@ fn default_docs_mode() -> DocsMode {
     DocsMode::Warn
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DocsMode {
     /// Warn and refuse to overwrite existing files
+    #[default]
     Warn,
     /// Create .bak backup before overwriting
     Backup,

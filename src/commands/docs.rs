@@ -273,6 +273,7 @@ fn render_adapter(manifest: &Manifest, target: &str) -> Result<String> {
             &sources,
             skills_source.as_deref(),
             hooks_policy.as_deref(),
+            &manifest.mcp.servers,
         )),
         "GEMINI.md" => Ok(render_gemini_md(
             &sources,
@@ -337,6 +338,7 @@ fn render_claude_md(
     sources: &[String],
     skills_source: Option<&str>,
     hooks_policy: Option<&str>,
+    mcp_servers: &[String],
 ) -> String {
     let mut lines = vec![
         "# CLAUDE.md".to_string(),
@@ -364,6 +366,10 @@ fn render_claude_md(
             "- Hook intent and shared guard policy live in `{}`; Claude-specific hook wiring may extend it but should not contradict it.",
             hooks_policy
         ));
+    }
+    if !mcp_servers.is_empty() {
+        lines.push("".to_string());
+        lines.push(format!("Active MCP servers: {}", mcp_servers.join(", ")));
     }
     lines.push("".to_string());
     lines.join("\n")
