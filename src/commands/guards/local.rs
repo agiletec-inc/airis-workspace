@@ -133,13 +133,7 @@ pub fn install() -> Result<()> {
         )
     } else {
         let mode = Mode::default();
-        let effective = merge_deny_list(
-            &global_config,
-            &repo_guards,
-            &[],
-            &[],
-            &mode,
-        );
+        let effective = merge_deny_list(&global_config, &repo_guards, &[], &[], &mode);
 
         (effective, IndexMap::new(), IndexMap::new(), mode)
     };
@@ -228,6 +222,44 @@ pub fn install() -> Result<()> {
     println!("  airis shell");
 
     Ok(())
+}
+
+/// Check if a command is allowed in the current repo.
+/// Used by global guard scripts: `airis guards check-allow <cmd>`
+/// Exit 0 = allowed (opt-out), Exit 1 = not allowed (block it)
+pub fn check_allow(cmd: &str) -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+    let global_config = GlobalConfig::load()?;
+    let repo_guards = load_repo_guards()?;
+
+    // Collect all allow sources
+    let mut allowed = false;
+
+    // Global allow
+    if global_config.guards.allow.iter().any(|c| c == cmd) {
+        allowed = true;
+    }
+
+    // Repo-level allow (.airis/guards.toml)
+    if repo_guards.allow.iter().any(|c| c == cmd) {
+        allowed = true;
+    }
+
+    // Manifest-level allow
+    if manifest_path.exists() {
+        if let Ok(manifest) = Manifest::load(manifest_path) {
+            if manifest.guards.allow.iter().any(|c| c == cmd) {
+                allowed = true;
+            }
+        }
+    }
+
+    if allowed {
+        // Exit 0 — command is allowed in this repo
+        Ok(())
+    } else {
+        anyhow::bail!("blocked");
+    }
 }
 
 /// Check if running inside Docker container (respects mode)

@@ -524,6 +524,12 @@ enum GuardsCommands {
     },
     /// Verify global guards are properly installed and active
     Verify,
+    /// Check if a command is allowed in the current repo (used by global guard scripts)
+    #[command(name = "check-allow")]
+    CheckAllow {
+        /// Command name to check
+        cmd: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -755,6 +761,7 @@ fn dispatch(command: Commands) -> Result<()> {
                 }
             }
             GuardsCommands::Verify => commands::guards::verify_global()?,
+            GuardsCommands::CheckAllow { cmd } => commands::guards::check_allow(&cmd)?,
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,

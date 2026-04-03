@@ -126,15 +126,21 @@ pub(super) fn install_global_guard(bin_dir: &Path, cmd: &str) -> Result<()> {
 
     // Global guard script that:
     // 1. Inside Docker/CI: pass through to real command
-    // 2. On host: always block (Docker-First enforcement)
+    // 2. On host: check repo-level opt-out via `airis guards check-allow`
+    // 3. On host (no opt-out): block (Docker-First enforcement)
     let content = format!(
         r#"#!/usr/bin/env bash
 # {GLOBAL_GUARD_MARKER}
 # DO NOT EDIT - managed by airis global guards
 
+# Helper: find the real command (excluding .airis/bin from PATH)
+find_real_cmd() {{
+    PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
+}}
+
 # Docker container: allow
 if [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ -f /.dockerenv ]]; then
-    REAL_CMD=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which {cmd} 2>/dev/null)
+    REAL_CMD=$(find_real_cmd {cmd})
     if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
         exec "$REAL_CMD" "$@"
     fi
@@ -143,19 +149,34 @@ fi
 
 # CI environment: allow
 if [[ "${{CI:-}}" == "true" ]] || [[ -n "${{GITHUB_ACTIONS:-}}" ]] || [[ -n "${{GITLAB_CI:-}}" ]]; then
-    REAL_CMD=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which {cmd} 2>/dev/null)
+    REAL_CMD=$(find_real_cmd {cmd})
     if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
         exec "$REAL_CMD" "$@"
     fi
     exit 127
 fi
 
-# Host: always block
+# Host: check repo-level opt-out (uses Rust TOML parser for correctness)
+if command -v airis &>/dev/null; then
+    if airis guards check-allow {cmd} 2>/dev/null; then
+        REAL_CMD=$(find_real_cmd {cmd})
+        if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
+            exec "$REAL_CMD" "$@"
+        fi
+        exit 127
+    fi
+fi
+
+# Host: block
 echo "❌ '{cmd}' is blocked on this machine (Docker-First)."
 echo ""
 echo "Use airis commands instead:"
 echo "  airis up      # Start all services (docker compose up + build)"
 echo "  airis shell   # Enter container shell"
+echo ""
+echo "To allow '{cmd}' in this repo, add to .airis/guards.toml:"
+echo "  [guards]"
+echo "  allow = [\"{cmd}\"]"
 echo ""
 echo "To manage guards:"
 echo "  airis guards --global status     # Check status"
