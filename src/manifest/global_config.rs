@@ -22,6 +22,7 @@ impl Default for GlobalGuardsSection {
     fn default() -> Self {
         GlobalGuardsSection {
             deny: default_global_deny(),
+            allow: Vec::new(),
         }
     }
 }
