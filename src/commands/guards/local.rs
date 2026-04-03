@@ -246,12 +246,11 @@ pub fn check_allow(cmd: &str) -> Result<()> {
     }
 
     // Manifest-level allow
-    if manifest_path.exists() {
-        if let Ok(manifest) = Manifest::load(manifest_path) {
-            if manifest.guards.allow.iter().any(|c| c == cmd) {
-                allowed = true;
-            }
-        }
+    if manifest_path.exists()
+        && let Ok(manifest) = Manifest::load(manifest_path)
+        && manifest.guards.allow.iter().any(|c| c == cmd)
+    {
+        allowed = true;
     }
 
     if allowed {
