@@ -2,7 +2,7 @@
 
 Complete reference for the `manifest.toml` file used by the airis CLI -- a Docker-first monorepo workspace manager.
 
-`manifest.toml` is the single source of truth for the entire workspace. All generated files (`package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `Cargo.toml`) are derived from it. Never edit generated files directly; change `manifest.toml` and run `airis gen`.
+`manifest.toml` is the single source of truth for the entire workspace. All generated files (`package.json`, `pnpm-workspace.yaml`, `compose.yml`, `tsconfig.json`) are derived from it. Never edit generated files directly; change `manifest.toml` and run `airis gen`.
 
 ---
 
@@ -29,6 +29,7 @@ Complete reference for the `manifest.toml` file used by the airis CLI -- a Docke
 - [\[templates\]](#templates)
 - [\[runtimes\]](#runtimes)
 - [\[env\]](#env)
+- [\[secrets\]](#secrets)
 - [\[rule.\<name\>\]](#rulename)
 - [\[orchestration\]](#orchestration)
 
@@ -511,17 +512,29 @@ source = "1.56.0"
 
 ## [docs]
 
-Documentation file management. Controls how airis handles documentation generation and overwrites.
+AI documentation publication. Controls how airis generates vendor adapter files from shared project docs.
 
-| Field     | Type     | Default  | Description                                        |
-|-----------|----------|----------|----------------------------------------------------|
-| `targets` | string[] | `[]`     | Documentation files to manage (e.g., `["CLAUDE.md"]`). |
-| `mode`    | string   | `"warn"` | Overwrite mode: `"warn"` (refuse) or `"backup"` (create `.bak`). |
+| Field           | Type     | Default  | Description |
+|----------------|----------|----------|-------------|
+| `targets`      | string[] | `[]`     | Explicit adapter files to generate. If omitted, airis derives targets from `vendors`. |
+| `mode`         | string   | `"warn"` | Overwrite mode: `"warn"` (refuse) or `"backup"` (create `.bak`). |
+| `sources`      | string[] | `[]`     | Shared AI instruction files that act as the source of truth. |
+| `vendors`      | string[] | `[]`     | Vendor adapters to generate. Supported values: `"codex"`, `"claude"`, `"gemini"`. |
+| `skills_source`| string?  | `null`   | Shared playbook or skill source directory. |
+| `hooks_policy` | string?  | `null`   | Shared hook-policy document for portable guard intent. |
 
 ```toml
 [docs]
-targets = ["CLAUDE.md", ".cursorrules"]
 mode = "backup"
+sources = [
+  "docs/ai/PROJECT_RULES.md",
+  "docs/ai/WORKFLOW.md",
+  "docs/ai/REVIEW.md",
+  "docs/ai/STACK.md",
+]
+vendors = ["codex", "claude", "gemini"]
+skills_source = "docs/ai/playbooks"
+hooks_policy = "docs/ai/hooks/HOOKS_POLICY.md"
 ```
 
 ---
@@ -667,6 +680,36 @@ example = "postgresql://user:pass@localhost:5432/mydb"
 description = "External API key"
 example = "sk-xxxxxxxxxxxxxxxxxxxx"
 ```
+
+---
+
+## [secrets]
+
+Secret provider configuration. When configured, `airis up` wraps Docker Compose with the provider CLI to inject environment variables automatically.
+
+| Field      | Type    | Default | Description                                      |
+|------------|---------|---------|--------------------------------------------------|
+| `provider` | string  | —       | Provider name. Currently supported: `"doppler"`. |
+
+### [secrets.doppler]
+
+Required when `provider = "doppler"`.
+
+| Field     | Type   | Default | Description                                           |
+|-----------|--------|---------|-------------------------------------------------------|
+| `project` | string | —       | Doppler project name.                                 |
+| `config`  | string | —       | Doppler config name (e.g., `"dev"`, `"stg"`, `"prd"`). |
+
+```toml
+[secrets]
+provider = "doppler"
+
+[secrets.doppler]
+project = "my-project"
+config = "dev"
+```
+
+When configured, `airis up` becomes `doppler run --project my-project --config dev -- docker compose up ...`. The lockfile sync fallback also uses the provider when the workspace container is not running.
 
 ---
 

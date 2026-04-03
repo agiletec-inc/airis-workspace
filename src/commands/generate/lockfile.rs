@@ -9,8 +9,8 @@ use crate::manifest::Manifest;
 /// Runs via Docker if mode is docker-first, otherwise directly.
 ///
 /// In docker-first mode: tries `docker compose exec` first (fast, uses running container).
-/// If the container is not running, falls back to `docker compose run --rm` (starts a
-/// temporary container, slower but always works without requiring `airis up` first).
+/// If the container is not running, falls back to secret-provider-wrapped `docker compose run`
+/// or a lightweight `docker run` as a last resort.
 pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
     use std::process::Command;
 
@@ -61,16 +61,21 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         match exec_status {
             Ok(s) if s.success() => Ok(s),
             _ => {
-                // Container not running — use doppler + docker compose run to inject env vars
-                println!(
-                    "   {} container not running, trying with doppler...",
-                    "↻".yellow()
-                );
-                let doppler_status = Command::new("doppler")
-                    .args([
-                        "run",
-                        "--",
-                        "docker",
+                // Container not running — try with secret provider if configured
+                let provider = manifest
+                    .secrets
+                    .as_ref()
+                    .and_then(|s| crate::secrets::create_provider(s).ok());
+
+                if let Some(ref provider) = provider
+                    && provider.is_available()
+                {
+                    println!(
+                        "   {} container not running, trying with {}...",
+                        "↻".yellow(),
+                        provider.name()
+                    );
+                    let base_args = [
                         "compose",
                         "run",
                         "--rm",
@@ -80,35 +85,34 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
                         "pnpm",
                         "install",
                         "--lockfile-only",
-                    ])
-                    .status();
+                    ];
+                    let (program, wrapped_args) = provider.wrap_command("docker", &base_args);
+                    let provider_status = Command::new(&program).args(&wrapped_args).status();
 
-                match doppler_status {
-                    Ok(s) if s.success() => Ok(s),
-                    _ => {
-                        // Doppler not available — use lightweight docker run with base image
-                        println!(
-                            "   {} doppler unavailable, using docker run...",
-                            "↻".yellow()
-                        );
-                        let pm = &manifest.workspace.package_manager;
-                        let image = &manifest.workspace.image;
-                        Command::new("docker")
-                            .args([
-                                "run",
-                                "--rm",
-                                "-v",
-                                &format!("{}:/app", std::env::current_dir()?.display()),
-                                "-w",
-                                "/app",
-                                image,
-                                "sh",
-                                "-c",
-                                &format!("npm install -g {} && pnpm install --lockfile-only", pm),
-                            ])
-                            .status()
+                    match provider_status {
+                        Ok(s) if s.success() => return report_status(Ok(s)),
+                        _ => {} // fall through to docker run
                     }
                 }
+
+                // Last resort — use lightweight docker run with base image
+                println!("   {} using docker run fallback...", "↻".yellow());
+                let pm = &manifest.workspace.package_manager;
+                let image = &manifest.workspace.image;
+                Command::new("docker")
+                    .args([
+                        "run",
+                        "--rm",
+                        "-v",
+                        &format!("{}:/app", std::env::current_dir()?.display()),
+                        "-w",
+                        "/app",
+                        image,
+                        "sh",
+                        "-c",
+                        &format!("npm install -g {} && pnpm install --lockfile-only", pm),
+                    ])
+                    .status()
             }
         }
     } else {
@@ -118,6 +122,10 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
             .status()
     };
 
+    report_status(status)
+}
+
+fn report_status(status: std::io::Result<std::process::ExitStatus>) -> Result<()> {
     match status {
         Ok(s) if s.success() => {
             println!("   {} pnpm-lock.yaml synced", "✓".green());

@@ -1,12 +1,14 @@
 mod schema;
 // pub(crate) so tests submodule can reach validation::levenshtein_distance
 mod global_config;
+pub(crate) mod lock;
 pub(crate) mod validation;
 
 #[cfg(test)]
 mod tests;
 
 pub use global_config::*;
+pub use lock::*;
 pub use schema::*;
 
 use std::fs;
@@ -369,7 +371,7 @@ impl Manifest {
             templates: TemplatesSection::default(),
             runtimes: RuntimesSection::default(),
             env: EnvSection::default(),
-            inject: IndexMap::new(),
+            secrets: None,
             typescript: TypescriptSection::default(),
             profile: IndexMap::new(),
             dep_group: IndexMap::new(),

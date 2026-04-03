@@ -8,7 +8,7 @@
 
 ![airis demo](assets/airis-demo.gif)
 
-One manifest file. Every config generated. Your AI pair-programmer stays inside the container where it belongs.
+One manifest file. Compose, packages, and workspace config — all generated. Your AI pair-programmer stays inside the container where it belongs.
 
 ---
 
@@ -22,9 +22,9 @@ We wanted Docker-first development for one simple reason: **reproducibility** �
 
 2. **It picks the wrong tool.** Your project uses pnpm, but the AI reaches for npm or yarn. Now you have a `package-lock.json` sitting next to your `pnpm-lock.yaml`.
 
-3. **Docker boilerplate is fragile.** Manually wiring `turbo prune` into multi-stage Dockerfiles, keeping `compose.yml` volumes in sync, making sure `node_modules` and pnpm store never leak onto the host — one mistake and your "Docker-first" setup is Docker-in-name-only.
+3. **Docker boilerplate is fragile.** Manually wiring compose volumes, keeping `compose.yml` in sync with your workspace structure, making sure `node_modules` and pnpm store never leak onto the host — one mistake and your "Docker-first" setup is Docker-in-name-only.
 
-We fixed these one at a time. Command guards that block `npm`/`yarn` and redirect `pnpm` through Docker. A manifest that generates Dockerfiles, compose configs, and CI workflows so the boilerplate can't drift. Named volumes that structurally prevent dependency leakage.
+We fixed these one at a time. Command guards that block `npm`/`yarn` and redirect `pnpm` through Docker. A manifest that generates compose configs, workspace files, and dependency catalogs so the boilerplate can't drift. Named volumes that structurally prevent dependency leakage.
 
 The result is airis — not a replacement for Turborepo or NX (we use Turborepo ourselves and `turbo prune` internally), but **the layer that keeps Docker-first actually working** when your AI pair-programmer has a short memory.
 
@@ -39,31 +39,6 @@ The result is airis — not a replacement for Turborepo or NX (we use Turborepo 
 └─────────────────────────────────────────────┘
 ```
 
-## The AIRIS Stack
-
-The gap between human-era tooling and AI-native development isn't just one tool wide. When you code with AI, every layer — workspace config, tool access, memory — needs structure the AI can rely on even after context compression. AIRIS is a suite that fills these gaps. Each component extends what already exists instead of replacing it.
-
-```
-┌─────────────────────────────────────────────────────┐
-│                  Your Editor                        │
-│            (Claude Code / Cursor / …)               │
-├──────────┬──────────┬──────────┬────────────────────┤
-│  airis   │  airis   │  airis   │    mindbase        │
-│          │  agent   │  mcp     │                    │
-│ Workspace│  LLM     │ gateway  │  Cross-session     │
-│ Manager  │  Layer   │          │  Memory            │
-└──────────┴──────────┴──────────┴────────────────────┘
-```
-
-| Component | What it does |
-|-----------|-------------|
-| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → Dockerfile, compose.yml, CI workflows. Command guards keep AI inside Docker. |
-| **[airis-agent](https://github.com/agiletec-inc/airis-agent)** | LLM intelligence layer for editors. |
-| **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy — 60+ tools through 3 meta-endpoints. 90% token reduction so the AI keeps more context for your code. |
-| **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory. What the AI learned yesterday is still there today. |
-
-Every component follows the same principle: **extend your existing tools, don't replace them.** airis wraps Turborepo. airis-mcp-gateway proxies your MCP servers. mindbase plugs into any editor. Nothing asks you to throw away what already works.
-
 ---
 
 ## How It Works
@@ -73,8 +48,10 @@ Every component follows the same principle: **extend your existing tools, don't 
 ```
 manifest.toml  ──  airis gen  ──▶  package.json
                                    pnpm-workspace.yaml
-                                   Dockerfile
-                                   docker-compose.yml
+                                   compose.yml
+                                   tsconfig.json
+                                   per-app package.json
+                                   .npmrc
                                    .github/workflows/
 ```
 
@@ -99,7 +76,7 @@ deny = ["npm", "yarn", "pnpm", "bun"]
 ```
 
 ```bash
-airis gen    # generates package.json, compose.yml, Dockerfile, CI workflows
+airis gen    # generates compose.yml, package.json, tsconfig, CI workflows
 airis up     # builds containers, installs deps inside Docker, starts services
 ```
 
@@ -137,9 +114,44 @@ zod = "^3.22"           # → ^3.22 (as-is)
 
 Every workspace member gets the same versions. No divergence between teammates.
 
+### Secrets management
+
+Inject secrets from external providers on `airis up`. No more sharing `.env` files over DM.
+
+```toml
+[secrets]
+provider = "doppler"
+
+[secrets.doppler]
+project = "my-project"
+config = "dev"
+```
+
+airis wraps `docker compose` with the provider CLI, so environment variables are injected automatically. Swap providers by changing `provider` — the rest of your config stays the same.
+
 ---
 
 ## Quick Start
+
+### Install
+
+From crates.io:
+
+```bash
+cargo install airis
+```
+
+Pre-built binaries (macOS ARM/Intel, Linux x64/ARM, Windows):
+
+```bash
+curl -fsSL https://github.com/agiletec-inc/airis-monorepo/releases/latest/download/install.sh | bash
+```
+
+From source:
+
+```bash
+cargo install --git https://github.com/agiletec-inc/airis-monorepo
+```
 
 ### New project
 
@@ -170,31 +182,22 @@ airis up               # start everything
 
 ---
 
-## Install
-
-### From crates.io
-
-```bash
-cargo install airis
-```
-
-### Pre-built binaries
-
-macOS (ARM/Intel), Linux (x64/ARM), and Windows:
-
-```bash
-curl -fsSL https://github.com/agiletec-inc/airis-monorepo/releases/latest/download/install.sh | bash
-```
-
-### From source
-
-```bash
-cargo install --git https://github.com/agiletec-inc/airis-monorepo
-```
-
----
-
 ## Features
+
+### Config Generation
+
+`airis gen` generates the following from `manifest.toml`:
+
+| File | Purpose |
+|------|---------|
+| `package.json` | Root workspace package with catalog versions |
+| `pnpm-workspace.yaml` | Workspace member discovery |
+| `compose.yml` | Docker Compose for services and workspace |
+| `tsconfig.json` / `tsconfig.base.json` | TypeScript project references |
+| Per-app `package.json` | App-level dependencies from catalog |
+| `.npmrc` | pnpm store isolation inside container |
+| `.env.example` | Environment variable template |
+| `.github/workflows/` | CI/CD pipelines |
 
 ### Framework Auto-Detection
 
@@ -204,9 +207,9 @@ cargo install --git https://github.com/agiletec-inc/airis-monorepo
 
 airis tracks three levels of file ownership:
 
-- **Tool-owned** — fully managed, regenerated on `airis gen` (package.json, compose.yml, Dockerfile)
+- **Tool-owned** — fully managed, regenerated on `airis gen` (package.json, compose.yml, tsconfig)
 - **Hybrid** — specific fields are managed, your edits are preserved (per-app package.json)
-- **User-owned** — never touched (manifest.toml, tsconfig.json, README.md)
+- **User-owned** — never touched (manifest.toml, README.md, source code)
 
 Automatic backups in `.airis/backups/` before any modification.
 
@@ -229,6 +232,14 @@ airis build --affected --docker    # build only changed projects
 
 AI runs `docker compose up` — airis translates it to `airis up` (which includes `--build` for dependency installation). Transparent and automatic.
 
+### Project Scaffolding
+
+```bash
+airis new web my-app       # scaffold a new Next.js app
+airis new api my-service   # scaffold a new API service
+airis new lib my-lib       # scaffold a shared library
+```
+
 ### Works With Your Stack
 
 airis wraps whatever commands you define. Zero assumptions about your stack:
@@ -236,7 +247,7 @@ airis wraps whatever commands you define. Zero assumptions about your stack:
 - **Build tools**: NX, Turborepo, Bazel, plain scripts
 - **Deploy targets**: Vercel, Railway, Fly.io, bare metal
 - **Runtimes**: Node.js, Bun, Deno, Rust, Python
-- **Env management**: Doppler, `.env`, Docker Secrets
+- **Secrets**: Doppler, `.env`, Docker Secrets
 
 ---
 
@@ -272,6 +283,36 @@ down = "docker compose down --remove-orphans"
 ps = "docker compose ps"
 ```
 
+### Secrets example
+
+```toml
+[secrets]
+provider = "doppler"
+
+[secrets.doppler]
+project = "my-project"
+config = "dev"
+```
+
+When `[secrets]` is configured, `airis up` wraps Docker Compose with the provider CLI to inject environment variables automatically.
+
+---
+
+## CLI Reference
+
+| Category | Commands |
+|----------|----------|
+| **Setup** | `init`, `gen`, `upgrade` |
+| **Docker** | `up`, `down`, `ps`, `logs`, `exec`, `restart`, `shell`, `network` |
+| **Development** | `build`, `test`, `lint`, `format`, `typecheck`, `run` |
+| **Analysis** | `doctor`, `diff`, `affected`, `deps`, `validate`, `verify` |
+| **Scaffolding** | `new` |
+| **Deployment** | `bundle`, `bump-version`, `policy` |
+| **Guards** | `guards install`, `shim`, `hooks` |
+| **Docs** | `docs sync` |
+
+Run `airis --help` or `airis <command> --help` for details.
+
 ---
 
 ## Project Structure
@@ -281,7 +322,7 @@ my-monorepo/
   manifest.toml           # single source of truth (edit this)
   package.json            # auto-generated (DO NOT EDIT)
   pnpm-workspace.yaml     # auto-generated (DO NOT EDIT)
-  docker-compose.yml      # auto-generated (DO NOT EDIT)
+  compose.yml             # auto-generated (DO NOT EDIT)
   apps/
     dashboard/
     api/
@@ -289,6 +330,31 @@ my-monorepo/
     ui/
     db/
 ```
+
+---
+
+## Ecosystem
+
+airis is part of a broader toolkit for AI-assisted development. Each component extends your existing tools instead of replacing them.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                  Your Editor                        │
+│            (Claude Code / Cursor / …)               │
+├──────────┬──────────┬──────────┬────────────────────┤
+│  airis   │  airis   │  airis   │    mindbase        │
+│          │  agent   │  mcp     │                    │
+│ Workspace│  LLM     │ gateway  │  Cross-session     │
+│ Manager  │  Layer   │          │  Memory            │
+└──────────┴──────────┴──────────┴────────────────────┘
+```
+
+| Component | What it does |
+|-----------|-------------|
+| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → compose.yml, package.json, CI workflows. Command guards keep AI inside Docker. |
+| **[airis-agent](https://github.com/agiletec-inc/airis-agent)** | LLM intelligence layer for editors. |
+| **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy — 60+ tools through 3 meta-endpoints. 90% token reduction so the AI keeps more context for your code. |
+| **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory. What the AI learned yesterday is still there today. |
 
 ---
 

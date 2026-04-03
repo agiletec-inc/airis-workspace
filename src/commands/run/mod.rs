@@ -1,5 +1,5 @@
 mod build_ops;
-mod compose;
+pub(crate) mod compose;
 mod hooks;
 mod monitoring;
 mod services;
@@ -225,9 +225,33 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
     let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
 
+    // Create secret provider if configured
+    let secret_provider: Option<Box<dyn crate::secrets::SecretProvider>> =
+        if let Some(ref secrets) = manifest.secrets {
+            let provider = crate::secrets::create_provider(secrets)?;
+            if !provider.is_available() {
+                eprintln!(
+                    "   {} secrets provider '{}' is configured but not available on this system",
+                    "⚠️".yellow(),
+                    provider.name()
+                );
+                None
+            } else {
+                Some(provider)
+            }
+        } else {
+            None
+        };
+
     if !manifest.commands.contains_key(task) && has_orchestration(&manifest) {
         match task {
-            "up" => return orchestrated_up(&manifest, extra_args),
+            "up" => {
+                return orchestrated_up(
+                    &manifest,
+                    extra_args,
+                    secret_provider.as_ref().map(|p| p.as_ref()),
+                );
+            }
             "down" => return orchestrated_down(&manifest),
             _ => {}
         }
@@ -308,6 +332,14 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
     if task == "up" {
         println!("\n{}", "✅ All services started!".green().bold());
+
+        // Converge: Automatic install inside Docker
+        let _ = crate::commands::install::run(&[]);
+
+        // Check health but don't force fix (let the user decide)
+        println!("\n{}", "🛡️  Checking workspace boundaries...".dimmed());
+        let _ = crate::commands::doctor::run(false);
+
         run_post_up(&manifest);
         display_service_urls(&manifest)?;
     }

@@ -88,9 +88,9 @@ pub struct Manifest {
     /// Environment variable validation
     #[serde(default)]
     pub env: EnvSection,
-    /// Value injection into user-owned files via `# airis:inject <key>` markers
+    /// Secret provider configuration (e.g., Doppler)
     #[serde(default)]
-    pub inject: IndexMap<String, InjectValue>,
+    pub secrets: Option<SecretsSection>,
     /// TypeScript configuration for tsconfig generation
     #[serde(default)]
     pub typescript: TypescriptSection,
@@ -629,6 +629,10 @@ pub struct GuardsSection {
     #[serde(default)]
     pub deny: Vec<String>,
 
+    /// Commands to allow (opt-out from global deny list for this repo)
+    #[serde(default)]
+    pub allow: Vec<String>,
+
     /// Commands to wrap with Docker execution
     /// e.g., {"pnpm": "docker compose exec workspace pnpm"}
     #[serde(default)]
@@ -758,6 +762,36 @@ pub struct EnvSection {
     /// Validation rules for specific variables
     #[serde(default)]
     pub validation: IndexMap<String, EnvValidation>,
+}
+
+// ── Secret provider configuration ────────────────────────────
+
+/// Secret provider configuration for injecting env vars into compose services.
+///
+/// ```toml
+/// [secrets]
+/// provider = "doppler"
+///
+/// [secrets.doppler]
+/// project = "my-project"
+/// config = "dev"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SecretsSection {
+    /// Provider name: "doppler", etc.
+    pub provider: String,
+    /// Doppler-specific configuration (required when provider == "doppler")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub doppler: Option<DopplerSecretsConfig>,
+}
+
+/// Doppler provider configuration.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DopplerSecretsConfig {
+    /// Doppler project name
+    pub project: String,
+    /// Doppler config name (e.g., "dev", "stg", "prd")
+    pub config: String,
 }
 
 /// Validation rules for an environment variable
@@ -1255,6 +1289,11 @@ pub struct OrchestrationDev {
     pub supabase: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
+    /// Global restart policy override for dev compose (e.g., "no").
+    /// When set, all services in dev compose use this instead of
+    /// their per-service `restart` value (which is for deploy).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restart: Option<String>,
 }
 
 /// Version management configuration
@@ -1305,6 +1344,18 @@ pub struct DocsSection {
     /// Overwrite mode: "warn" (default) or "backup"
     #[serde(default = "default_docs_mode")]
     pub mode: DocsMode,
+    /// Shared AI instruction files used as the source of truth.
+    #[serde(default)]
+    pub sources: Vec<String>,
+    /// Vendor adapters to generate from shared sources.
+    #[serde(default)]
+    pub vendors: Vec<DocsVendor>,
+    /// Optional shared playbook directory for skills or task-specific docs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skills_source: Option<String>,
+    /// Optional policy file that describes portable hook intent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks_policy: Option<String>,
 }
 
 impl Default for DocsSection {
@@ -1312,6 +1363,10 @@ impl Default for DocsSection {
         DocsSection {
             targets: vec![],
             mode: default_docs_mode(),
+            sources: vec![],
+            vendors: vec![],
+            skills_source: None,
+            hooks_policy: None,
         }
     }
 }
@@ -1327,6 +1382,14 @@ pub enum DocsMode {
     Warn,
     /// Create .bak backup before overwriting
     Backup,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DocsVendor {
+    Codex,
+    Claude,
+    Gemini,
 }
 
 /// CI/CD configuration
@@ -1771,20 +1834,4 @@ pub struct RuntimesSection {
     /// Short aliases for runtimes (e.g., "py" -> "fastapi", "ts" -> "hono")
     #[serde(default)]
     pub alias: IndexMap<String, String>,
-}
-
-// ── Value injection types ────────────────────────────────────
-
-/// Value to inject into files via `# airis:inject <key>` markers.
-///
-/// Simple form:  `playwright_image = "mcr.microsoft.com/playwright:v1.58.0-noble"`
-/// Template form: `playwright_image = { template = "mcr.microsoft.com/playwright:v{version}-noble", from_catalog = "@playwright/test" }`
-#[derive(Debug, Deserialize, Serialize, Clone)]
-#[serde(untagged)]
-pub enum InjectValue {
-    Simple(String),
-    Template {
-        template: String,
-        from_catalog: String,
-    },
 }

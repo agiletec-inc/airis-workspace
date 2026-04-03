@@ -123,15 +123,31 @@ impl TemplateEngine {
             .map(|n| n.default_external)
             .unwrap_or(false);
 
-        // Auto-generate artifact isolation volumes from workspace.clean.dirs + package paths
+        // Auto-generate artifact isolation volumes from workspace.clean.dirs + recursive patterns
         let workdir = &manifest.workspace.workdir;
         let clean_dirs = &manifest.workspace.clean.dirs;
+        let recursive_dirs = &manifest.workspace.clean.recursive;
         let package_paths = manifest.all_workspace_paths_in(root);
 
         let mut artifact_volume_mounts: Vec<String> = Vec::new();
         let mut artifact_volume_names: Vec<String> = Vec::new();
+
+        // 1. Root level isolation (always isolated)
+        for dir in recursive_dirs {
+            let dir_clean = dir.trim_start_matches('.');
+            let vol_name = format!("ws_{}_root", dir_clean);
+            let target = root_artifact_mount_target(workdir, dir);
+            let mount = format!("{}:{}", vol_name, target);
+            artifact_volume_mounts.push(mount);
+            artifact_volume_names.push(vol_name);
+        }
+
+        // 2. Per-package isolation
         for pkg_path in &package_paths {
-            for dir in clean_dirs {
+            // Include both static dirs (.next, dist) and recursive patterns (node_modules)
+            let all_dirs = clean_dirs.iter().chain(recursive_dirs.iter());
+
+            for dir in all_dirs {
                 let dir_clean = dir.trim_start_matches('.');
                 let path_clean = pkg_path.replace(['/', '-'], "_");
                 let vol_name = format!("ws_{}_{}", dir_clean, path_clean);
@@ -146,12 +162,9 @@ impl TemplateEngine {
         // Build services
         let mut services = IndexMap::new();
         for (name, svc) in &manifest.service {
-            // Merge artifact volumes into services that have a build config
-            let merged_volumes = if svc.build.is_some() {
-                [artifact_volume_mounts.clone(), svc.volumes.clone()].concat()
-            } else {
-                svc.volumes.clone()
-            };
+            // STRATEGY: Always inject artifact volumes into workspace services
+            // to prevent host contamination during any dev operation.
+            let merged_volumes = [artifact_volume_mounts.clone(), svc.volumes.clone()].concat();
 
             // Resolve env_groups into env map
             let mut resolved_env = IndexMap::new();
@@ -250,7 +263,12 @@ impl TemplateEngine {
                     environment: resolved_env,
                     volumes: merged_volumes,
                     shm_size: svc.shm_size.clone(),
-                    restart: svc.restart.clone(),
+                    restart: manifest
+                        .orchestration
+                        .dev
+                        .as_ref()
+                        .and_then(|d| d.restart.clone())
+                        .or_else(|| svc.restart.clone()),
                     runtime: svc.runtime.clone(),
                     devices: svc.devices.clone(),
                     network_mode: svc.network_mode.clone(),
@@ -382,5 +400,13 @@ impl TemplateEngine {
             "services": services,
             "volume_names": volume_names,
         }))
+    }
+}
+
+fn root_artifact_mount_target(workdir: &str, dir: &str) -> String {
+    match dir {
+        ".pnpm" => "/pnpm/virtual-store".to_string(),
+        ".pnpm-store" => "/pnpm/store".to_string(),
+        _ => format!("{}/{}", workdir, dir),
     }
 }

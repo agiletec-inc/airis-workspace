@@ -12,6 +12,10 @@ pub struct GlobalGuardsSection {
     /// Commands to block outside of airis projects
     #[serde(default = "default_global_deny")]
     pub deny: Vec<String>,
+
+    /// Commands to allow globally (opt-out from deny list)
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 impl Default for GlobalGuardsSection {

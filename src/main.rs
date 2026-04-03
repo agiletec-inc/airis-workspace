@@ -12,6 +12,7 @@ mod pnpm;
 mod preset;
 mod remote_cache;
 mod safe_fs;
+mod secrets;
 mod templates;
 #[cfg(test)]
 mod test_lock;
@@ -42,7 +43,7 @@ The Docker-first monorepo manager for the vibe coding era.
 One manifest file. Every config generated. Your AI pair-programmer stays inside \
 the container where it belongs.
 
-airis generates Dockerfile, compose.yml, package.json, pnpm-workspace.yaml, and \
+airis generates compose.yml, package.json, pnpm-workspace.yaml, tsconfig, and \
 CI/CD workflows from a single manifest.toml. Command guards keep AI agents from \
 running package managers on the host or picking the wrong tool.
 
@@ -180,6 +181,17 @@ enum Commands {
     /// Extra args are forwarded to docker compose (e.g., --no-cache, --force-recreate).
     Up {
         /// Extra arguments forwarded to docker compose (e.g., --no-cache, --force-recreate)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
+
+    /// Install dependencies inside Docker container.
+    ///
+    /// Runs the package manager specified in manifest.toml inside the
+    /// workspace container. This is the only way to install dependencies
+    /// while keeping the host clean.
+    Install {
+        /// Extra arguments passed to the package manager
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
     },
@@ -540,11 +552,13 @@ enum ShimCommands {
 
 #[derive(Subcommand)]
 enum DocsCommands {
-    /// Wrap a documentation file to point to manifest.toml
+    /// Generate a vendor adapter file from shared AI docs
     Wrap {
-        /// File to wrap (CLAUDE.md, .cursorrules, GEMINI.md, AGENTS.md)
+        /// Adapter file to generate (CLAUDE.md, .cursorrules, GEMINI.md, AGENTS.md)
         target: String,
     },
+    /// Generate all configured AI documentation adapters
+    Sync,
     /// List managed documentation files
     List,
 }
@@ -753,6 +767,7 @@ fn dispatch(command: Commands) -> Result<()> {
         },
         Commands::Docs { action } => match action {
             DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,
+            DocsCommands::Sync => commands::docs::sync()?,
             DocsCommands::List => commands::docs::list()?,
         },
         Commands::Validate { action, json } => {
@@ -784,6 +799,7 @@ fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
+        Commands::Install { extra_args } => commands::install::run(&extra_args)?,
         Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {

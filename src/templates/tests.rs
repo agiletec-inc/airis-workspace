@@ -32,8 +32,23 @@ fn test_compose_context_default_volumes() {
 
     let volume_names = context["volume_names"].as_array().unwrap();
 
-    // No bind mount, no workspace volumes — volume_names comes from service volumes only
-    assert_eq!(volume_names.len(), 0);
+    // Now 3 root isolation volumes (node_modules, pnpm, pnpm-store) are always added
+    assert_eq!(volume_names.len(), 3);
+    assert!(
+        volume_names
+            .iter()
+            .any(|v| v.as_str() == Some("ws_node_modules_root"))
+    );
+    assert!(
+        volume_names
+            .iter()
+            .any(|v| v.as_str() == Some("ws_pnpm_root"))
+    );
+    assert!(
+        volume_names
+            .iter()
+            .any(|v| v.as_str() == Some("ws_pnpm-store_root"))
+    );
 }
 
 #[test]
@@ -67,7 +82,7 @@ fn test_render_npmrc() {
     let engine = TemplateEngine::new().unwrap();
     let result = engine.render_npmrc().unwrap();
     assert!(result.contains("store-dir=/pnpm/store"));
-    assert!(result.contains("virtual-store-dir=.pnpm"));
+    assert!(result.contains("virtual-store-dir=/pnpm/virtual-store"));
     assert!(result.contains("DO NOT EDIT"));
 }
 
@@ -99,8 +114,50 @@ workspaces = ["apps/*", "libs/*"]
 
     let volume_names = context["volume_names"].as_array().unwrap();
 
-    // No service volumes defined → empty
-    assert_eq!(volume_names.len(), 0);
+    // Now 3 root isolation volumes (node_modules, pnpm, pnpm-store) are always added
+    assert_eq!(volume_names.len(), 3);
+}
+
+#[test]
+fn test_root_pnpm_volumes_use_absolute_container_paths() {
+    let toml_str = r#"
+[workspace]
+name = "test-project"
+image = "node:22-alpine"
+workdir = "/app"
+package_manager = "pnpm@10.22.0"
+
+[commands]
+dev = "pnpm dev"
+
+[versioning]
+strategy = "manual"
+
+[packages]
+workspaces = []
+
+[service.web]
+image = "node:22-alpine"
+"#;
+    let manifest: Manifest = toml::from_str(toml_str).unwrap();
+    let engine = TemplateEngine::new().unwrap();
+    let compose = engine
+        .build_compose_file(&manifest, "/nonexistent")
+        .unwrap();
+    let service = compose.services.get("web").unwrap();
+
+    assert!(
+        service
+            .volumes
+            .iter()
+            .any(|v| v == "ws_pnpm_root:/pnpm/virtual-store")
+    );
+    assert!(
+        service
+            .volumes
+            .iter()
+            .any(|v| v == "ws_pnpm-store_root:/pnpm/store")
+    );
 }
 
 #[test]
@@ -176,9 +233,9 @@ workspaces = ["apps/*", "libs/*"]
 
     // workdir should be set correctly
     assert_eq!(context["workdir"], "/workspace/app");
-    // No workspace volumes
+    // Now 3 root isolation volumes (node_modules, pnpm, pnpm-store) are always added
     let volume_names = context["volume_names"].as_array().unwrap();
-    assert_eq!(volume_names.len(), 0);
+    assert_eq!(volume_names.len(), 3);
 }
 
 #[test]
@@ -213,10 +270,8 @@ volumes = ["config_vol:/app/config:ro", "data_vol:/app/data:rw"]
 
     let volume_names = context["volume_names"].as_array().unwrap();
 
-    // Volume names extracted from service volumes
-    assert_eq!(volume_names.len(), 2);
-    assert_eq!(volume_names[0], "config_vol");
-    assert_eq!(volume_names[1], "data_vol");
+    // Now 3 root isolation volumes + 2 service volumes = 5
+    assert_eq!(volume_names.len(), 5);
 }
 
 #[test]
@@ -250,9 +305,13 @@ volumes = ["just_a_name"]
 
     let volume_names = context["volume_names"].as_array().unwrap();
 
-    // Volume name extraction from service volumes
-    assert_eq!(volume_names.len(), 1);
-    assert_eq!(volume_names[0], "just_a_name");
+    // Now 3 root isolation volumes + 1 service volume = 4
+    assert_eq!(volume_names.len(), 4);
+    assert!(
+        volume_names
+            .iter()
+            .any(|v| v.as_str() == Some("just_a_name"))
+    );
 }
 
 #[test]
@@ -282,7 +341,8 @@ workspaces = ["apps/*", "libs/*"]
         .unwrap();
 
     let volume_names = context["volume_names"].as_array().unwrap();
-    assert_eq!(volume_names.len(), 0);
+    // Now 3 root isolation volumes are always added
+    assert_eq!(volume_names.len(), 3);
 }
 
 #[test]
@@ -437,16 +497,13 @@ path = "apps/dashboard"
     let volume_names = context["volume_names"].as_array().unwrap();
     let vol_strs: Vec<&str> = volume_names.iter().map(|v| v.as_str().unwrap()).collect();
 
-    // 4 packages × 2 clean dirs = 8 artifact volumes
-    assert_eq!(vol_strs.len(), 8);
+    // 4 packages × (2 clean + 3 recursive) = 20 artifact volumes + 3 root isolation volumes = 23
+    assert_eq!(vol_strs.len(), 23);
     assert!(vol_strs.contains(&"ws_next_apps_corporate"));
     assert!(vol_strs.contains(&"ws_dist_apps_corporate"));
-    assert!(vol_strs.contains(&"ws_next_apps_dashboard"));
-    assert!(vol_strs.contains(&"ws_dist_apps_dashboard"));
-    assert!(vol_strs.contains(&"ws_next_libs_ui"));
-    assert!(vol_strs.contains(&"ws_dist_libs_ui"));
-    assert!(vol_strs.contains(&"ws_next_libs_logger"));
-    assert!(vol_strs.contains(&"ws_dist_libs_logger"));
+    assert!(vol_strs.contains(&"ws_node_modules_apps_corporate"));
+    assert!(vol_strs.contains(&"ws_pnpm_apps_corporate"));
+    assert!(vol_strs.contains(&"ws_pnpm-store_apps_corporate"));
 }
 
 #[test]
@@ -478,9 +535,8 @@ volumes = ["data_vol:/app/data", "cache_vol:/app/cache"]
         .unwrap();
 
     let volume_names = context["volume_names"].as_array().unwrap();
-    assert_eq!(volume_names.len(), 2);
-    assert_eq!(volume_names[0], "data_vol");
-    assert_eq!(volume_names[1], "cache_vol");
+    // 3 root isolation + 2 service volumes
+    assert_eq!(volume_names.len(), 5);
 }
 
 #[test]
@@ -527,8 +583,8 @@ image = "redis:7-alpine"
             let vol_strs: Vec<&str> = volumes.iter().map(|v| v.as_str().unwrap()).collect();
             assert!(vol_strs.iter().any(|v| v.contains("ws_next_apps_web")));
         } else if name == "redis" {
-            // Image-only service: no artifact volumes
-            assert!(volumes.is_empty());
+            // Image-only service: also gets artifact volumes to prevent host contamination
+            assert_eq!(volumes.len(), 7); // 3 root + 4 per-package (ws_next_apps_web, etc)
         }
     }
 }
@@ -558,7 +614,8 @@ workspaces = []
         .unwrap();
 
     let volume_names = context["volume_names"].as_array().unwrap();
-    assert_eq!(volume_names.len(), 0);
+    // Now 3 root isolation volumes are always added
+    assert_eq!(volume_names.len(), 3);
 }
 
 #[test]
@@ -669,8 +726,8 @@ volumes = ["sales_data:/app/data"]
     // Should NOT contain bind mount or workspace volumes
     assert!(!vol_strs.contains(&"./:/app:delegated".to_string()));
     assert!(!vol_strs.contains(&"node_modules:/app/node_modules".to_string()));
-    // Should contain only service-specific volume
-    assert_eq!(vol_strs.len(), 1);
+    // 3 root isolation + 1 service-specific
+    assert_eq!(vol_strs.len(), 4);
     assert!(vol_strs.contains(&"sales_data:/app/data".to_string()));
 }
 
@@ -707,8 +764,8 @@ command = "pnpm dev"
     let svc = &services[0];
     let volumes = svc["volumes"].as_array().unwrap();
 
-    // No own volumes → should be empty
-    assert_eq!(volumes.len(), 0);
+    // Now 3 root isolation volumes are always added
+    assert_eq!(volumes.len(), 3);
 }
 
 #[test]

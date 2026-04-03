@@ -9,18 +9,28 @@ use super::build_compose_command;
 use super::compose::{collect_all_compose_files, find_compose_file};
 use super::services::{condense_status, discover_compose_port_urls};
 
-/// Show running services with status and URLs
+/// Show running services with status and workspace health summary
 pub fn run_ps() -> Result<()> {
+    let manifest_path = Path::new("manifest.toml");
+    let manifest = if manifest_path.exists() {
+        Some(Manifest::load(manifest_path)?)
+    } else {
+        None
+    };
+
+    // 1. Docker Services Status
+    println!();
+    println!(
+        "{}",
+        "── 🚀 Services ──────────────────────────────────────────".dimmed()
+    );
+
     let output = Command::new("docker")
         .args(["ps", "--format", "{{.Names}}\t{{.Status}}"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output()
         .with_context(|| "Failed to execute docker ps")?;
-
-    if !output.status.success() {
-        bail!("docker ps failed");
-    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let containers: Vec<(&str, &str)> = stdout
@@ -36,42 +46,94 @@ pub fn run_ps() -> Result<()> {
         .collect();
 
     if containers.is_empty() {
-        println!("{}", "No running containers".yellow());
-        return Ok(());
-    }
+        println!("   {}", "No services are currently running.".yellow());
+    } else {
+        let url_map = {
+            let port_services = if let Some(ref m) = manifest {
+                let compose_files = collect_all_compose_files(m);
+                discover_compose_port_urls(&compose_files)
+            } else if let Some(compose_file) = find_compose_file() {
+                discover_compose_port_urls(&[compose_file.to_string()])
+            } else {
+                Vec::new()
+            };
 
-    let url_map = {
-        let manifest_path = Path::new("manifest.toml");
-        let port_services = if manifest_path.exists() {
-            let manifest = Manifest::load(manifest_path)?;
-            let compose_files = collect_all_compose_files(&manifest);
-            discover_compose_port_urls(&compose_files)
-        } else if let Some(compose_file) = find_compose_file() {
-            discover_compose_port_urls(&[compose_file.to_string()])
-        } else {
-            Vec::new()
+            let mut map = std::collections::HashMap::new();
+            for svc in &port_services {
+                map.insert(svc.name.clone(), svc.url.clone());
+            }
+            map
         };
 
-        let mut map = std::collections::HashMap::new();
-        for svc in &port_services {
-            map.insert(svc.name.clone(), svc.url.clone());
-        }
-        map
-    };
-
-    println!();
-    println!("{}", "=== Running Services ===".bright_yellow());
-    for (name, status) in &containers {
-        let condensed = condense_status(status);
-        if let Some(url) = url_map.get(*name) {
-            println!("  {:<24}{:<10} {}", name, condensed, url);
-        } else {
-            println!("  {:<24}{}", name, condensed);
+        for (name, status) in &containers {
+            let condensed = condense_status(status);
+            let icon = if status.contains("Up") {
+                "✔".green()
+            } else {
+                "⚠".yellow()
+            };
+            if let Some(url) = url_map.get(*name) {
+                println!(
+                    "   {} {:<24} {:<12} {}",
+                    icon,
+                    name.bold(),
+                    condensed.dimmed(),
+                    url.cyan()
+                );
+            } else {
+                println!("   {} {:<24} {:<12}", icon, name.bold(), condensed.dimmed());
+            }
         }
     }
-    println!("{}", "===".bright_yellow());
-    println!();
 
+    // 2. Workspace Health Summary (Guardrails)
+    if let Some(_m) = manifest {
+        println!();
+        println!(
+            "{}",
+            "── 🛡️  Workspace Health ─────────────────────────────────".dimmed()
+        );
+
+        // Host Contamination Check
+        let has_node_modules = Path::new("node_modules").exists();
+        let host_status = if has_node_modules {
+            "⚠ CONTAMINATED (host node_modules detected)"
+                .yellow()
+                .bold()
+        } else {
+            "✔ CLEAN (host is protected)".green()
+        };
+        println!("   {:<12} {}", "Host:".dimmed(), host_status);
+
+        // Guard Check
+        let has_guards = Path::new(".airis/bin").exists();
+        let guard_status = if has_guards {
+            "✔ ACTIVE (command guards installed)".green()
+        } else {
+            "⚠ UNPROTECTED (guards missing)".red().bold()
+        };
+        println!("   {:<12} {}", "Guards:".dimmed(), guard_status);
+
+        // Lock/Manifest Sync Check
+        let lock_exists = Path::new(crate::manifest::LOCK_FILE).exists();
+        let sync_status = if lock_exists {
+            "✔ LOCKED (versions are pinned)".green()
+        } else {
+            "⚠ UNLOCKED (run 'airis gen' to lock)".yellow()
+        };
+        println!("   {:<12} {}", "Sync:".dimmed(), sync_status);
+
+        if has_node_modules || !has_guards || !lock_exists {
+            println!();
+            println!(
+                "   {} Run {} to heal your workspace.",
+                "💡".yellow(),
+                "airis doctor --fix".bold().cyan()
+            );
+        }
+    }
+
+    println!();
     Ok(())
 }
 

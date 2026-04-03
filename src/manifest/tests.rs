@@ -140,6 +140,50 @@ pnpm = "docker compose exec workspace pnpm"
 }
 
 #[test]
+fn test_validate_rejects_workspace_bind_mounts() {
+    let toml = r#"
+version = 1
+
+[workspace]
+volumes = ["./:/app"]
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("[workspace].volumes"), "got: {msg}");
+    assert!(msg.contains("bind mount"), "got: {msg}");
+}
+
+#[test]
+fn test_validate_rejects_service_bind_mounts() {
+    let toml = r#"
+version = 1
+
+[service.web]
+image = "node:22"
+volumes = ["./apps/web:/app"]
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("[service.web].volumes"), "got: {msg}");
+    assert!(msg.contains("bind mount"), "got: {msg}");
+}
+
+#[test]
+fn test_validate_allows_named_volumes() {
+    let toml = r#"
+version = 1
+
+[workspace]
+volumes = ["workspace-node-modules:/app/node_modules"]
+
+[service.web]
+image = "node:22"
+volumes = ["web-data:/app/data"]
+"#;
+    assert!(load_from_str(toml).is_ok());
+}
+
+#[test]
 fn test_validate_multiple_errors_collected() {
     let toml = r#"
 version = 1

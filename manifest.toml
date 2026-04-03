@@ -183,12 +183,21 @@ format = "cargo fmt --check"
 [remap]
 
 [versioning]
-strategy = "auto"
-# source is git tags - no manual version needed here
+strategy = "conventional-commits"
+source = "VERSION"
+sync_targets = ["Cargo.toml", "package.json", "npm/*/package.json"]
 
 [docs]
-targets = []
-mode = "warn"
+mode = "backup"
+sources = [
+    "docs/ai/PROJECT_RULES.md",
+    "docs/ai/WORKFLOW.md",
+    "docs/ai/REVIEW.md",
+    "docs/ai/STACK.md",
+]
+vendors = ["codex", "claude", "gemini"]
+skills_source = "docs/ai/playbooks"
+hooks_policy = "docs/ai/hooks/HOOKS_POLICY.md"
 
 [ci]
 enabled = true

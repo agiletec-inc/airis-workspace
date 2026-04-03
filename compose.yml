@@ -11,12 +11,17 @@ services:
   postgres:
     container_name: airis-monorepo-postgres
     image: postgres:16-alpine
-
+    volumes:
+    - ws_node_modules_root:/app/node_modules
+    - ws_pnpm_root:/pnpm/virtual-store
+    - ws_pnpm-store_root:/pnpm/store
   redis:
     container_name: airis-monorepo-redis
     image: redis:7-alpine
-
-
+    volumes:
+    - ws_node_modules_root:/app/node_modules
+    - ws_pnpm_root:/pnpm/virtual-store
+    - ws_pnpm-store_root:/pnpm/store
 networks:
   default:
     name: airis-monorepo_default
@@ -24,5 +29,7 @@ networks:
   traefik:
     name: traefik_default
     external: true
-
 volumes:
+  ws_node_modules_root: null
+  ws_pnpm_root: null
+  ws_pnpm-store_root: null

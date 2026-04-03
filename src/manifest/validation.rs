@@ -66,6 +66,8 @@ impl Manifest {
 
         // 7. Detect likely typos of "latest" / "lts" in catalog versions (warning)
         self.detect_catalog_typos(&mut warnings);
+        // 8. Reject host bind mounts in manifest-defined volumes
+        self.validate_no_host_bind_mounts(&mut errors);
 
         for w in &warnings {
             eprintln!("\u{26a0}\u{fe0f}  {w}");
@@ -221,6 +223,69 @@ impl Manifest {
             }
         }
     }
+
+    fn validate_no_host_bind_mounts(&self, errors: &mut Vec<String>) {
+        for volume in &self.workspace.volumes {
+            if is_host_bind_mount(volume) {
+                errors.push(format!(
+                    "[workspace].volumes contains host bind mount \"{volume}\"; use named volumes only"
+                ));
+            }
+        }
+
+        for (name, svc) in &self.service {
+            for volume in &svc.volumes {
+                if is_host_bind_mount(volume) {
+                    errors.push(format!(
+                        "[service.{name}].volumes contains host bind mount \"{volume}\"; use named volumes only"
+                    ));
+                }
+            }
+        }
+    }
+}
+
+fn is_host_bind_mount(spec: &str) -> bool {
+    let trimmed = spec.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+
+    if trimmed.starts_with("./")
+        || trimmed.starts_with("../")
+        || trimmed == "."
+        || trimmed == ".."
+        || trimmed.starts_with('/')
+        || trimmed.starts_with("~/")
+        || trimmed.starts_with("${")
+    {
+        return true;
+    }
+
+    let mut parts = trimmed.split(':');
+    let source = match parts.next() {
+        Some(source) => source,
+        None => return false,
+    };
+
+    if source.is_empty() {
+        return false;
+    }
+
+    if source.starts_with("./")
+        || source.starts_with("../")
+        || source == "."
+        || source == ".."
+        || source.starts_with('/')
+        || source.starts_with("~/")
+        || source.starts_with("${")
+    {
+        return true;
+    }
+
+    source.len() >= 3
+        && source.as_bytes()[1] == b':'
+        && (source.as_bytes()[2] == b'/' || source.as_bytes()[2] == b'\\')
 }
 
 /// Simple Levenshtein distance for short strings (catalog typo detection).

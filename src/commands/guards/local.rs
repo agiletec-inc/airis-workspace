@@ -3,51 +3,161 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use indexmap::IndexMap;
+use serde::Deserialize;
 
-use crate::manifest::{MANIFEST_FILE, Manifest, Mode};
+use crate::manifest::{GlobalConfig, MANIFEST_FILE, Manifest, Mode};
 
 use super::scripts::{install_deny_guard, install_wrap_guard, is_airis_guard};
 use super::{GUARDS_DIR, HYBRID_MODE_ALLOW, STRICT_MODE_DENY};
 
-/// Install command guards from manifest.toml
-pub fn install() -> Result<()> {
-    let manifest_path = Path::new(MANIFEST_FILE);
+/// Lightweight guard config for repos without manifest.toml
+const REPO_GUARDS_FILE: &str = ".airis/guards.toml";
 
-    if !manifest_path.exists() {
-        anyhow::bail!("manifest.toml not found. Run `airis init` first.");
+/// Guard config loaded from .airis/guards.toml
+#[derive(Debug, Deserialize, Default)]
+struct RepoGuardsFile {
+    #[serde(default)]
+    guards: RepoGuards,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RepoGuards {
+    #[serde(default)]
+    deny: Vec<String>,
+    #[serde(default)]
+    allow: Vec<String>,
+}
+
+/// Load guard config from .airis/guards.toml (for non-manifest repos)
+fn load_repo_guards() -> Result<RepoGuards> {
+    let path = Path::new(REPO_GUARDS_FILE);
+    if path.exists() {
+        let content = fs::read_to_string(path)
+            .with_context(|| format!("Failed to read {}", REPO_GUARDS_FILE))?;
+        let config: RepoGuardsFile = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse {}", REPO_GUARDS_FILE))?;
+        Ok(config.guards)
+    } else {
+        Ok(RepoGuards::default())
+    }
+}
+
+/// Merge global + repo config into effective deny list
+///
+/// Algorithm:
+///   effective = (global.deny - global.allow)
+///             + repo.deny
+///             - repo.allow
+///             ± mode adjustment (hybrid/strict, only if manifest exists)
+fn merge_deny_list(
+    global: &GlobalConfig,
+    repo: &RepoGuards,
+    manifest_deny: &[String],
+    manifest_allow: &[String],
+    mode: &Mode,
+) -> Vec<String> {
+    let mut effective: Vec<String> = global
+        .guards
+        .deny
+        .iter()
+        .filter(|cmd| !global.guards.allow.contains(cmd))
+        .cloned()
+        .collect();
+
+    // Add manifest deny list
+    for cmd in manifest_deny {
+        if !effective.contains(cmd) {
+            effective.push(cmd.clone());
+        }
     }
 
-    let manifest = Manifest::load(manifest_path)?;
-
-    // Collect effective deny list based on mode
-    let mut effective_deny: Vec<String> = manifest.guards.deny.clone();
-
-    // Apply mode-specific guards
-    match &manifest.mode {
-        Mode::DockerFirst => {
-            // Standard mode: use guards as configured
-            println!("{}", "Mode: docker-first (standard guards)".dimmed());
+    // Add repo-level deny
+    for cmd in &repo.deny {
+        if !effective.contains(cmd) {
+            effective.push(cmd.clone());
         }
+    }
+
+    // Remove manifest-level allow
+    for cmd in manifest_allow {
+        effective.retain(|c| c != cmd);
+    }
+
+    // Remove repo-level allow
+    for cmd in &repo.allow {
+        effective.retain(|c| c != cmd);
+    }
+
+    // Apply mode adjustment
+    match mode {
+        Mode::DockerFirst => {}
         Mode::Hybrid => {
-            // Hybrid mode: allow local toolchains (cargo, python, etc.)
-            println!("{}", "Mode: hybrid (allowing local toolchains)".yellow());
-            effective_deny.retain(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()));
+            effective.retain(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()));
         }
         Mode::Strict => {
-            // Strict mode: block additional commands
-            println!("{}", "Mode: strict (maximum restrictions)".bright_red());
             for cmd in STRICT_MODE_DENY {
-                if !effective_deny.contains(&cmd.to_string()) {
-                    effective_deny.push(cmd.to_string());
+                if !effective.contains(&cmd.to_string()) {
+                    effective.push(cmd.to_string());
                 }
             }
         }
     }
 
-    if effective_deny.is_empty()
-        && manifest.guards.wrap.is_empty()
-        && manifest.guards.deny_with_message.is_empty()
-    {
+    effective
+}
+
+/// Install command guards (works with or without manifest.toml)
+pub fn install() -> Result<()> {
+    let manifest_path = Path::new(MANIFEST_FILE);
+    let global_config = GlobalConfig::load()?;
+    let repo_guards = load_repo_guards()?;
+
+    let (effective_deny, wrap, deny_with_message, mode) = if manifest_path.exists() {
+        let manifest = Manifest::load(manifest_path)?;
+        let mode = manifest.mode.clone();
+
+        let effective = merge_deny_list(
+            &global_config,
+            &repo_guards,
+            &manifest.guards.deny,
+            &manifest.guards.allow,
+            &mode,
+        );
+
+        (
+            effective,
+            manifest.guards.wrap,
+            manifest.guards.deny_with_message,
+            mode,
+        )
+    } else {
+        let mode = Mode::default();
+        let effective = merge_deny_list(
+            &global_config,
+            &repo_guards,
+            &[],
+            &[],
+            &mode,
+        );
+
+        (effective, IndexMap::new(), IndexMap::new(), mode)
+    };
+
+    // Show mode
+    match &mode {
+        Mode::DockerFirst => {
+            println!("{}", "Mode: docker-first (standard guards)".dimmed());
+        }
+        Mode::Hybrid => {
+            println!("{}", "Mode: hybrid (allowing local toolchains)".yellow());
+        }
+        Mode::Strict => {
+            println!("{}", "Mode: strict (maximum restrictions)".bright_red());
+        }
+    }
+
+    if effective_deny.is_empty() && wrap.is_empty() && deny_with_message.is_empty() {
         println!(
             "{}",
             "⚠️  No guards to install (all commands allowed in this mode)".yellow()
@@ -63,7 +173,7 @@ pub fn install() -> Result<()> {
 
     let mut installed_count = 0;
 
-    // Install deny guards (mode-adjusted)
+    // Install deny guards (merged)
     for cmd in &effective_deny {
         install_deny_guard(&guards_dir, cmd, None)?;
         installed_count += 1;
@@ -71,7 +181,7 @@ pub fn install() -> Result<()> {
     }
 
     // Install wrap guards
-    for (cmd, wrapper) in &manifest.guards.wrap {
+    for (cmd, wrapper) in &wrap {
         install_wrap_guard(&guards_dir, cmd, wrapper)?;
         installed_count += 1;
         println!(
@@ -82,7 +192,7 @@ pub fn install() -> Result<()> {
     }
 
     // Install deny with message guards
-    for (cmd, message) in &manifest.guards.deny_with_message {
+    for (cmd, message) in &deny_with_message {
         install_deny_guard(&guards_dir, cmd, Some(message))?;
         installed_count += 1;
         println!(
@@ -97,6 +207,19 @@ pub fn install() -> Result<()> {
         "{}",
         format!("✅ {} command guards installed", installed_count).green()
     );
+
+    // Show config sources
+    if !manifest_path.exists() {
+        if Path::new(REPO_GUARDS_FILE).exists() {
+            println!(
+                "{}",
+                format!("   Config: {} + global", REPO_GUARDS_FILE).dimmed()
+            );
+        } else {
+            println!("{}", "   Config: global only".dimmed());
+        }
+    }
+
     println!();
     println!("{}", "To activate guards:".bright_yellow());
     println!("  export PATH=\"$PWD/{}:$PATH\"", GUARDS_DIR);
@@ -206,13 +329,6 @@ pub fn check_docker() -> Result<()> {
 /// Show guard status
 pub fn status() -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
-
-    if !manifest_path.exists() {
-        println!("{}", "⚠️  manifest.toml not found".yellow());
-        return Ok(());
-    }
-
-    let manifest = Manifest::load(manifest_path)?;
     let guards_dir = PathBuf::from(GUARDS_DIR);
 
     println!("{}", "🛡️  Guard Status".bright_blue());
@@ -227,54 +343,69 @@ pub fn status() -> Result<()> {
         return Ok(());
     }
 
-    // Show deny guards
-    if !manifest.guards.deny.is_empty() {
-        println!("{}", "Deny guards:".bright_yellow());
-        for cmd in &manifest.guards.deny {
-            let guard_path = guards_dir.join(cmd);
-            if guard_path.is_symlink() {
-                println!("  {} {} (SYMLINK — security risk!)", "🚨".red(), cmd);
-            } else if guard_path.exists() {
-                println!("  {} {}", "✓".green(), cmd);
-            } else {
-                println!("  {} {}", "✗".red(), cmd);
+    if manifest_path.exists() {
+        let manifest = Manifest::load(manifest_path)?;
+
+        // Show deny guards
+        if !manifest.guards.deny.is_empty() {
+            println!("{}", "Deny guards:".bright_yellow());
+            for cmd in &manifest.guards.deny {
+                let guard_path = guards_dir.join(cmd);
+                if guard_path.is_symlink() {
+                    println!("  {} {} (SYMLINK — security risk!)", "🚨".red(), cmd);
+                } else if guard_path.exists() {
+                    println!("  {} {}", "✓".green(), cmd);
+                } else {
+                    println!("  {} {}", "✗".red(), cmd);
+                }
+            }
+            println!();
+        }
+
+        // Show wrap guards
+        if !manifest.guards.wrap.is_empty() {
+            println!("{}", "Wrap guards:".bright_yellow());
+            for (cmd, wrapper) in &manifest.guards.wrap {
+                let guard_path = guards_dir.join(cmd);
+                if guard_path.is_symlink() {
+                    println!(
+                        "  {} {} → {} (SYMLINK — security risk!)",
+                        "🚨".red(),
+                        cmd,
+                        wrapper.dimmed()
+                    );
+                } else if guard_path.exists() {
+                    println!("  {} {} → {}", "✓".green(), cmd, wrapper.dimmed());
+                } else {
+                    println!("  {} {} → {}", "✗".red(), cmd, wrapper.dimmed());
+                }
+            }
+            println!();
+        }
+
+        // Show deny with message
+        if !manifest.guards.deny_with_message.is_empty() {
+            println!("{}", "Deny with message:".bright_yellow());
+            for (cmd, _) in &manifest.guards.deny_with_message {
+                let guard_path = guards_dir.join(cmd);
+                let status = if guard_path.exists() {
+                    "✓".green()
+                } else {
+                    "✗".red()
+                };
+                println!("  {} {}", status, cmd);
             }
         }
-        println!();
-    }
-
-    // Show wrap guards
-    if !manifest.guards.wrap.is_empty() {
-        println!("{}", "Wrap guards:".bright_yellow());
-        for (cmd, wrapper) in &manifest.guards.wrap {
-            let guard_path = guards_dir.join(cmd);
-            if guard_path.is_symlink() {
-                println!(
-                    "  {} {} → {} (SYMLINK — security risk!)",
-                    "🚨".red(),
-                    cmd,
-                    wrapper.dimmed()
-                );
-            } else if guard_path.exists() {
-                println!("  {} {} → {}", "✓".green(), cmd, wrapper.dimmed());
-            } else {
-                println!("  {} {} → {}", "✗".red(), cmd, wrapper.dimmed());
+    } else {
+        // No manifest — show installed guards from directory
+        println!("{}", "Installed guards (no manifest.toml):".bright_yellow());
+        for entry in fs::read_dir(&guards_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && is_airis_guard(&path)? {
+                let name = path.file_name().unwrap_or_default().to_string_lossy();
+                println!("  {} {}", "✓".green(), name);
             }
-        }
-        println!();
-    }
-
-    // Show deny with message
-    if !manifest.guards.deny_with_message.is_empty() {
-        println!("{}", "Deny with message:".bright_yellow());
-        for (cmd, _) in &manifest.guards.deny_with_message {
-            let guard_path = guards_dir.join(cmd);
-            let status = if guard_path.exists() {
-                "✓".green()
-            } else {
-                "✗".red()
-            };
-            println!("  {} {}", status, cmd);
         }
     }
 

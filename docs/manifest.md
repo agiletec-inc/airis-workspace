@@ -335,13 +335,16 @@ When you run `airis init` on an existing project:
 
 All these files are generated from `manifest.toml`:
 
-- `workspace.yaml` - Metadata for IDE/tooling compatibility
-- `justfile` - Task runner commands
 - `package.json` - Root package configuration with `pnpm.catalog`
 - `pnpm-workspace.yaml` - pnpm workspace definition
-- `docker-compose.yml` - (Future) Workspace compose file
+- `compose.yml` - Docker Compose for services and workspace
+- `tsconfig.json` / `tsconfig.base.json` - TypeScript project references
+- Per-app `package.json` - App-level dependencies from catalog
+- `.npmrc` - pnpm store isolation inside container
+- `.env.example` - Environment variable template
+- `.github/workflows/` - CI/CD pipelines
 
-**DO NOT EDIT** generated files directly. Always edit `manifest.toml` and re-run `airis init`.
+**DO NOT EDIT** generated files directly. Always edit `manifest.toml` and run `airis gen`.
 
 ---
 

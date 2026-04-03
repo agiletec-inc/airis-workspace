@@ -367,7 +367,19 @@ impl SafeFS {
         ];
 
         // Cleanable artifacts within protected paths (e.g., apps/*/node_modules)
-        let cleanable_artifacts = ["node_modules", ".next", "dist", ".turbo"];
+        let cleanable_artifacts = [
+            "node_modules",
+            ".pnpm",
+            ".pnpm-store",
+            ".next",
+            "dist",
+            ".turbo",
+            "build",
+            "out",
+            ".swc",
+            ".cache",
+            "coverage",
+        ];
 
         // Check if this is a cleanable artifact within a protected path
         let is_cleanable_artifact = cleanable_artifacts.iter().any(|artifact| {
@@ -614,8 +626,10 @@ mod tests {
         let workspace = create_test_workspace();
         let safe_fs = SafeFS::new(workspace.path(), false).unwrap();
 
-        // Create apps and libs directories with node_modules inside
+        // Create apps and libs directories with cleanable artifacts inside
         fs::create_dir_all(workspace.path().join("apps/my-app/node_modules")).unwrap();
+        fs::create_dir_all(workspace.path().join("apps/my-app/.pnpm")).unwrap();
+        fs::create_dir_all(workspace.path().join("apps/my-app/.pnpm-store")).unwrap();
         fs::create_dir_all(workspace.path().join("libs/my-lib/node_modules")).unwrap();
         fs::create_dir_all(workspace.path().join("apps/my-app/.next")).unwrap();
 
@@ -623,6 +637,16 @@ mod tests {
         let result = safe_fs.clean_artifact("apps/my-app/node_modules").unwrap();
         assert!(matches!(result.action, SafeAction::Deleted));
         assert!(!workspace.path().join("apps/my-app/node_modules").exists());
+
+        // pnpm virtual store inside apps should be cleanable
+        let result = safe_fs.clean_artifact("apps/my-app/.pnpm").unwrap();
+        assert!(matches!(result.action, SafeAction::Deleted));
+        assert!(!workspace.path().join("apps/my-app/.pnpm").exists());
+
+        // pnpm store inside apps should be cleanable
+        let result = safe_fs.clean_artifact("apps/my-app/.pnpm-store").unwrap();
+        assert!(matches!(result.action, SafeAction::Deleted));
+        assert!(!workspace.path().join("apps/my-app/.pnpm-store").exists());
 
         // node_modules inside libs should be cleanable
         let result = safe_fs.clean_artifact("libs/my-lib/node_modules").unwrap();

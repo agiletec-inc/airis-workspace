@@ -105,6 +105,9 @@ pub fn run(fix: bool) -> Result<()> {
     // Check each generated file
     check_generated_files(&manifest, &mut issues)?;
 
+    // Check for command guards
+    check_command_guards(&manifest, &mut issues)?;
+
     // Check for orphaned packages (not in manifest)
     check_orphaned_packages(&manifest, &mut issues)?;
 
@@ -114,35 +117,94 @@ pub fn run(fix: bool) -> Result<()> {
     // Report results
     if issues.is_empty() {
         println!("{}", "✅ Workspace is healthy!".green());
-        println!("   All generated files are in sync with manifest.toml");
+        println!("   All generated files are in sync and host is clean.");
         return Ok(());
     }
 
     // Report issues
-    println!("{}", "⚠️  Detected inconsistencies:".yellow());
+    println!("{}", "⚠️  Detected workspace issues:".yellow());
     for issue in &issues {
         let icon = match issue.severity {
             Severity::Error => "❌",
             Severity::Warning => "⚠️ ",
         };
-        println!("   {} {} - {}", icon, issue.file, issue.description);
+        println!("   {} {} - {}", icon, issue.file.bold(), issue.description);
     }
     println!();
 
     if fix {
-        // Auto-fix by regenerating (force overwrite)
-        println!("{}", "🔧 Fixing...".bright_blue());
+        // Auto-fix detected issues
+        println!("{}", "🔧 Healing workspace...".bright_blue());
         println!();
 
+        // 1. Regenerate files
         crate::commands::generate::sync_from_manifest_with_force(&manifest, true)?;
+
+        // 2. Install guards if missing
+        for issue in &issues {
+            if issue.file == "guards" {
+                println!("   {} Installing command guards...", "→".dimmed());
+                crate::commands::guards::install()?;
+            }
+        }
+
+        // 3. Remove host artifacts (physical enforcement)
+        for issue in &issues {
+            if issue.description.contains("leaked from container") {
+                let path = Path::new(&issue.file);
+                if path.exists() {
+                    println!(
+                        "   {} Removing host artifact: {}...",
+                        "→".dimmed(),
+                        issue.file
+                    );
+                    if path.is_dir() {
+                        let _ = fs::remove_dir_all(path);
+                    } else {
+                        let _ = fs::remove_file(path);
+                    }
+                }
+            }
+        }
 
         println!();
         println!("{}", "✨ Workspace healed successfully!".green().bold());
     } else {
         println!(
             "{}",
-            "💡 Run `airis doctor --fix` to auto-repair".bright_yellow()
+            "💡 Run `airis doctor --fix` to auto-repair issues and enforce boundaries."
+                .bright_yellow()
         );
+    }
+
+    Ok(())
+}
+
+/// Check if command guards are installed
+fn check_command_guards(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<()> {
+    let guards_dir = Path::new(".airis/bin");
+
+    // Check if guards directory exists
+    if !guards_dir.exists() {
+        issues.push(Issue {
+            file: "guards".to_string(),
+            description: "Command guards are not installed. Host commands are unprotected."
+                .to_string(),
+            severity: Severity::Error,
+        });
+        return Ok(());
+    }
+
+    // Check if expected deny guards exist
+    for cmd in &manifest.guards.deny {
+        let guard_path = guards_dir.join(cmd);
+        if !guard_path.exists() {
+            issues.push(Issue {
+                file: "guards".to_string(),
+                description: format!("Guard for `{}` is missing.", cmd),
+                severity: Severity::Warning,
+            });
+        }
     }
 
     Ok(())

@@ -6,7 +6,7 @@ mod scripts;
 mod tests;
 
 pub use global::{install_global, status_global, uninstall_global, verify_global};
-pub use local::{check_docker, install, status, uninstall};
+pub use local::{check_allow, check_docker, install, status, uninstall};
 
 /// Additional commands blocked in strict mode
 const STRICT_MODE_DENY: &[&str] = &[

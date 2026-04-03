@@ -3,16 +3,16 @@ use colored::Colorize;
 use indexmap::IndexMap;
 use std::path::Path;
 
-use crate::manifest::{CatalogEntry, ProjectDefinition};
+use crate::manifest::{CatalogEntry, Lock, ProjectDefinition};
 use crate::version_resolver::resolve_version;
 
 /// Resolve catalog version policies to actual version numbers.
 ///
-/// Supports wildcard patterns like `@radix-ui/react-* = "latest"`.
-/// Wildcard entries are stored as patterns and resolved on-demand
-/// when a concrete package name matches via `resolve_wildcard_version`.
+/// Uses existing resolutions from airis.lock if available.
+/// Wildcard patterns are resolved on-demand.
 pub(super) fn resolve_catalog_versions(
     catalog: &IndexMap<String, CatalogEntry>,
+    lock: &mut Lock,
     default_policy: Option<&str>,
 ) -> Result<IndexMap<String, String>> {
     if catalog.is_empty() {
@@ -21,7 +21,7 @@ pub(super) fn resolve_catalog_versions(
 
     println!(
         "{}",
-        "📦 Resolving catalog versions from npm registry...".bright_blue()
+        "📦 Syncing catalog versions with airis.lock...".bright_blue()
     );
 
     let mut resolved: IndexMap<String, String> = IndexMap::new();
@@ -29,13 +29,12 @@ pub(super) fn resolve_catalog_versions(
     for (package, entry) in catalog {
         // Skip wildcard patterns — they are resolved on-demand
         if package.contains('*') {
-            let policy_str = match entry {
-                CatalogEntry::Policy(p) => p.as_str().to_string(),
-                CatalogEntry::Empty(_) => "latest".to_string(),
-                CatalogEntry::Version(v) => v.clone(),
-                _ => "latest".to_string(),
-            };
-            println!("  ✓ {} (wildcard pattern, policy: {})", package, policy_str);
+            continue;
+        }
+
+        // Use locked version if available
+        if let Some(locked_version) = lock.get_catalog(package) {
+            resolved.insert(package.clone(), locked_version.clone());
             continue;
         }
 
@@ -47,30 +46,24 @@ pub(super) fn resolve_catalog_versions(
                 version
             }
             CatalogEntry::Empty(_) => {
-                // Empty table {} = latest
                 let version = resolve_version(package, "latest")?;
                 println!("  ✓ {} (default) → {}", package, version);
                 version
             }
-            CatalogEntry::Version(version) => {
-                println!("  ✓ {} {}", package, version);
-                version.clone()
-            }
+            CatalogEntry::Version(version) => version.clone(),
             CatalogEntry::Follow(follow_config) => {
                 let target = &follow_config.follow;
                 if let Some(target_version) = resolved.get(target) {
-                    println!("  ✓ {} (follow {}) → {}", package, target, target_version);
                     target_version.clone()
                 } else if let Some(policy) = default_policy {
-                    // Follow target not in catalog — resolve it via default_policy first
                     let target_version = resolve_version(target, policy)?;
                     println!("  ✓ {} {} → {}", target, policy, target_version);
                     resolved.insert(target.clone(), target_version.clone());
-                    println!("  ✓ {} (follow {}) → {}", package, target, target_version);
+                    lock.update_catalog(target.clone(), target_version.clone());
                     target_version
                 } else {
                     anyhow::bail!(
-                        "Cannot resolve '{}': follow target '{}' not found in catalog (add it or set default_policy)",
+                        "Cannot resolve '{}': follow target '{}' not found in catalog",
                         package,
                         target
                     );
@@ -78,7 +71,8 @@ pub(super) fn resolve_catalog_versions(
             }
         };
 
-        resolved.insert(package.clone(), version);
+        resolved.insert(package.clone(), version.clone());
+        lock.update_catalog(package.clone(), version);
     }
 
     Ok(resolved)
@@ -94,6 +88,7 @@ pub(super) fn resolve_package_data(
     workspace_scope: &str,
     resolved_catalog: &mut IndexMap<String, String>,
     catalog_raw: &IndexMap<String, CatalogEntry>,
+    lock: &mut Lock,
     presets: &IndexMap<String, crate::manifest::PresetSection>,
     dep_groups: &IndexMap<String, IndexMap<String, String>>,
     default_policy: Option<&str>,
@@ -102,6 +97,8 @@ pub(super) fn resolve_package_data(
     let mut final_dev_deps = IndexMap::new();
     let mut final_scripts = IndexMap::new();
 
+    let app_name = app.name.clone();
+
     // 1. Convention defaults from framework
     let framework = app.framework.as_deref().unwrap_or("node");
     let conventions = crate::conventions::framework_defaults(framework);
@@ -109,20 +106,20 @@ pub(super) fn resolve_package_data(
         final_scripts.insert(k.to_string(), v.to_string());
     }
 
-    // 2. Preset resolution (includes dep_groups from preset)
+    // 2. Preset resolution
     if app.preset.is_some() || !app.dep_groups.is_empty() {
         let resolved = crate::preset::resolve_app_presets(app, presets, dep_groups)?;
         for (k, v) in &resolved.deps {
-            // Resolve "catalog" references: if not in resolved_catalog, use default_policy
             if v == "catalog" && !resolved_catalog.contains_key(k) {
-                let policy = default_policy.unwrap_or("latest");
-                match resolve_version(k, policy) {
-                    Ok(version) => {
-                        println!("  ✓ {} (dep_group, default: {}) → {}", k, policy, version);
-                        resolved_catalog.insert(k.clone(), version);
-                    }
-                    Err(e) => {
-                        eprintln!("  ⚠ Failed to resolve {}: {}", k, e);
+                // Check lock first
+                if let Some(locked) = lock.get_catalog(k) {
+                    resolved_catalog.insert(k.clone(), locked.clone());
+                } else {
+                    let policy = default_policy.unwrap_or("latest");
+                    if let Ok(version) = resolve_version(k, policy) {
+                        println!("  ✓ {} (preset catalog, {}) → {}", k, policy, version);
+                        resolved_catalog.insert(k.clone(), version.clone());
+                        lock.update_catalog(k.clone(), version);
                     }
                 }
             }
@@ -130,17 +127,14 @@ pub(super) fn resolve_package_data(
         }
         for (k, v) in &resolved.dev_deps {
             if v == "catalog" && !resolved_catalog.contains_key(k) {
-                let policy = default_policy.unwrap_or("latest");
-                match resolve_version(k, policy) {
-                    Ok(version) => {
-                        println!(
-                            "  ✓ {} (dep_group dev, default: {}) → {}",
-                            k, policy, version
-                        );
-                        resolved_catalog.insert(k.clone(), version);
-                    }
-                    Err(e) => {
-                        eprintln!("  ⚠ Failed to resolve {}: {}", k, e);
+                if let Some(locked) = lock.get_catalog(k) {
+                    resolved_catalog.insert(k.clone(), locked.clone());
+                } else {
+                    let policy = default_policy.unwrap_or("latest");
+                    if let Ok(version) = resolve_version(k, policy) {
+                        println!("  ✓ {} (preset dev-catalog, {}) → {}", k, policy, version);
+                        resolved_catalog.insert(k.clone(), version.clone());
+                        lock.update_catalog(k.clone(), version);
                     }
                 }
             }
@@ -158,57 +152,46 @@ pub(super) fn resolve_package_data(
         .map(|(k, v)| (k.as_str(), v))
         .collect();
 
-    // 3. Import scan (auto-detect deps from source code)
+    // 3. Import scan
     if let Some(ref app_path) = app.path {
         let full_path = workspace_root.join(app_path);
         if full_path.exists() {
             match crate::import_scanner::scan_imports(&full_path, workspace_scope) {
                 Ok(scanned) => {
-                    // External deps: use catalog version if available, or match wildcard
                     for pkg in &scanned.external {
                         if !final_deps.contains_key(pkg) {
                             if resolved_catalog.contains_key(pkg) {
                                 final_deps.insert(pkg.clone(), "catalog".to_string());
                             } else if matches_wildcard_catalog(pkg, &wildcard_patterns) {
-                                // Wildcard match: resolve version from npm and add to catalog
-                                match resolve_version(pkg, "latest") {
-                                    Ok(version) => {
-                                        println!("  ✓ {} (wildcard) → {}", pkg, version);
-                                        resolved_catalog.insert(pkg.clone(), version);
-                                        final_deps.insert(pkg.clone(), "catalog".to_string());
-                                    }
-                                    Err(e) => {
-                                        eprintln!("  ⚠ Failed to resolve {}: {}", pkg, e);
-                                    }
+                                // Check lock first
+                                if let Some(locked) = lock.get_catalog(pkg) {
+                                    resolved_catalog.insert(pkg.clone(), locked.clone());
+                                } else if let Ok(version) = resolve_version(pkg, "latest") {
+                                    println!("  ✓ {} (wildcard) → {}", pkg, version);
+                                    resolved_catalog.insert(pkg.clone(), version.clone());
+                                    lock.update_catalog(pkg.clone(), version);
                                 }
+                                final_deps.insert(pkg.clone(), "catalog".to_string());
                             } else if let Some(policy) = default_policy {
-                                // Default policy fallback: resolve from npm
-                                match resolve_version(pkg, policy) {
-                                    Ok(version) => {
-                                        println!("  ✓ {} (default: {}) → {}", pkg, policy, version);
-                                        resolved_catalog.insert(pkg.clone(), version);
-                                        final_deps.insert(pkg.clone(), "catalog".to_string());
-                                    }
-                                    Err(e) => {
-                                        eprintln!("  ⚠ Failed to resolve {}: {}", pkg, e);
-                                    }
+                                if let Some(locked) = lock.get_catalog(pkg) {
+                                    resolved_catalog.insert(pkg.clone(), locked.clone());
+                                } else if let Ok(version) = resolve_version(pkg, policy) {
+                                    println!("  ✓ {} (default: {}) → {}", pkg, policy, version);
+                                    resolved_catalog.insert(pkg.clone(), version.clone());
+                                    lock.update_catalog(pkg.clone(), version);
                                 }
+                                final_deps.insert(pkg.clone(), "catalog".to_string());
                             }
-                            // Not in catalog, no wildcard, no default policy → skip
                         }
                     }
-                    // Workspace deps (skip self-reference)
+                    // Workspace deps
                     let self_pkg_name = if let Some(ref scope) = app.scope {
-                        let scope = scope.trim_start_matches('@');
-                        format!("@{}/{}", scope, app.name)
+                        format!("@{}/{}", scope.trim_start_matches('@'), app.name)
                     } else {
                         format!("{}/{}", workspace_scope, app.name)
                     };
                     for pkg in &scanned.workspace {
-                        if pkg == &self_pkg_name {
-                            continue; // Skip self-reference
-                        }
-                        if !final_deps.contains_key(pkg) {
+                        if pkg != &self_pkg_name && !final_deps.contains_key(pkg) {
                             final_deps.insert(pkg.clone(), "workspace:*".to_string());
                         }
                     }
@@ -220,14 +203,47 @@ pub(super) fn resolve_package_data(
         }
     }
 
-    // 4. Explicit deps from [[app]] override everything
+    // 4. Explicit deps (override everything)
     for (k, v) in &app.deps {
-        final_deps.insert(k.clone(), v.clone());
+        // If it's not "catalog" and not a specific version policy, it might need resolution
+        if v != "catalog" && !v.starts_with("workspace:") && !v.starts_with("link:") {
+            // Check app-specific lock
+            if let Some(locked) = lock.get_app_dep(&app_name, k) {
+                final_deps.insert(k.clone(), locked.clone());
+            } else if v == "latest" || v == "lts" {
+                if let Ok(version) = resolve_version(k, v) {
+                    println!("  ✓ {}:{} {} → {}", app_name, k, v, version);
+                    lock.update_app_dep(app_name.clone(), k.clone(), version.clone());
+                    final_deps.insert(k.clone(), version);
+                } else {
+                    final_deps.insert(k.clone(), v.clone());
+                }
+            } else {
+                final_deps.insert(k.clone(), v.clone());
+            }
+        } else {
+            final_deps.insert(k.clone(), v.clone());
+        }
     }
     for (k, v) in &app.dev_deps {
-        final_dev_deps.insert(k.clone(), v.clone());
+        if v != "catalog" && !v.starts_with("workspace:") && !v.starts_with("link:") {
+            if let Some(locked) = lock.get_app_dep(&app_name, k) {
+                final_dev_deps.insert(k.clone(), locked.clone());
+            } else if v == "latest" || v == "lts" {
+                if let Ok(version) = resolve_version(k, v) {
+                    println!("  ✓ {}:{} (dev) {} → {}", app_name, k, v, version);
+                    lock.update_app_dep(app_name.clone(), k.clone(), version.clone());
+                    final_dev_deps.insert(k.clone(), version);
+                } else {
+                    final_dev_deps.insert(k.clone(), v.clone());
+                }
+            } else {
+                final_dev_deps.insert(k.clone(), v.clone());
+            }
+        } else {
+            final_dev_deps.insert(k.clone(), v.clone());
+        }
     }
-    // Explicit scripts from [[app]] override convention + preset
     for (k, v) in &app.scripts {
         final_scripts.insert(k.clone(), v.clone());
     }

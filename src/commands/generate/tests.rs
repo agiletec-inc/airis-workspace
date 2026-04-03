@@ -1,11 +1,10 @@
 use indexmap::IndexMap;
 use std::fs;
 
-use crate::manifest::{CatalogEntry, InjectValue, Manifest};
+use crate::manifest::{CatalogEntry, Manifest};
 
 use super::catalog::{matches_wildcard_catalog, wildcard_matches};
 use super::detect_legacy_compose_files;
-use super::inject::resolve_inject_values;
 use super::registry::{load_generation_registry, save_generation_registry};
 use super::tsconfig_gen::detect_ts_major;
 
@@ -91,59 +90,6 @@ fn test_detect_ts_major_default() {
     let manifest = default_test_manifest();
     let catalog = IndexMap::new();
     assert_eq!(detect_ts_major(&manifest, &catalog), 5);
-}
-
-// ── resolve_inject_values ──
-
-#[test]
-fn test_resolve_inject_simple() {
-    let mut inject = IndexMap::new();
-    inject.insert(
-        "my-key".to_string(),
-        InjectValue::Simple("hello world".to_string()),
-    );
-
-    let catalog = IndexMap::new();
-    let result = resolve_inject_values(&inject, &catalog).unwrap();
-    assert_eq!(result.get("my-key").unwrap(), "hello world");
-}
-
-#[test]
-fn test_resolve_inject_template() {
-    let mut inject = IndexMap::new();
-    inject.insert(
-        "sdk-version".to_string(),
-        InjectValue::Template {
-            template: "SDK_VERSION = \"{version}\"".to_string(),
-            from_catalog: "my-sdk".to_string(),
-        },
-    );
-
-    let mut catalog = IndexMap::new();
-    catalog.insert("my-sdk".to_string(), "^2.5.0".to_string());
-
-    let result = resolve_inject_values(&inject, &catalog).unwrap();
-    assert_eq!(
-        result.get("sdk-version").unwrap(),
-        "SDK_VERSION = \"2.5.0\""
-    );
-}
-
-#[test]
-fn test_resolve_inject_template_missing_catalog() {
-    let mut inject = IndexMap::new();
-    inject.insert(
-        "key".to_string(),
-        InjectValue::Template {
-            template: "v{version}".to_string(),
-            from_catalog: "nonexistent".to_string(),
-        },
-    );
-
-    let catalog = IndexMap::new();
-    let result = resolve_inject_values(&inject, &catalog).unwrap();
-    // Should skip when catalog entry is missing
-    assert!(result.get("key").is_none());
 }
 
 // ── load_generation_registry ──

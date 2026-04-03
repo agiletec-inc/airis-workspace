@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
-use indexmap::IndexMap;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -14,7 +13,6 @@ mod catalog;
 mod docker_gen;
 mod env_gen;
 mod hooks_gen;
-mod inject;
 mod lockfile;
 mod package_gen;
 mod registry;
@@ -24,7 +22,6 @@ use catalog::{resolve_catalog_versions, resolve_package_data};
 use docker_gen::generate_docker_compose;
 use env_gen::{generate_env_example, generate_envrc, generate_npmrc};
 use hooks_gen::{generate_git_hooks, generate_native_hooks};
-use inject::inject_values;
 use lockfile::sync_lockfile;
 use package_gen::{generate_package_json, generate_pnpm_workspace};
 use registry::{load_generation_registry, save_generation_registry};
@@ -249,7 +246,13 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     let engine = TemplateEngine::new()?;
     let mut generated_files: Vec<String> = Vec::new();
     let mut generated_paths: Vec<String> = Vec::new(); // Actual file paths for orphan tracking
-    let mut inject_count = 0;
+    // Load or initialize airis.lock
+    let lock_path = Path::new(crate::manifest::LOCK_FILE);
+    let mut lock = if lock_path.exists() {
+        crate::manifest::Lock::load(lock_path)?
+    } else {
+        crate::manifest::Lock::default()
+    };
 
     // Load previous generation registry for orphan detection
     let registry_path = Path::new(".airis/generated.toml");
@@ -259,6 +262,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     if has_workspace {
         let mut resolved_catalog = resolve_catalog_versions(
             &manifest.packages.catalog,
+            &mut lock,
             manifest.packages.default_policy.as_deref(),
         )?;
 
@@ -323,6 +327,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                         workspace_scope,
                         &mut resolved_catalog,
                         &manifest.packages.catalog,
+                        &mut lock,
                         &manifest.preset,
                         &manifest.dep_group,
                         manifest.packages.default_policy.as_deref(),
@@ -348,6 +353,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     workspace_scope,
                     &mut resolved_catalog,
                     &manifest.packages.catalog,
+                    &mut lock,
                     &manifest.preset,
                     &manifest.dep_group,
                     manifest.packages.default_policy.as_deref(),
@@ -406,15 +412,13 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             "hooks/pre-push".into(),
         ]);
 
-        // Inject values into files with airis:inject markers
-        inject_count = inject_values(&manifest.inject, &resolved_catalog)?;
-
         // Sync pnpm-lock.yaml
         sync_lockfile(manifest)?;
-    } else if !manifest.inject.is_empty() {
-        // Inject values even without workspace
-        let resolved_catalog = IndexMap::new();
-        inject_count = inject_values(&manifest.inject, &resolved_catalog)?;
+
+        // Save updated airis.lock
+        lock.save(lock_path)?;
+        generated_files.push("airis.lock (synced)".into());
+        generated_paths.push("airis.lock".into());
     }
 
     // Clean orphaned generated files (previously generated but no longer needed)
@@ -433,13 +437,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
     for file in &generated_files {
         println!("   - {}", file);
     }
-    if inject_count > 0 {
-        println!(
-            "   - {} files updated via airis:inject markers",
-            inject_count
-        );
-    }
-
     let is_rust_project =
         !manifest.project.rust_edition.is_empty() || !manifest.project.binary_name.is_empty();
     if is_rust_project {

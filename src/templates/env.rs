@@ -7,7 +7,7 @@ pub(super) const NPMRC_CONTENT: &str = "\
 # DO NOT EDIT — regenerate with: airis gen
 # Ensures pnpm store stays inside the container volume
 store-dir=/pnpm/store
-virtual-store-dir=.pnpm
+virtual-store-dir=/pnpm/virtual-store
 ";
 
 impl TemplateEngine {

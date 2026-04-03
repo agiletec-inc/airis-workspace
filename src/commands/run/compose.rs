@@ -6,6 +6,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use crate::manifest::Manifest;
+use crate::secrets::SecretProvider;
 
 use super::services::display_service_urls;
 use super::{DB_HEALTH_RETRIES, DB_HEALTH_SLEEP_SECS};
@@ -13,7 +14,7 @@ use super::{DB_HEALTH_RETRIES, DB_HEALTH_SLEEP_SECS};
 /// Find the compose file in the current directory.
 /// Checks in Docker's official priority order:
 /// compose.yaml > compose.yml > docker-compose.yaml > docker-compose.yml
-pub(super) fn find_compose_file() -> Option<&'static str> {
+pub(crate) fn find_compose_file() -> Option<&'static str> {
     if Path::new("compose.yaml").exists() {
         return Some("compose.yaml");
     }
@@ -97,6 +98,7 @@ pub(super) fn smart_compose_up(
     project: Option<&str>,
     compose_files: &[&str],
     extra_args: &[String],
+    secret_provider: Option<&dyn SecretProvider>,
 ) -> Result<bool> {
     // Validate that all compose files exist first
     for file in compose_files {
@@ -209,12 +211,29 @@ pub(super) fn smart_compose_up(
         up_args.push(arg.as_str());
     }
 
-    let output = Command::new("docker")
-        .args(&up_args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .with_context(|| "Failed to execute docker compose up".to_string())?;
+    // Wrap with secret provider if configured (e.g., doppler run -- docker compose ...)
+    let output = if let Some(provider) = secret_provider {
+        let up_args_str: Vec<&str> = up_args.to_vec();
+        let (program, wrapped_args) = provider.wrap_command("docker", &up_args_str);
+        Command::new(&program)
+            .args(&wrapped_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .with_context(|| {
+                format!(
+                    "Failed to execute {} wrapped docker compose up",
+                    provider.name()
+                )
+            })?
+    } else {
+        Command::new("docker")
+            .args(&up_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .with_context(|| "Failed to execute docker compose up".to_string())?
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -291,7 +310,11 @@ pub(super) fn collect_all_compose_files(manifest: &Manifest) -> Vec<String> {
 }
 
 /// Orchestrated startup: supabase -> workspace -> apps
-pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Result<()> {
+pub(super) fn orchestrated_up(
+    manifest: &Manifest,
+    extra_args: &[String],
+    secret_provider: Option<&dyn SecretProvider>,
+) -> Result<()> {
     ensure_env_file();
     let dev = &manifest.dev;
 
@@ -300,7 +323,7 @@ pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Res
         println!("{}", "📦 Starting Supabase...".cyan().bold());
         let files: Vec<&str> = supabase_files.iter().map(|s| s.as_str()).collect();
 
-        if !smart_compose_up(None, &files, &[])? {
+        if !smart_compose_up(None, &files, &[], secret_provider)? {
             bail!("❌ Failed to start Supabase");
         }
 
@@ -335,7 +358,7 @@ pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Res
     if let Some(traefik) = &dev.traefik {
         println!("{}", "🔀 Starting Traefik...".cyan().bold());
 
-        if !smart_compose_up(None, &[traefik.as_str()], &[])? {
+        if !smart_compose_up(None, &[traefik.as_str()], &[], secret_provider)? {
             bail!(
                 "Traefik failed to start. Check `docker compose -f {} logs`",
                 traefik
@@ -347,7 +370,7 @@ pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Res
     if let Some(compose_file) = find_compose_file() {
         println!("{}", "🛠️  Starting workspace...".cyan().bold());
 
-        if !smart_compose_up(None, &[compose_file], extra_args)? {
+        if !smart_compose_up(None, &[compose_file], extra_args, secret_provider)? {
             bail!("Workspace failed to start. Check `docker compose logs`");
         }
     }
@@ -388,7 +411,7 @@ pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Res
 
             println!("   {} Starting {}...", "→".dimmed(), app_name.bold());
 
-            if smart_compose_up(None, &[compose_path.as_str()], extra_args)? {
+            if smart_compose_up(None, &[compose_path.as_str()], extra_args, secret_provider)? {
                 println!("   {} {} started", "✅".green(), app_name);
             } else {
                 println!("   {} {} failed to start", "⚠️".yellow(), app_name);
@@ -397,6 +420,14 @@ pub(super) fn orchestrated_up(manifest: &Manifest, extra_args: &[String]) -> Res
     }
 
     println!("\n{}", "✅ All services started!".green().bold());
+
+    // 5. Automatic install (Converge)
+    // Run install inside Docker to ensure dependencies are in sync.
+    let _ = crate::commands::install::run(&[]);
+
+    // Check health but don't force fix
+    println!("\n{}", "🛡️  Checking workspace boundaries...".dimmed());
+    let _ = crate::commands::doctor::run(false);
 
     // Run post_up hooks (e.g., DB migration)
     run_post_up(manifest);
