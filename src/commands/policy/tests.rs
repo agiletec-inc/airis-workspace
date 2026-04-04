@@ -294,3 +294,119 @@ describe('formatDate', () => {
         "Non-DB tests should not require type imports"
     );
 }
+
+// ── Banned env vars checker tests ──
+
+#[test]
+fn test_banned_env_vars_detects_violation() {
+    use super::checkers::check_banned_env_vars;
+
+    let temp = tempfile::tempdir().unwrap();
+    let src_file = temp.path().join("client.ts");
+    std::fs::write(
+        &src_file,
+        r#"
+const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
+"#,
+    )
+    .unwrap();
+
+    let mut result = PolicyResult::default();
+    result.passed = true;
+
+    let banned = vec!["SUPABASE_SERVICE_ROLE_KEY".to_string()];
+    check_banned_env_vars(
+        &banned,
+        &[],
+        Some(temp.path().to_str().unwrap()),
+        &mut result,
+    )
+    .unwrap();
+
+    assert!(
+        !result.violations.is_empty(),
+        "Should detect banned env var"
+    );
+    assert_eq!(result.violations[0].rule, "policy.security.banned_env_vars");
+    assert!(
+        result.violations[0]
+            .message
+            .contains("SUPABASE_SERVICE_ROLE_KEY")
+    );
+}
+
+#[test]
+fn test_banned_env_vars_skips_allowed_paths() {
+    use super::checkers::check_banned_env_vars;
+
+    let temp = tempfile::tempdir().unwrap();
+    let functions_dir = temp.path().join("supabase/functions");
+    std::fs::create_dir_all(&functions_dir).unwrap();
+    let src_file = functions_dir.join("webhook.ts");
+    std::fs::write(
+        &src_file,
+        r#"
+const supabase = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+"#,
+    )
+    .unwrap();
+
+    let mut result = PolicyResult::default();
+    result.passed = true;
+
+    let banned = vec!["SUPABASE_SERVICE_ROLE_KEY".to_string()];
+    let allowed = vec!["supabase/functions/*".to_string()];
+    check_banned_env_vars(
+        &banned,
+        &allowed,
+        Some(temp.path().to_str().unwrap()),
+        &mut result,
+    )
+    .unwrap();
+
+    assert!(
+        result.violations.is_empty(),
+        "Allowed paths should be skipped"
+    );
+}
+
+#[test]
+fn test_banned_env_vars_clean_code_passes() {
+    use super::checkers::check_banned_env_vars;
+
+    let temp = tempfile::tempdir().unwrap();
+    let src_file = temp.path().join("client.ts");
+    std::fs::write(
+        &src_file,
+        r#"
+const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
+"#,
+    )
+    .unwrap();
+
+    let mut result = PolicyResult::default();
+    result.passed = true;
+
+    let banned = vec![
+        "SUPABASE_SERVICE_ROLE_KEY".to_string(),
+        "SUPABASE_SECRET_KEY".to_string(),
+    ];
+    check_banned_env_vars(
+        &banned,
+        &[],
+        Some(temp.path().to_str().unwrap()),
+        &mut result,
+    )
+    .unwrap();
+
+    assert!(
+        result.violations.is_empty(),
+        "Clean code using anon key should pass"
+    );
+}

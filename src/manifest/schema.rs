@@ -121,9 +121,12 @@ pub struct Manifest {
     /// MCP Gateway configuration for this project
     #[serde(default)]
     pub mcp: McpSection,
-    /// Testing governance configuration
+    /// Testing governance configuration (deprecated: use [policy.testing])
     #[serde(default)]
     pub testing: TestingSection,
+    /// Code governance policy
+    #[serde(default)]
+    pub policy: PolicySection,
 }
 
 /// Project metadata - Source of Truth for Cargo.toml, Homebrew formula, etc.
@@ -1872,7 +1875,7 @@ pub enum MockPolicy {
 
 /// Testing governance — declares test strategy, mock policy, and AI rules.
 /// Feeds into CLAUDE.md/AGENTS.md generation and (future) CI/hook enforcement.
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
 pub struct TestingSection {
     /// Global mock policy
     #[serde(default)]
@@ -1903,7 +1906,7 @@ pub struct TestingSection {
     pub smoke: Vec<SmokeTest>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
 pub struct TestingCoverage {
     #[serde(default)]
     pub unit: u8,
@@ -1911,7 +1914,7 @@ pub struct TestingCoverage {
     pub integration: u8,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct TestingLevels {
     #[serde(default = "default_true")]
     pub unit: bool,
@@ -1934,7 +1937,7 @@ impl Default for TestingLevels {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
 pub struct TypeEnforcement {
     /// Path to generated types file (e.g., "libs/database/src/types.ts")
     #[serde(default)]
@@ -1944,7 +1947,7 @@ pub struct TypeEnforcement {
     pub required_imports: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
 pub struct SmokeTest {
     pub name: String,
     pub command: String,
@@ -1954,4 +1957,46 @@ pub struct SmokeTest {
 
 fn default_smoke_timeout() -> u16 {
     30
+}
+
+// =============================================================================
+// Policy Section
+// =============================================================================
+
+/// Code governance policy — SSoT for all quality, security, and workflow rules.
+/// Absorbs [testing] and replaces .airis/policies.toml.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct PolicySection {
+    /// Testing governance (migrated from top-level [testing])
+    #[serde(default)]
+    pub testing: TestingSection,
+
+    /// Security policy — banned env vars, secret scanning
+    #[serde(default)]
+    pub security: SecurityPolicy,
+}
+
+/// Security policy for source code governance.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct SecurityPolicy {
+    /// Environment variable name patterns banned from source code
+    #[serde(default)]
+    pub banned_env_vars: Vec<String>,
+
+    /// Paths where banned_env_vars are allowed (server-side code).
+    /// Glob patterns (e.g., "supabase/functions/", "products/*/worker/").
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+
+    /// Scan for hardcoded secrets in source files
+    #[serde(default)]
+    pub scan_secrets: bool,
+
+    /// Max file size in MB for scanning (default: 50)
+    #[serde(default = "default_security_max_file_size")]
+    pub max_file_size_mb: u64,
+}
+
+fn default_security_max_file_size() -> u64 {
+    50
 }

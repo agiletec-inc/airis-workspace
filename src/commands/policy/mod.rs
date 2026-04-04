@@ -17,8 +17,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use checkers::{
-    check_forbidden_files, check_forbidden_patterns, check_git_clean, check_mock_patterns,
-    check_required_env, check_type_enforcement, scan_secrets,
+    check_banned_env_vars, check_forbidden_files, check_forbidden_patterns, check_git_clean,
+    check_mock_patterns, check_required_env, check_type_enforcement, scan_secrets,
 };
 
 use crate::manifest::{MANIFEST_FILE, Manifest};
@@ -204,24 +204,42 @@ pub fn check(project: Option<&str>) -> Result<PolicyResult> {
         scan_secrets(project, config.security.max_file_size_mb, &mut result)?;
     }
 
-    // 6-7. Testing governance checks (from manifest.toml [testing])
+    // 6-8. Governance checks from manifest.toml [policy] (with [testing] fallback)
     let manifest_path = std::path::Path::new(MANIFEST_FILE);
     if manifest_path.exists()
         && let Ok(manifest) = Manifest::load(manifest_path)
     {
+        let testing = &manifest.policy.testing;
+
         // 6. Forbidden mock pattern scanning
-        if !manifest.testing.forbidden_patterns.is_empty() {
-            check_mock_patterns(&manifest.testing.forbidden_patterns, project, &mut result)?;
+        if !testing.forbidden_patterns.is_empty() {
+            check_mock_patterns(&testing.forbidden_patterns, project, &mut result)?;
         }
 
         // 7. Type enforcement (DB tests must import generated types)
-        if let Some(te) = &manifest.testing.type_enforcement {
+        if let Some(te) = &testing.type_enforcement {
             check_type_enforcement(
                 &te.generated_types_path,
                 &te.required_imports,
                 project,
                 &mut result,
             )?;
+        }
+
+        // 8. Banned environment variables (from [policy.security])
+        let security = &manifest.policy.security;
+        if !security.banned_env_vars.is_empty() {
+            check_banned_env_vars(
+                &security.banned_env_vars,
+                &security.allowed_paths,
+                project,
+                &mut result,
+            )?;
+        }
+
+        // Use manifest security settings if available, override .airis/policies.toml
+        if security.scan_secrets && !config.security.scan_secrets {
+            scan_secrets(project, security.max_file_size_mb, &mut result)?;
         }
     }
 

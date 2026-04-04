@@ -226,6 +226,9 @@ enum Commands {
 
     /// Run tests (alias for 'run test')
     Test {
+        /// Scan test files: categorize, detect forbidden patterns, check type enforcement
+        #[arg(long)]
+        scan: bool,
         /// Test level: unit, integration, e2e, smoke (resolves to [commands].test:<level>)
         #[arg(long, value_enum)]
         level: Option<TestLevel>,

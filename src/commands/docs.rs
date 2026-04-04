@@ -263,7 +263,7 @@ fn render_adapter(manifest: &Manifest, target: &str) -> Result<String> {
     let skills_source = effective_skills_source(manifest);
     let hooks_policy = effective_hooks_policy(manifest);
 
-    let testing = &manifest.testing;
+    let testing = &manifest.policy.testing;
 
     match target {
         "AGENTS.md" => Ok(render_agents_md(
@@ -821,8 +821,8 @@ to = "main"
     #[test]
     fn testing_policy_injected_into_claude_md() {
         let mut manifest = manifest_with_docs();
-        manifest.testing.mock_policy = MockPolicy::Forbidden;
-        manifest.testing.ai_rules = vec!["Use real DB.".to_string()];
+        manifest.policy.testing.mock_policy = MockPolicy::Forbidden;
+        manifest.policy.testing.ai_rules = vec!["Use real DB.".to_string()];
         let rendered = render_adapter(&manifest, "CLAUDE.md").unwrap();
         assert!(rendered.contains("Testing policy:"));
         assert!(rendered.contains("Mock policy: forbidden"));
@@ -832,7 +832,7 @@ to = "main"
     #[test]
     fn testing_policy_injected_into_agents_md() {
         let mut manifest = manifest_with_docs();
-        manifest.testing.mock_policy = MockPolicy::UnitOnly;
+        manifest.policy.testing.mock_policy = MockPolicy::UnitOnly;
         let rendered = render_adapter(&manifest, "AGENTS.md").unwrap();
         assert!(rendered.contains("Testing policy:"));
         assert!(rendered.contains("Mock policy: unit-only"));
@@ -841,7 +841,7 @@ to = "main"
     #[test]
     fn testing_policy_injected_into_gemini_md() {
         let mut manifest = manifest_with_docs();
-        manifest.testing.ai_rules = vec!["No mocks.".to_string()];
+        manifest.policy.testing.ai_rules = vec!["No mocks.".to_string()];
         let rendered = render_adapter(&manifest, "GEMINI.md").unwrap();
         assert!(rendered.contains("Testing policy:"));
         assert!(rendered.contains("No mocks."));
@@ -850,7 +850,7 @@ to = "main"
     #[test]
     fn testing_policy_not_in_claude_md_when_all_defaults_allowed() {
         let mut manifest = manifest_with_docs();
-        manifest.testing.mock_policy = MockPolicy::Allowed;
+        manifest.policy.testing.mock_policy = MockPolicy::Allowed;
         let rendered = render_adapter(&manifest, "CLAUDE.md").unwrap();
         assert!(!rendered.contains("Testing policy:"));
     }

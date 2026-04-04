@@ -305,9 +305,9 @@ from = "develop"
 to = "main"
 
 # =============================================================================
-# Testing Governance
+# Policy — Code Governance
 # =============================================================================
-[testing]
+[policy.testing]
 mock_policy = "unit-only"
 forbidden_patterns = [
     'vi\.mock.*supabase',
@@ -321,29 +321,40 @@ ai_rules = [
     "E2E tests must run against the staging environment, never against mocks.",
 ]
 
-[testing.coverage]
+[policy.testing.coverage]
 unit = 80
 integration = 60
 
-[testing.levels]
+[policy.testing.levels]
 unit = true
 integration = true
 e2e = false
 smoke = true
 
-[testing.type_enforcement]
+[policy.testing.type_enforcement]
 generated_types_path = "libs/database/src/types.ts"
 required_imports = ["from.*@workspace/database"]
 
-[[testing.smoke]]
+[[policy.testing.smoke]]
 name = "api-health"
 command = "curl -sf $API_URL/health"
 timeout = 10
 
-[[testing.smoke]]
+[[policy.testing.smoke]]
 name = "auth-flow"
 command = "vitest run --filter smoke-auth"
 timeout = 60
+
+[policy.security]
+banned_env_vars = [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+]
+allowed_paths = [
+    "supabase/functions/*",
+    "products/*/worker/*",
+]
+scan_secrets = true
 
 # =============================================================================
 # Templates (airis new)

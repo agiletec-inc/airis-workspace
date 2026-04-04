@@ -70,6 +70,8 @@ impl Manifest {
         self.validate_no_host_bind_mounts(&mut errors);
         // 9. Validate forbidden_patterns are valid regex
         self.validate_testing_patterns(&mut errors);
+        // 10. Validate policy section
+        self.validate_policy(&mut errors);
 
         for w in &warnings {
             eprintln!("\u{26a0}\u{fe0f}  {w}");
@@ -309,6 +311,36 @@ impl Manifest {
                         pattern
                     ));
                 }
+            }
+        }
+    }
+
+    /// Validate [policy] section: testing patterns + security allowed_paths.
+    fn validate_policy(&self, errors: &mut Vec<String>) {
+        // Validate policy.testing forbidden_patterns
+        for (i, pattern) in self.policy.testing.forbidden_patterns.iter().enumerate() {
+            if regex::Regex::new(pattern).is_err() {
+                errors.push(format!(
+                    "[policy.testing].forbidden_patterns[{i}]: invalid regex \"{pattern}\""
+                ));
+            }
+        }
+        if let Some(te) = &self.policy.testing.type_enforcement {
+            for (i, pattern) in te.required_imports.iter().enumerate() {
+                if regex::Regex::new(pattern).is_err() {
+                    errors.push(format!(
+                        "[policy.testing.type_enforcement].required_imports[{i}]: invalid regex \"{pattern}\""
+                    ));
+                }
+            }
+        }
+
+        // Validate policy.security.allowed_paths are valid glob patterns
+        for (i, pattern) in self.policy.security.allowed_paths.iter().enumerate() {
+            if glob::Pattern::new(pattern).is_err() {
+                errors.push(format!(
+                    "[policy.security].allowed_paths[{i}]: invalid glob pattern \"{pattern}\""
+                ));
             }
         }
     }

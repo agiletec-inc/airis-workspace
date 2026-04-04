@@ -689,6 +689,129 @@ required_imports = ["[broken("]
     );
 }
 
+// ── Policy section tests ──
+
+#[test]
+fn test_policy_section_defaults_when_absent() {
+    let manifest = load_from_str(&minimal_manifest()).unwrap();
+    assert_eq!(
+        manifest.policy.testing.mock_policy,
+        schema::MockPolicy::Forbidden
+    );
+    assert!(manifest.policy.testing.ai_rules.is_empty());
+    assert!(manifest.policy.security.banned_env_vars.is_empty());
+    assert!(manifest.policy.security.allowed_paths.is_empty());
+    assert!(!manifest.policy.security.scan_secrets);
+}
+
+#[test]
+fn test_policy_testing_full_config() {
+    let toml = r#"
+version = 1
+
+[policy.testing]
+mock_policy = "unit-only"
+forbidden_patterns = ["vi\\.mock.*supabase"]
+ai_rules = ["Use real DB."]
+
+[policy.testing.coverage]
+unit = 80
+integration = 60
+
+[policy.testing.type_enforcement]
+generated_types_path = "libs/database/src/types.ts"
+required_imports = ["from.*@workspace/database"]
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(
+        manifest.policy.testing.mock_policy,
+        schema::MockPolicy::UnitOnly
+    );
+    assert_eq!(manifest.policy.testing.forbidden_patterns.len(), 1);
+    assert_eq!(manifest.policy.testing.ai_rules.len(), 1);
+    assert_eq!(manifest.policy.testing.coverage.unit, 80);
+    assert_eq!(manifest.policy.testing.coverage.integration, 60);
+    assert!(manifest.policy.testing.type_enforcement.is_some());
+}
+
+#[test]
+fn test_policy_security_config() {
+    let toml = r#"
+version = 1
+
+[policy.security]
+banned_env_vars = ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"]
+allowed_paths = ["supabase/functions/*", "products/*/worker/*"]
+scan_secrets = true
+max_file_size_mb = 100
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(manifest.policy.security.banned_env_vars.len(), 2);
+    assert_eq!(manifest.policy.security.allowed_paths.len(), 2);
+    assert!(manifest.policy.security.scan_secrets);
+    assert_eq!(manifest.policy.security.max_file_size_mb, 100);
+}
+
+#[test]
+fn test_policy_security_invalid_glob_rejected() {
+    let toml = r#"
+version = 1
+
+[policy.security]
+banned_env_vars = ["SECRET"]
+allowed_paths = ["[invalid"]
+"#;
+    let result = load_from_str(toml);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("invalid glob"),
+        "Expected glob validation error, got: {err_msg}"
+    );
+}
+
+#[test]
+fn test_testing_fallback_to_policy_testing() {
+    // When [testing] is used (deprecated), policy.testing should get the values
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "forbidden"
+ai_rules = ["No mocks."]
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    // Fallback should copy testing → policy.testing
+    assert_eq!(
+        manifest.policy.testing.mock_policy,
+        schema::MockPolicy::Forbidden
+    );
+    assert_eq!(manifest.policy.testing.ai_rules.len(), 1);
+    assert_eq!(manifest.policy.testing.ai_rules[0], "No mocks.");
+}
+
+#[test]
+fn test_policy_testing_takes_precedence_over_testing() {
+    // When both [testing] and [policy.testing] exist, policy.testing wins
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "allowed"
+ai_rules = ["Old rule."]
+
+[policy.testing]
+mock_policy = "forbidden"
+ai_rules = ["New rule."]
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(
+        manifest.policy.testing.mock_policy,
+        schema::MockPolicy::Forbidden
+    );
+    assert_eq!(manifest.policy.testing.ai_rules[0], "New rule.");
+}
+
 // ── levenshtein_distance unit tests ──
 
 #[test]

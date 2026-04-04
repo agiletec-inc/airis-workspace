@@ -343,6 +343,108 @@ pub(crate) fn check_mock_patterns(
     Ok(())
 }
 
+/// Scan source files for banned environment variable names.
+/// Files matching allowed_paths globs are skipped.
+pub(crate) fn check_banned_env_vars(
+    banned: &[String],
+    allowed_paths: &[String],
+    project: Option<&str>,
+    result: &mut PolicyResult,
+) -> Result<()> {
+    print!("🔍 Checking banned env vars... ");
+
+    if banned.is_empty() {
+        println!("{}", "skipped (none configured)".dimmed());
+        return Ok(());
+    }
+
+    let scan_dir = project
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    if !scan_dir.exists() {
+        println!("{}", "skipped (directory not found)".dimmed());
+        return Ok(());
+    }
+
+    let allowed_globs: Vec<glob::Pattern> = allowed_paths
+        .iter()
+        .filter_map(|p| glob::Pattern::new(p).ok())
+        .collect();
+
+    let mut violations_found: Vec<(String, usize, String)> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&scan_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+
+        // Only scan source files
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if !matches!(
+            ext,
+            "js" | "ts" | "jsx" | "tsx" | "py" | "rs" | "go" | "java" | "rb" | "php"
+        ) {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy();
+        if path_str.contains("node_modules")
+            || path_str.contains(".git")
+            || path_str.contains("target/")
+            || path_str.contains("dist/")
+        {
+            continue;
+        }
+
+        // Skip allowed paths
+        let relative = path
+            .strip_prefix(&scan_dir)
+            .unwrap_or(path)
+            .to_string_lossy();
+        if allowed_globs
+            .iter()
+            .any(|g| g.matches(&relative) || relative.starts_with(g.as_str().trim_end_matches('*')))
+        {
+            continue;
+        }
+
+        if let Ok(content) = fs::read_to_string(path) {
+            for (line_num, line) in content.lines().enumerate() {
+                for var in banned {
+                    if line.contains(var) {
+                        violations_found.push((
+                            path.display().to_string(),
+                            line_num + 1,
+                            var.clone(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if violations_found.is_empty() {
+        println!("{}", "none found".green());
+    } else {
+        println!(
+            "{}",
+            format!("{} violation(s)", violations_found.len()).red()
+        );
+        for (file, line, var) in &violations_found {
+            result.violations.push(PolicyViolation {
+                rule: "policy.security.banned_env_vars".to_string(),
+                message: format!("Banned env var `{}` at {}:{}", var, file, line),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Scan for potential secrets in source files
 pub(super) fn scan_secrets(
     project: Option<&str>,

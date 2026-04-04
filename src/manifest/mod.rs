@@ -27,6 +27,9 @@ impl Manifest {
         let mut manifest: Manifest =
             toml::from_str(&content).with_context(|| "Failed to parse manifest.toml")?;
 
+        // [testing] → [policy.testing] migration fallback
+        manifest.migrate_testing_to_policy();
+
         manifest.validate()?;
         manifest.resolve_conventions();
 
@@ -41,6 +44,21 @@ impl Manifest {
         }
 
         Ok(manifest)
+    }
+
+    /// Migrate top-level [testing] to [policy.testing] with deprecation warning.
+    fn migrate_testing_to_policy(&mut self) {
+        let has_top_level_testing = self.testing != TestingSection::default();
+        let has_policy_testing = self.policy.testing != TestingSection::default();
+
+        if has_top_level_testing && !has_policy_testing {
+            self.policy.testing = self.testing.clone();
+            eprintln!("⚠️  [testing] is deprecated. Move to [policy.testing] in manifest.toml");
+        } else if has_top_level_testing && has_policy_testing {
+            eprintln!(
+                "⚠️  Both [testing] and [policy.testing] found. Using [policy.testing]. Remove [testing]."
+            );
+        }
     }
 
     /// Apply convention-based defaults to all [[app]] entries.
@@ -383,6 +401,7 @@ impl Manifest {
             overrides: IndexMap::new(),
             mcp: McpSection::default(),
             testing: TestingSection::default(),
+            policy: PolicySection::default(),
         }
     }
 }
