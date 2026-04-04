@@ -68,7 +68,8 @@ fn install_claude_hooks() -> Result<()> {
         .entry("hooks")
         .or_insert_with(|| json!({}));
 
-    // Stop hook: run tests when Claude finishes a task
+    // Stop hook: run tests when Claude finishes a task (project-type aware)
+    // Uses if (not elif) so multiple test runners can execute for mixed projects
     let stop_arr = hooks
         .as_object_mut()
         .context("hooks is not an object")?
@@ -82,12 +83,12 @@ fn install_claude_hooks() -> Result<()> {
         "hooks": [{
             "type": "command",
             "command": format!(
-                "cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then airis test 2>&1 | tail -20; fi {AIRIS_MARKER}"
+                "cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ] && command -v airis &>/dev/null; then airis test 2>&1 | tail -20; fi; if [ -f Cargo.toml ] && ! [ -f manifest.toml ]; then cargo test 2>&1 | tail -20; fi; if [ -f pyproject.toml ]; then python -m pytest 2>&1 | tail -20; fi; if [ -f package.json ] && ! [ -f manifest.toml ]; then npm test 2>&1 | tail -20; fi {AIRIS_MARKER}"
             )
         }]
     }));
 
-    // PreToolUse hook: block git push if tests fail
+    // PreToolUse hook: block git push if tests fail (project-type aware)
     let pre_tool_arr = hooks
         .as_object_mut()
         .context("hooks is not an object")?
@@ -101,7 +102,7 @@ fn install_claude_hooks() -> Result<()> {
         "hooks": [{
             "type": "command",
             "command": format!(
-                r#"bash -c 'input=$(cat); cmd=$(echo "$input" | jq -r ".tool_input.command // empty"); if echo "$cmd" | grep -qE "git\s+push"; then push_repo=$(echo "$cmd" | sed -n "s/.*cd \([^ ;]*\).*/\1/p"); push_root=$(cd "${{push_repo:-.}}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || echo "."); project_root=$(cd "$CLAUDE_PROJECT_DIR" && git rev-parse --show-toplevel 2>/dev/null || echo "$CLAUDE_PROJECT_DIR"); if [ "$push_root" != "$project_root" ]; then echo "Push target differs from project — skipping airis test"; exit 0; fi; cd $CLAUDE_PROJECT_DIR && if [ -f manifest.toml ]; then changed=$(git diff --name-only origin/stg...HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD); if [ -z "$changed" ]; then echo "No changes to test" && exit 0; fi; has_turbo_pkg=$(echo "$changed" | grep -cE "^(apps|libs|products)/" || true); if [ "$has_turbo_pkg" -eq 0 ]; then echo "Changes only in non-turbo paths — skipping airis test"; exit 0; fi; proj=$(grep -m1 "^name" manifest.toml 2>/dev/null | sed "s/.*= *\"\\(.*\\)\"/\\1/"); if [ -z "$proj" ] || ! docker compose ps --status running 2>/dev/null | grep -q .; then echo "⚠️ No project containers running — skipping local test. CI will validate."; exit 0; fi; airis test || {{ echo "{{\"decision\": \"block\", \"reason\": \"テスト失敗。push 前に修正してください\"}}" >&2; exit 2; }}; fi; fi' {AIRIS_MARKER}"#
+                r#"bash -c 'input=$(cat); cmd=$(echo "$input" | jq -r ".tool_input.command // empty"); if echo "$cmd" | grep -qE "git\s+push"; then push_repo=$(echo "$cmd" | sed -n "s/.*cd \([^ ;]*\).*/\1/p"); push_root=$(cd "${{push_repo:-.}}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null || echo "."); project_root=$(cd "$CLAUDE_PROJECT_DIR" && git rev-parse --show-toplevel 2>/dev/null || echo "$CLAUDE_PROJECT_DIR"); if [ "$push_root" != "$project_root" ]; then echo "Push target differs from project — skipping test"; exit 0; fi; cd $CLAUDE_PROJECT_DIR; TEST_CMD=""; if [ -f manifest.toml ] && command -v airis &>/dev/null; then TEST_CMD="airis test"; elif [ -f Cargo.toml ]; then TEST_CMD="cargo test"; elif [ -f pyproject.toml ]; then TEST_CMD="python -m pytest"; elif [ -f package.json ]; then TEST_CMD="npm test"; fi; if [ -z "$TEST_CMD" ]; then echo "No test runner detected — skipping pre-push test"; exit 0; fi; $TEST_CMD || {{ echo "{{\"decision\": \"block\", \"reason\": \"テスト失敗。push 前に修正してください\"}}" >&2; exit 2; }}; fi' {AIRIS_MARKER}"#
             )
         }]
     }));
@@ -140,14 +141,14 @@ pub fn install() -> Result<()> {
             hooks_dir.join("pre-push").display()
         );
         println!("   💡 pre-commit: version auto-bump + .env / node_modules guard");
-        println!("   💡 pre-push:   lint / typecheck / build (commented out — enable as needed)");
+        println!("   💡 pre-push:   lint / typecheck / test (commented out — enable as needed)");
     }
 
     // Claude Code hooks
     install_claude_hooks()?;
     println!("\n✅ Claude Code hooks installed (~/.claude/settings.json):");
     println!(
-        "   {} → タスク完了時に airis test --quick を自動実行",
+        "   {} → タスク完了時にプロジェクトタイプに応じたテストを自動実行",
         "Stop".green()
     );
     println!(

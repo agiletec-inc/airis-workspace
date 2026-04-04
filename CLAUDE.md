@@ -14,3 +14,6 @@ Repository rules:
 - Keep verification proportional to the change.
 - Project playbooks and reusable task guidance live under `docs/ai/playbooks`.
 - Hook intent and shared guard policy live in `docs/ai/hooks/HOOKS_POLICY.md`; Claude-specific hook wiring may extend it but should not contradict it.
+
+Testing policy:
+- **Mock policy: forbidden** — Never mock external services (DB, APIs). Use real instances or local emulators.

@@ -382,6 +382,7 @@ impl Manifest {
             root: None,
             overrides: IndexMap::new(),
             mcp: McpSection::default(),
+            testing: TestingSection::default(),
         }
     }
 }

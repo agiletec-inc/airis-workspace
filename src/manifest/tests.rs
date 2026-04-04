@@ -532,6 +532,163 @@ zod = "~3.22.0"
     assert!(load_from_str(toml).is_ok());
 }
 
+// ── Testing governance section ──
+
+#[test]
+fn test_testing_section_defaults_when_absent() {
+    let manifest = load_from_str(&minimal_manifest()).unwrap();
+    assert_eq!(manifest.testing.mock_policy, schema::MockPolicy::Forbidden);
+    assert!(manifest.testing.ai_rules.is_empty());
+    assert!(manifest.testing.forbidden_patterns.is_empty());
+    assert!(manifest.testing.type_enforcement.is_none());
+    assert_eq!(manifest.testing.coverage.unit, 0);
+    assert_eq!(manifest.testing.coverage.integration, 0);
+    assert!(manifest.testing.levels.unit);
+    assert!(!manifest.testing.levels.integration);
+    assert!(!manifest.testing.levels.e2e);
+    assert!(!manifest.testing.levels.smoke);
+    assert!(manifest.testing.smoke.is_empty());
+}
+
+#[test]
+fn test_testing_section_full_config() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "unit-only"
+forbidden_patterns = ["vi\\.mock.*supabase", "jest\\.mock.*database"]
+ai_rules = [
+    "Never mock Supabase.",
+    "Use generated types.",
+]
+
+[testing.coverage]
+unit = 80
+integration = 60
+
+[testing.levels]
+unit = true
+integration = true
+e2e = false
+smoke = true
+
+[testing.type_enforcement]
+generated_types_path = "libs/database/src/types.ts"
+required_imports = ["from.*@workspace/database"]
+
+[[testing.smoke]]
+name = "api-health"
+command = "curl -sf http://localhost:3001/health"
+timeout = 10
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(manifest.testing.mock_policy, schema::MockPolicy::UnitOnly);
+    assert_eq!(manifest.testing.forbidden_patterns.len(), 2);
+    assert_eq!(manifest.testing.ai_rules.len(), 2);
+    assert_eq!(manifest.testing.coverage.unit, 80);
+    assert_eq!(manifest.testing.coverage.integration, 60);
+    assert!(manifest.testing.levels.integration);
+    assert!(manifest.testing.levels.smoke);
+    assert!(!manifest.testing.levels.e2e);
+
+    let te = manifest.testing.type_enforcement.as_ref().unwrap();
+    assert_eq!(te.generated_types_path, "libs/database/src/types.ts");
+    assert_eq!(te.required_imports.len(), 1);
+
+    assert_eq!(manifest.testing.smoke.len(), 1);
+    assert_eq!(manifest.testing.smoke[0].name, "api-health");
+    assert_eq!(manifest.testing.smoke[0].timeout, 10);
+}
+
+#[test]
+fn test_testing_section_mock_policy_forbidden() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "forbidden"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(manifest.testing.mock_policy, schema::MockPolicy::Forbidden);
+}
+
+#[test]
+fn test_testing_section_mock_policy_allowed() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "allowed"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(manifest.testing.mock_policy, schema::MockPolicy::Allowed);
+}
+
+#[test]
+fn test_testing_smoke_default_timeout() {
+    let toml = r#"
+version = 1
+
+[[testing.smoke]]
+name = "check"
+command = "curl localhost"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(manifest.testing.smoke[0].timeout, 30);
+}
+
+#[test]
+fn test_testing_invalid_regex_rejected() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "allowed"
+forbidden_patterns = ["[invalid(regex"]
+"#;
+    let result = load_from_str(toml);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("invalid regex"),
+        "Expected regex validation error, got: {err_msg}"
+    );
+}
+
+#[test]
+fn test_testing_valid_regex_accepted() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "allowed"
+forbidden_patterns = ["vi\\.mock.*supabase", "jest\\.mock.*database"]
+"#;
+    assert!(load_from_str(toml).is_ok());
+}
+
+#[test]
+fn test_testing_invalid_required_imports_regex_rejected() {
+    let toml = r#"
+version = 1
+
+[testing]
+mock_policy = "allowed"
+
+[testing.type_enforcement]
+generated_types_path = "libs/db/types.ts"
+required_imports = ["[broken("]
+"#;
+    let result = load_from_str(toml);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("invalid regex"),
+        "Expected regex validation error, got: {err_msg}"
+    );
+}
+
 // ── levenshtein_distance unit tests ──
 
 #[test]

@@ -131,6 +131,218 @@ pub(super) fn check_forbidden_patterns(
     Ok(())
 }
 
+/// Check that DB-touching test files import generated types.
+///
+/// Walks integration/e2e test files and verifies that at least one of the
+/// `required_imports` patterns appears in each file that references DB operations.
+pub(crate) fn check_type_enforcement(
+    generated_types_path: &str,
+    required_imports: &[String],
+    project: Option<&str>,
+    result: &mut PolicyResult,
+) -> Result<()> {
+    print!("🔍 Checking type enforcement in tests... ");
+
+    if required_imports.is_empty() {
+        println!("{}", "skipped (no required_imports configured)".dimmed());
+        return Ok(());
+    }
+
+    let scan_dir = project
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    if !scan_dir.exists() {
+        println!("{}", "skipped (directory not found)".dimmed());
+        return Ok(());
+    }
+
+    let compiled: Vec<regex::Regex> = required_imports
+        .iter()
+        .filter_map(|p| regex::Regex::new(p).ok())
+        .collect();
+
+    if compiled.is_empty() {
+        println!("{}", "skipped (no valid patterns)".dimmed());
+        return Ok(());
+    }
+
+    // DB-related keywords that indicate a test touches the database
+    let db_indicators = [
+        "supabase",
+        "createClient",
+        "prisma",
+        "drizzle",
+        "pg.",
+        "postgres",
+        "from(", // supabase .from('table')
+        "query(",
+        "insert(",
+        "select(",
+        "database",
+    ];
+
+    let mut violations_found: Vec<String> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&scan_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        // Only scan integration/e2e test files
+        let is_integration_test = file_name.contains(".integration.")
+            || file_name.contains(".e2e.")
+            || file_name.contains(".spec.");
+        if !is_integration_test {
+            continue;
+        }
+
+        let path_str = path.to_string_lossy();
+        if path_str.contains("node_modules")
+            || path_str.contains(".git")
+            || path_str.contains("target/")
+            || path_str.contains("dist/")
+        {
+            continue;
+        }
+
+        if let Ok(content) = fs::read_to_string(path) {
+            // Check if this file touches the database
+            let touches_db = db_indicators
+                .iter()
+                .any(|indicator| content.contains(indicator));
+
+            if !touches_db {
+                continue;
+            }
+
+            // Check if any required import pattern is present
+            let has_required_import = compiled.iter().any(|re| re.is_match(&content));
+
+            if !has_required_import {
+                violations_found.push(path.display().to_string());
+            }
+        }
+    }
+
+    if violations_found.is_empty() {
+        println!("{}", "ok".green());
+    } else {
+        println!(
+            "{}",
+            format!("{} file(s) missing generated types", violations_found.len()).red()
+        );
+        for file in &violations_found {
+            result.violations.push(PolicyViolation {
+                rule: "testing.type_enforcement".to_string(),
+                message: format!(
+                    "{} touches DB but does not import generated types from `{}`",
+                    file, generated_types_path
+                ),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Scan test files for forbidden mock patterns (from manifest.toml [testing])
+///
+/// Walks integration/e2e test files and checks for patterns like
+/// `vi.mock.*supabase` that indicate mocking of real services.
+pub(crate) fn check_mock_patterns(
+    patterns: &[String],
+    project: Option<&str>,
+    result: &mut PolicyResult,
+) -> Result<()> {
+    print!("🔍 Checking for forbidden mock patterns... ");
+
+    let scan_dir = project
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    if !scan_dir.exists() {
+        println!("{}", "skipped (directory not found)".dimmed());
+        return Ok(());
+    }
+
+    let compiled: Vec<(regex::Regex, &str)> = patterns
+        .iter()
+        .filter_map(|p| regex::Regex::new(p).ok().map(|r| (r, p.as_str())))
+        .collect();
+
+    if compiled.is_empty() {
+        println!("{}", "skipped (no valid patterns)".dimmed());
+        return Ok(());
+    }
+
+    let mut violations_found: Vec<(String, usize, String)> = Vec::new();
+
+    for entry in walkdir::WalkDir::new(&scan_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+
+        // Only scan test files
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let is_test_file = file_name.contains(".test.")
+            || file_name.contains(".spec.")
+            || file_name.contains(".integration.")
+            || file_name.contains(".e2e.");
+        if !is_test_file {
+            continue;
+        }
+
+        // Skip node_modules, .git, target, dist
+        let path_str = path.to_string_lossy();
+        if path_str.contains("node_modules")
+            || path_str.contains(".git")
+            || path_str.contains("target/")
+            || path_str.contains("dist/")
+        {
+            continue;
+        }
+
+        if let Ok(content) = fs::read_to_string(path) {
+            for (line_num, line) in content.lines().enumerate() {
+                for (regex, pattern) in &compiled {
+                    if regex.is_match(line) {
+                        violations_found.push((
+                            path.display().to_string(),
+                            line_num + 1,
+                            pattern.to_string(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    if violations_found.is_empty() {
+        println!("{}", "none found".green());
+    } else {
+        println!(
+            "{}",
+            format!("{} violation(s)", violations_found.len()).red()
+        );
+        for (file, line, pattern) in &violations_found {
+            result.violations.push(PolicyViolation {
+                rule: "testing.forbidden_patterns".to_string(),
+                message: format!("Forbidden mock pattern `{}` at {}:{}", pattern, file, line),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Scan for potential secrets in source files
 pub(super) fn scan_secrets(
     project: Option<&str>,

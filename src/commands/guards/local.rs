@@ -22,11 +22,11 @@ struct RepoGuardsFile {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct RepoGuards {
+pub(super) struct RepoGuards {
     #[serde(default)]
-    deny: Vec<String>,
+    pub(super) deny: Vec<String>,
     #[serde(default)]
-    allow: Vec<String>,
+    pub(super) allow: Vec<String>,
 }
 
 /// Load guard config from .airis/guards.toml (for non-manifest repos)
@@ -50,7 +50,7 @@ fn load_repo_guards() -> Result<RepoGuards> {
 ///             + repo.deny
 ///             - repo.allow
 ///             ± mode adjustment (hybrid/strict, only if manifest exists)
-fn merge_deny_list(
+pub(super) fn merge_deny_list(
     global: &GlobalConfig,
     repo: &RepoGuards,
     manifest_deny: &[String],

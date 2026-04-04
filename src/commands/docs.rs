@@ -3,7 +3,7 @@ use colored::Colorize;
 use std::fs;
 use std::path::Path;
 
-use crate::manifest::{DocsMode, DocsVendor, MANIFEST_FILE, Manifest};
+use crate::manifest::{DocsMode, DocsVendor, MANIFEST_FILE, Manifest, MockPolicy, TestingSection};
 
 const DEFAULT_SOURCE_FILES: &[&str] = &[
     "docs/ai/PROJECT_RULES.md",
@@ -263,27 +263,33 @@ fn render_adapter(manifest: &Manifest, target: &str) -> Result<String> {
     let skills_source = effective_skills_source(manifest);
     let hooks_policy = effective_hooks_policy(manifest);
 
+    let testing = &manifest.testing;
+
     match target {
         "AGENTS.md" => Ok(render_agents_md(
             &sources,
             skills_source.as_deref(),
             hooks_policy.as_deref(),
+            testing,
         )),
         "CLAUDE.md" => Ok(render_claude_md(
             &sources,
             skills_source.as_deref(),
             hooks_policy.as_deref(),
             &manifest.mcp.servers,
+            testing,
         )),
         "GEMINI.md" => Ok(render_gemini_md(
             &sources,
             skills_source.as_deref(),
             hooks_policy.as_deref(),
+            testing,
         )),
         ".cursorrules" => Ok(render_cursorrules(
             &sources,
             skills_source.as_deref(),
             hooks_policy.as_deref(),
+            testing,
         )),
         _ => bail!(
             "❌ Unknown documentation file: {}. Supported: CLAUDE.md, .cursorrules, GEMINI.md, AGENTS.md",
@@ -296,6 +302,7 @@ fn render_agents_md(
     sources: &[String],
     skills_source: Option<&str>,
     hooks_policy: Option<&str>,
+    testing: &TestingSection,
 ) -> String {
     let mut lines = vec![
         "# AGENTS.md".to_string(),
@@ -325,6 +332,14 @@ fn render_agents_md(
             hooks_policy
         ));
     }
+
+    let testing_lines = render_testing_policy(testing);
+    if !testing_lines.is_empty() {
+        lines.push("".to_string());
+        lines.push("Testing policy:".to_string());
+        lines.extend(testing_lines);
+    }
+
     lines.push("".to_string());
     lines.push(
         "Use MCP servers when available and prefer official documentation for vendor-specific behavior."
@@ -339,6 +354,7 @@ fn render_claude_md(
     skills_source: Option<&str>,
     hooks_policy: Option<&str>,
     mcp_servers: &[String],
+    testing: &TestingSection,
 ) -> String {
     let mut lines = vec![
         "# CLAUDE.md".to_string(),
@@ -367,6 +383,14 @@ fn render_claude_md(
             hooks_policy
         ));
     }
+
+    let testing_lines = render_testing_policy(testing);
+    if !testing_lines.is_empty() {
+        lines.push("".to_string());
+        lines.push("Testing policy:".to_string());
+        lines.extend(testing_lines);
+    }
+
     if !mcp_servers.is_empty() {
         lines.push("".to_string());
         lines.push(format!("Active MCP servers: {}", mcp_servers.join(", ")));
@@ -379,6 +403,7 @@ fn render_gemini_md(
     sources: &[String],
     skills_source: Option<&str>,
     hooks_policy: Option<&str>,
+    testing: &TestingSection,
 ) -> String {
     let mut lines = vec![
         "# GEMINI.md".to_string(),
@@ -398,6 +423,14 @@ fn render_gemini_md(
         lines.push("Hook policy:".to_string());
         lines.push(format!("@./{}", hooks_policy));
     }
+
+    let testing_lines = render_testing_policy(testing);
+    if !testing_lines.is_empty() {
+        lines.push("".to_string());
+        lines.push("Testing policy:".to_string());
+        lines.extend(testing_lines);
+    }
+
     lines.push("".to_string());
     lines.push(
         "`manifest.toml` remains the machine-readable source of truth for Docker-first workflow, commands, and guards.".to_string(),
@@ -409,6 +442,7 @@ fn render_cursorrules(
     sources: &[String],
     skills_source: Option<&str>,
     hooks_policy: Option<&str>,
+    testing: &TestingSection,
 ) -> String {
     let mut lines = vec![
         "# .cursorrules".to_string(),
@@ -424,12 +458,76 @@ fn render_cursorrules(
     if let Some(hooks_policy) = hooks_policy {
         lines.push(format!("- Hook policy: `{}`", hooks_policy));
     }
+
+    let testing_lines = render_testing_policy(testing);
+    if !testing_lines.is_empty() {
+        lines.push("".to_string());
+        lines.push("Testing policy:".to_string());
+        lines.extend(testing_lines);
+    }
+
     lines.push("".to_string());
     lines.push(
         "`manifest.toml` stays authoritative for Docker-first workflow and guard configuration."
             .to_string(),
     );
     lines.join("\n")
+}
+
+fn render_testing_policy(testing: &TestingSection) -> Vec<String> {
+    // If testing section is all defaults with no custom rules, emit nothing (backwards-compatible)
+    if testing.mock_policy == MockPolicy::Allowed
+        && testing.ai_rules.is_empty()
+        && testing.forbidden_patterns.is_empty()
+        && testing.type_enforcement.is_none()
+        && testing.coverage.unit == 0
+        && testing.coverage.integration == 0
+    {
+        return vec![];
+    }
+
+    let mut lines = Vec::new();
+
+    match &testing.mock_policy {
+        MockPolicy::Forbidden => {
+            lines.push("- **Mock policy: forbidden** — Never mock external services (DB, APIs). Use real instances or local emulators.".to_string());
+        }
+        MockPolicy::UnitOnly => {
+            lines.push("- **Mock policy: unit-only** — Mocks allowed in unit tests only. Integration and E2E tests must use real services.".to_string());
+        }
+        MockPolicy::Allowed => {}
+    }
+
+    if !testing.forbidden_patterns.is_empty() {
+        lines.push(format!(
+            "- Forbidden in integration/e2e test files: `{}`",
+            testing.forbidden_patterns.join("`, `")
+        ));
+    }
+
+    if let Some(te) = &testing.type_enforcement {
+        lines.push(format!(
+            "- DB-touching tests must import generated types from `{}`.",
+            te.generated_types_path
+        ));
+    }
+
+    if testing.coverage.unit > 0 || testing.coverage.integration > 0 {
+        let mut parts = Vec::new();
+        if testing.coverage.unit > 0 {
+            parts.push(format!("unit >= {}%", testing.coverage.unit));
+        }
+        if testing.coverage.integration > 0 {
+            parts.push(format!("integration >= {}%", testing.coverage.integration));
+        }
+        lines.push(format!("- Coverage targets: {}", parts.join(", ")));
+    }
+
+    for rule in &testing.ai_rules {
+        lines.push(format!("- {}", rule));
+    }
+
+    lines
 }
 
 fn vendor_for_target(target: &str) -> Result<DocsVendor> {
@@ -627,5 +725,133 @@ to = "main"
         manifest.docs.skills_source = Some(DEFAULT_SKILLS_SOURCE.to_string());
         manifest.docs.hooks_policy = Some(DEFAULT_HOOKS_POLICY.to_string());
         manifest
+    }
+
+    // ── render_testing_policy tests ──
+
+    #[test]
+    fn testing_policy_empty_when_all_defaults_with_allowed() {
+        let mut testing = TestingSection::default();
+        // Override to Allowed — should produce no output
+        testing.mock_policy = MockPolicy::Allowed;
+        let lines = render_testing_policy(&testing);
+        assert!(
+            lines.is_empty(),
+            "Expected no output for all-default + Allowed testing section"
+        );
+    }
+
+    #[test]
+    fn testing_policy_forbidden_renders_mock_rule() {
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Forbidden,
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(!lines.is_empty());
+        assert!(lines[0].contains("Mock policy: forbidden"));
+    }
+
+    #[test]
+    fn testing_policy_unit_only_renders_mock_rule() {
+        let testing = TestingSection {
+            mock_policy: MockPolicy::UnitOnly,
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(lines[0].contains("Mock policy: unit-only"));
+    }
+
+    #[test]
+    fn testing_policy_renders_forbidden_patterns() {
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Allowed,
+            forbidden_patterns: vec!["vi\\.mock.*supabase".to_string()],
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(lines.iter().any(|l| l.contains("vi\\.mock.*supabase")));
+    }
+
+    #[test]
+    fn testing_policy_renders_type_enforcement() {
+        use crate::manifest::TypeEnforcement;
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Allowed,
+            type_enforcement: Some(TypeEnforcement {
+                generated_types_path: "libs/db/types.ts".to_string(),
+                required_imports: vec![],
+            }),
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(lines.iter().any(|l| l.contains("libs/db/types.ts")));
+    }
+
+    #[test]
+    fn testing_policy_renders_coverage_targets() {
+        use crate::manifest::TestingCoverage;
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Allowed,
+            coverage: TestingCoverage {
+                unit: 80,
+                integration: 60,
+            },
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("unit >= 80%") && l.contains("integration >= 60%"))
+        );
+    }
+
+    #[test]
+    fn testing_policy_renders_custom_ai_rules() {
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Allowed,
+            ai_rules: vec!["Never mock Supabase.".to_string()],
+            ..Default::default()
+        };
+        let lines = render_testing_policy(&testing);
+        assert!(lines.iter().any(|l| l.contains("Never mock Supabase.")));
+    }
+
+    #[test]
+    fn testing_policy_injected_into_claude_md() {
+        let mut manifest = manifest_with_docs();
+        manifest.testing.mock_policy = MockPolicy::Forbidden;
+        manifest.testing.ai_rules = vec!["Use real DB.".to_string()];
+        let rendered = render_adapter(&manifest, "CLAUDE.md").unwrap();
+        assert!(rendered.contains("Testing policy:"));
+        assert!(rendered.contains("Mock policy: forbidden"));
+        assert!(rendered.contains("Use real DB."));
+    }
+
+    #[test]
+    fn testing_policy_injected_into_agents_md() {
+        let mut manifest = manifest_with_docs();
+        manifest.testing.mock_policy = MockPolicy::UnitOnly;
+        let rendered = render_adapter(&manifest, "AGENTS.md").unwrap();
+        assert!(rendered.contains("Testing policy:"));
+        assert!(rendered.contains("Mock policy: unit-only"));
+    }
+
+    #[test]
+    fn testing_policy_injected_into_gemini_md() {
+        let mut manifest = manifest_with_docs();
+        manifest.testing.ai_rules = vec!["No mocks.".to_string()];
+        let rendered = render_adapter(&manifest, "GEMINI.md").unwrap();
+        assert!(rendered.contains("Testing policy:"));
+        assert!(rendered.contains("No mocks."));
+    }
+
+    #[test]
+    fn testing_policy_not_in_claude_md_when_all_defaults_allowed() {
+        let mut manifest = manifest_with_docs();
+        manifest.testing.mock_policy = MockPolicy::Allowed;
+        let rendered = render_adapter(&manifest, "CLAUDE.md").unwrap();
+        assert!(!rendered.contains("Testing policy:"));
     }
 }

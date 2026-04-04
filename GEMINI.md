@@ -14,4 +14,7 @@ Reusable playbooks:
 Hook policy:
 @./docs/ai/hooks/HOOKS_POLICY.md
 
+Testing policy:
+- **Mock policy: forbidden** — Never mock external services (DB, APIs). Use real instances or local emulators.
+
 `manifest.toml` remains the machine-readable source of truth for Docker-first workflow, commands, and guards.

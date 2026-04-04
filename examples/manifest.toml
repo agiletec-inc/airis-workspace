@@ -305,6 +305,47 @@ from = "develop"
 to = "main"
 
 # =============================================================================
+# Testing Governance
+# =============================================================================
+[testing]
+mock_policy = "unit-only"
+forbidden_patterns = [
+    'vi\.mock.*supabase',
+    'vi\.mock.*database',
+    'jest\.mock.*supabase',
+]
+ai_rules = [
+    "Never mock Supabase — use local `supabase start` or the test project.",
+    "Integration tests must import types from `@workspace/database` (generated via `supabase gen types`).",
+    "Every new API endpoint must have at least one integration test hitting a real database.",
+    "E2E tests must run against the staging environment, never against mocks.",
+]
+
+[testing.coverage]
+unit = 80
+integration = 60
+
+[testing.levels]
+unit = true
+integration = true
+e2e = false
+smoke = true
+
+[testing.type_enforcement]
+generated_types_path = "libs/database/src/types.ts"
+required_imports = ["from.*@workspace/database"]
+
+[[testing.smoke]]
+name = "api-health"
+command = "curl -sf $API_URL/health"
+timeout = 10
+
+[[testing.smoke]]
+name = "auth-flow"
+command = "vitest run --filter smoke-auth"
+timeout = 60
+
+# =============================================================================
 # Templates (airis new)
 # =============================================================================
 [templates.api]

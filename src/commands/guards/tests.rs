@@ -4,7 +4,8 @@ use super::*;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::manifest::GlobalConfig;
+use crate::manifest::{GlobalConfig, Mode};
+use local::{RepoGuards, merge_deny_list};
 
 #[test]
 fn test_strict_mode_deny_list() {
@@ -401,4 +402,240 @@ fn test_ensure_safe_guard_path_allows_nonexistent() {
 
     // Should succeed for non-existent paths
     ensure_safe_guard_path(&path).unwrap();
+}
+
+// ── merge_deny_list tests ──
+
+#[test]
+fn test_merge_basic_global_deny() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards::default();
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    assert!(result.contains(&"npm".to_string()));
+    assert!(result.contains(&"pnpm".to_string()));
+    assert!(result.contains(&"npx".to_string()));
+}
+
+#[test]
+fn test_merge_repo_allow_removes_from_global() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards {
+        deny: vec![],
+        allow: vec!["npm".to_string(), "npx".to_string()],
+    };
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    assert!(!result.contains(&"npm".to_string()));
+    assert!(!result.contains(&"npx".to_string()));
+    // Others should remain
+    assert!(result.contains(&"yarn".to_string()));
+    assert!(result.contains(&"pnpm".to_string()));
+}
+
+#[test]
+fn test_merge_manifest_deny_adds() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards::default();
+    let manifest_deny = vec!["pip".to_string(), "python".to_string()];
+
+    let result = merge_deny_list(&global, &repo, &manifest_deny, &[], &Mode::DockerFirst);
+
+    assert!(result.contains(&"pip".to_string()));
+    assert!(result.contains(&"python".to_string()));
+    assert!(result.contains(&"npm".to_string()));
+}
+
+#[test]
+fn test_merge_manifest_allow_removes() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards::default();
+    let manifest_allow = vec!["npm".to_string()];
+
+    let result = merge_deny_list(&global, &repo, &[], &manifest_allow, &Mode::DockerFirst);
+
+    assert!(!result.contains(&"npm".to_string()));
+    assert!(result.contains(&"yarn".to_string()));
+}
+
+#[test]
+fn test_merge_repo_deny_adds() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards {
+        deny: vec!["cargo".to_string()],
+        allow: vec![],
+    };
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    assert!(result.contains(&"cargo".to_string()));
+    assert!(result.contains(&"npm".to_string()));
+}
+
+#[test]
+fn test_merge_hybrid_mode_removes_toolchains() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards {
+        deny: vec!["cargo".to_string(), "python".to_string()],
+        allow: vec![],
+    };
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::Hybrid);
+
+    // Hybrid mode should remove cargo, python from deny
+    assert!(!result.contains(&"cargo".to_string()));
+    assert!(!result.contains(&"python".to_string()));
+    // npm/yarn should remain
+    assert!(result.contains(&"npm".to_string()));
+}
+
+#[test]
+fn test_merge_strict_mode_adds_extra() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards::default();
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::Strict);
+
+    assert!(result.contains(&"cargo".to_string()));
+    assert!(result.contains(&"go".to_string()));
+    assert!(result.contains(&"java".to_string()));
+    assert!(result.contains(&"npm".to_string()));
+}
+
+#[test]
+fn test_merge_allow_nonexistent_command_is_noop() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards {
+        deny: vec![],
+        allow: vec!["nonexistent_cmd".to_string()],
+    };
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    // Should still have defaults, no crash
+    assert!(result.contains(&"npm".to_string()));
+}
+
+#[test]
+fn test_merge_no_duplicates() {
+    let global = GlobalConfig::default();
+    let repo = RepoGuards {
+        deny: vec!["npm".to_string()], // Already in global
+        allow: vec![],
+    };
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    let npm_count = result.iter().filter(|c| *c == "npm").count();
+    assert_eq!(npm_count, 1, "npm should appear exactly once");
+}
+
+#[test]
+fn test_merge_global_allow_removes_from_deny() {
+    let mut global = GlobalConfig::default();
+    global.guards.allow = vec!["npm".to_string()];
+    let repo = RepoGuards::default();
+
+    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
+
+    assert!(!result.contains(&"npm".to_string()));
+    assert!(result.contains(&"yarn".to_string()));
+}
+
+#[test]
+fn test_install_without_manifest_uses_global() {
+    let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let result = std::panic::catch_unwind(|| {
+        // No manifest.toml, no .airis/guards.toml
+        // Should still work with global defaults
+        install().unwrap();
+
+        let guards_dir = PathBuf::from(GUARDS_DIR);
+        assert!(guards_dir.exists(), ".airis/bin should exist");
+
+        // Should have guards from global defaults
+        assert!(guards_dir.join("npm").exists());
+        assert!(guards_dir.join("pnpm").exists());
+    });
+
+    std::env::set_current_dir(original_dir).unwrap();
+    result.unwrap();
+}
+
+#[test]
+fn test_install_with_repo_guards_toml() {
+    let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let result = std::panic::catch_unwind(|| {
+        // Create .airis/guards.toml with allow for npm
+        fs::create_dir_all(".airis").unwrap();
+        fs::write(
+            ".airis/guards.toml",
+            r#"
+[guards]
+deny = ["pip"]
+allow = ["npm"]
+"#,
+        )
+        .unwrap();
+
+        install().unwrap();
+
+        let guards_dir = PathBuf::from(GUARDS_DIR);
+
+        // npm should NOT be blocked (repo allow)
+        assert!(!guards_dir.join("npm").exists(), "npm should be allowed");
+        // pip should be blocked (repo deny)
+        assert!(guards_dir.join("pip").exists(), "pip should be denied");
+        // pnpm should be blocked (global deny, not in allow)
+        assert!(guards_dir.join("pnpm").exists(), "pnpm should be denied");
+    });
+
+    std::env::set_current_dir(original_dir).unwrap();
+    result.unwrap();
+}
+
+#[test]
+fn test_install_with_broken_repo_guards_toml() {
+    let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let result = std::panic::catch_unwind(|| {
+        // Broken TOML
+        fs::create_dir_all(".airis").unwrap();
+        fs::write(".airis/guards.toml", "this is not valid toml [[[").unwrap();
+
+        // Should error with helpful message, not panic
+        let res = install();
+        assert!(res.is_err(), "Should return error for broken TOML");
+    });
+
+    std::env::set_current_dir(original_dir).unwrap();
+    result.unwrap();
+}
+
+#[test]
+fn test_global_guard_script_contains_check_allow() {
+    let dir = tempfile::tempdir().unwrap();
+    install_global_guard(dir.path(), "npm").unwrap();
+
+    let content = fs::read_to_string(dir.path().join("npm")).unwrap();
+
+    // Should contain the airis guards check-allow call
+    assert!(content.contains("airis guards check-allow npm"));
+    // Should contain the find_real_cmd helper
+    assert!(content.contains("find_real_cmd"));
+    // Should contain opt-out instructions
+    assert!(content.contains(".airis/guards.toml"));
 }

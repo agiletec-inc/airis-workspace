@@ -15,4 +15,7 @@ Always:
 - Reuse task-specific playbooks from `docs/ai/playbooks` when the task matches.
 - When working with hooks or guard automation, follow `docs/ai/hooks/HOOKS_POLICY.md` as the portable policy source.
 
+Testing policy:
+- **Mock policy: forbidden** — Never mock external services (DB, APIs). Use real instances or local emulators.
+
 Use MCP servers when available and prefer official documentation for vendor-specific behavior.

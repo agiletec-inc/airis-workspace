@@ -121,6 +121,9 @@ pub struct Manifest {
     /// MCP Gateway configuration for this project
     #[serde(default)]
     pub mcp: McpSection,
+    /// Testing governance configuration
+    #[serde(default)]
+    pub testing: TestingSection,
 }
 
 /// Project metadata - Source of Truth for Cargo.toml, Homebrew formula, etc.
@@ -1848,4 +1851,107 @@ pub struct RuntimesSection {
     /// Short aliases for runtimes (e.g., "py" -> "fastapi", "ts" -> "hono")
     #[serde(default)]
     pub alias: IndexMap<String, String>,
+}
+
+// =============================================================================
+// Testing Governance
+// =============================================================================
+
+/// Mock policy for external service dependencies
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MockPolicy {
+    /// Mocks allowed everywhere
+    Allowed,
+    /// Mocks of external services forbidden everywhere (default when [testing] is present)
+    #[default]
+    Forbidden,
+    /// Mocks allowed in unit tests only, forbidden in integration/e2e
+    UnitOnly,
+}
+
+/// Testing governance — declares test strategy, mock policy, and AI rules.
+/// Feeds into CLAUDE.md/AGENTS.md generation and (future) CI/hook enforcement.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TestingSection {
+    /// Global mock policy
+    #[serde(default)]
+    pub mock_policy: MockPolicy,
+
+    /// Coverage thresholds per test level (0 = no threshold)
+    #[serde(default)]
+    pub coverage: TestingCoverage,
+
+    /// Which test levels are enabled
+    #[serde(default)]
+    pub levels: TestingLevels,
+
+    /// Regex patterns that indicate forbidden mocking in integration/e2e tests
+    #[serde(default)]
+    pub forbidden_patterns: Vec<String>,
+
+    /// Type enforcement: require generated types in DB-touching tests
+    #[serde(default)]
+    pub type_enforcement: Option<TypeEnforcement>,
+
+    /// Custom rules injected into AI assistant docs (CLAUDE.md, AGENTS.md)
+    #[serde(default)]
+    pub ai_rules: Vec<String>,
+
+    /// Smoke test definitions (run post-deploy)
+    #[serde(default)]
+    pub smoke: Vec<SmokeTest>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TestingCoverage {
+    #[serde(default)]
+    pub unit: u8,
+    #[serde(default)]
+    pub integration: u8,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TestingLevels {
+    #[serde(default = "default_true")]
+    pub unit: bool,
+    #[serde(default)]
+    pub integration: bool,
+    #[serde(default)]
+    pub e2e: bool,
+    #[serde(default)]
+    pub smoke: bool,
+}
+
+impl Default for TestingLevels {
+    fn default() -> Self {
+        Self {
+            unit: true,
+            integration: false,
+            e2e: false,
+            smoke: false,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct TypeEnforcement {
+    /// Path to generated types file (e.g., "libs/database/src/types.ts")
+    #[serde(default)]
+    pub generated_types_path: String,
+    /// Import patterns that must appear in DB-touching tests
+    #[serde(default)]
+    pub required_imports: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SmokeTest {
+    pub name: String,
+    pub command: String,
+    #[serde(default = "default_smoke_timeout")]
+    pub timeout: u16,
+}
+
+fn default_smoke_timeout() -> u16 {
+    30
 }

@@ -68,6 +68,8 @@ impl Manifest {
         self.detect_catalog_typos(&mut warnings);
         // 8. Reject host bind mounts in manifest-defined volumes
         self.validate_no_host_bind_mounts(&mut errors);
+        // 9. Validate forbidden_patterns are valid regex
+        self.validate_testing_patterns(&mut errors);
 
         for w in &warnings {
             eprintln!("\u{26a0}\u{fe0f}  {w}");
@@ -286,6 +288,30 @@ fn is_host_bind_mount(spec: &str) -> bool {
     source.len() >= 3
         && source.as_bytes()[1] == b':'
         && (source.as_bytes()[2] == b'/' || source.as_bytes()[2] == b'\\')
+}
+
+impl Manifest {
+    /// Validate that testing.forbidden_patterns are valid regex.
+    fn validate_testing_patterns(&self, errors: &mut Vec<String>) {
+        for (i, pattern) in self.testing.forbidden_patterns.iter().enumerate() {
+            if regex::Regex::new(pattern).is_err() {
+                errors.push(format!(
+                    "[testing].forbidden_patterns[{i}]: invalid regex \"{}\"",
+                    pattern
+                ));
+            }
+        }
+        if let Some(te) = &self.testing.type_enforcement {
+            for (i, pattern) in te.required_imports.iter().enumerate() {
+                if regex::Regex::new(pattern).is_err() {
+                    errors.push(format!(
+                        "[testing.type_enforcement].required_imports[{i}]: invalid regex \"{}\"",
+                        pattern
+                    ));
+                }
+            }
+        }
+    }
 }
 
 /// Simple Levenshtein distance for short strings (catalog typo detection).

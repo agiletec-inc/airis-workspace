@@ -6,7 +6,7 @@
 //! - Forbidden files detection
 //! - Secret scanning
 
-mod checkers;
+pub(crate) mod checkers;
 
 #[cfg(test)]
 mod tests;
@@ -17,9 +17,11 @@ use std::fs;
 use std::path::PathBuf;
 
 use checkers::{
-    check_forbidden_files, check_forbidden_patterns, check_git_clean, check_required_env,
-    scan_secrets,
+    check_forbidden_files, check_forbidden_patterns, check_git_clean, check_mock_patterns,
+    check_required_env, check_type_enforcement, scan_secrets,
 };
+
+use crate::manifest::{MANIFEST_FILE, Manifest};
 
 /// Policy configuration from .airis/policies.toml
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -200,6 +202,27 @@ pub fn check(project: Option<&str>) -> Result<PolicyResult> {
     // 5. Secret scanning
     if config.security.scan_secrets {
         scan_secrets(project, config.security.max_file_size_mb, &mut result)?;
+    }
+
+    // 6-7. Testing governance checks (from manifest.toml [testing])
+    let manifest_path = std::path::Path::new(MANIFEST_FILE);
+    if manifest_path.exists()
+        && let Ok(manifest) = Manifest::load(manifest_path)
+    {
+        // 6. Forbidden mock pattern scanning
+        if !manifest.testing.forbidden_patterns.is_empty() {
+            check_mock_patterns(&manifest.testing.forbidden_patterns, project, &mut result)?;
+        }
+
+        // 7. Type enforcement (DB tests must import generated types)
+        if let Some(te) = &manifest.testing.type_enforcement {
+            check_type_enforcement(
+                &te.generated_types_path,
+                &te.required_imports,
+                project,
+                &mut result,
+            )?;
+        }
     }
 
     // Print results
