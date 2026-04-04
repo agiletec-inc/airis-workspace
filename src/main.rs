@@ -76,6 +76,15 @@ struct Cli {
     command: Option<Commands>,
 }
 
+/// Test level for `airis test --level`
+#[derive(Clone, Debug, clap::ValueEnum)]
+enum TestLevel {
+    Unit,
+    Integration,
+    E2e,
+    Smoke,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Initialize workspace by discovering projects and creating manifest.toml.
@@ -217,6 +226,9 @@ enum Commands {
 
     /// Run tests (alias for 'run test')
     Test {
+        /// Test level: unit, integration, e2e, smoke (resolves to [commands].test:<level>)
+        #[arg(long, value_enum)]
+        level: Option<TestLevel>,
         /// Check coverage threshold
         #[arg(long)]
         coverage_check: bool,
@@ -810,11 +822,20 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
+            level,
             coverage_check,
             min_coverage,
             extra_args,
         } => {
-            if coverage_check {
+            if let Some(lvl) = level {
+                let task = match lvl {
+                    TestLevel::Unit => "test:unit",
+                    TestLevel::Integration => "test:integration",
+                    TestLevel::E2e => "test:e2e",
+                    TestLevel::Smoke => "test:smoke",
+                };
+                commands::run::run(task, &extra_args)?;
+            } else if coverage_check {
                 commands::run::run_test_coverage(min_coverage)?;
             } else {
                 commands::run::run("test", &extra_args)?;
