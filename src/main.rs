@@ -825,12 +825,15 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
+            scan,
             level,
             coverage_check,
             min_coverage,
             extra_args,
         } => {
-            if let Some(lvl) = level {
+            if scan {
+                commands::policy::check(None)?;
+            } else if let Some(lvl) = level {
                 let task = match lvl {
                     TestLevel::Unit => "test:unit",
                     TestLevel::Integration => "test:integration",
