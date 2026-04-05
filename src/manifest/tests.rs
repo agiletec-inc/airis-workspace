@@ -228,8 +228,10 @@ fn test_resolve_name_from_path() {
 
 #[test]
 fn test_resolve_scope_from_workspace() {
-    let mut ws = WorkspaceSection::default();
-    ws.scope = Some("@myorg".to_string());
+    let ws = WorkspaceSection {
+        scope: Some("@myorg".to_string()),
+        ..Default::default()
+    };
     let mut app = ProjectDefinition {
         name: "my-app".to_string(),
         ..Default::default()
@@ -241,8 +243,10 @@ fn test_resolve_scope_from_workspace() {
 
 #[test]
 fn test_resolve_scope_not_overridden() {
-    let mut ws = WorkspaceSection::default();
-    ws.scope = Some("@myorg".to_string());
+    let ws = WorkspaceSection {
+        scope: Some("@myorg".to_string()),
+        ..Default::default()
+    };
     let mut app = ProjectDefinition {
         name: "my-app".to_string(),
         scope: Some("@custom".to_string()),

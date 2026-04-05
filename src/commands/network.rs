@@ -254,14 +254,14 @@ pub fn setup() -> Result<()> {
         println!("{}", "Starting Traefik...".bright_blue());
 
         let proxy_env = proxy_network.as_deref().unwrap_or("bridge");
-        let cmd = format!(
-            "EXTERNAL_PROXY_NETWORK={} docker compose -f {} up -d",
-            proxy_env, traefik_path
-        );
 
-        let status = Command::new("sh")
-            .arg("-c")
-            .arg(&cmd)
+        let status = Command::new("docker")
+            .arg("compose")
+            .arg("-f")
+            .arg(traefik_path)
+            .arg("up")
+            .arg("-d")
+            .env("EXTERNAL_PROXY_NETWORK", proxy_env)
             .status()
             .with_context(|| "Failed to start Traefik")?;
 

@@ -9,6 +9,42 @@ use colored::Colorize;
 
 use super::GLOBAL_GUARD_MARKER;
 
+/// Validate that a command name is safe for use in guard scripts.
+/// Only allows alphanumeric characters, dots, hyphens, underscores, and plus signs.
+fn validate_guard_cmd(cmd: &str) -> Result<()> {
+    if cmd.is_empty() {
+        bail!("Guard command name cannot be empty");
+    }
+    if !cmd
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+    {
+        bail!(
+            "Guard command name contains invalid characters: \"{}\". Only [a-zA-Z0-9._+-] allowed.",
+            cmd
+        );
+    }
+    Ok(())
+}
+
+/// Validate that a wrapper path is safe for use in guard scripts.
+/// Allows command names with arguments (spaces), absolute paths, but rejects shell metacharacters.
+fn validate_wrapper_path(wrapper: &str) -> Result<()> {
+    if wrapper.is_empty() {
+        bail!("Guard wrapper path cannot be empty");
+    }
+    // Reject shell metacharacters that could enable injection
+    let dangerous_chars = ['`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}'];
+    if let Some(bad) = wrapper.chars().find(|c| dangerous_chars.contains(c)) {
+        bail!(
+            "Guard wrapper contains dangerous character '{}': \"{}\". Shell metacharacters are not allowed.",
+            bad,
+            wrapper
+        );
+    }
+    Ok(())
+}
+
 /// Ensure a guard script path is safe to write to.
 ///
 /// Rejects symlinks and non-regular files to prevent symlink attacks where
@@ -48,6 +84,7 @@ pub(super) fn install_deny_guard(
     cmd: &str,
     custom_message: Option<&String>,
 ) -> Result<()> {
+    validate_guard_cmd(cmd)?;
     let script_path = guards_dir.join(cmd);
     ensure_safe_guard_path(&script_path)?;
 
@@ -59,6 +96,9 @@ pub(super) fn install_deny_guard(
             cmd
         )
     };
+
+    // Sanitize message to prevent heredoc delimiter collision
+    let safe_message = message.replace("AIRIS_ERR", "AIRIS_E_R_R");
 
     let content = format!(
         r#"#!/usr/bin/env bash
@@ -80,13 +120,15 @@ if [ "$IS_INSTALL" = true ]; then
     exec airis install "$@"
 else
     # For other commands, just block with a helpful message
-    echo "❌ ERROR: {message}"
-    echo "Hint: Use 'airis shell' to run commands inside the container."
+    cat <<'AIRIS_ERR'
+❌ ERROR: {message}
+Hint: Use 'airis shell' to run commands inside the container.
+AIRIS_ERR
     exit 1
 fi
 "#,
         cmd = cmd,
-        message = message.replace("\"", "\\\"")
+        message = safe_message,
     );
 
     fs::write(&script_path, content)
@@ -98,6 +140,8 @@ fi
 }
 
 pub(super) fn install_wrap_guard(guards_dir: &Path, cmd: &str, wrapper: &str) -> Result<()> {
+    validate_guard_cmd(cmd)?;
+    validate_wrapper_path(wrapper)?;
     let script_path = guards_dir.join(cmd);
     ensure_safe_guard_path(&script_path)?;
 
@@ -121,6 +165,7 @@ exec {} "$@"
 }
 
 pub(super) fn install_global_guard(bin_dir: &Path, cmd: &str) -> Result<()> {
+    validate_guard_cmd(cmd)?;
     let script_path = bin_dir.join(cmd);
     ensure_safe_guard_path(&script_path)?;
 
@@ -138,8 +183,8 @@ find_real_cmd() {{
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
 }}
 
-# Docker container: allow
-if [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ -f /.dockerenv ]]; then
+# Docker container: allow (filesystem checks first, env var as fallback)
+if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/null || [[ "${{DOCKER_CONTAINER:-}}" == "true" ]]; then
     REAL_CMD=$(find_real_cmd {cmd})
     if [[ -n "$REAL_CMD" && -x "$REAL_CMD" ]]; then
         exec "$REAL_CMD" "$@"

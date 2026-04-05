@@ -911,7 +911,9 @@ fn test_profile_effective_role() {
     assert_eq!(default.effective_role("preview"), "staging");
 
     // Explicit role overrides name
-    let mut custom = ProfileSection::default();
-    custom.role = Some("production".to_string());
+    let custom = ProfileSection {
+        role: Some("production".to_string()),
+        ..Default::default()
+    };
     assert_eq!(custom.effective_role("stg"), "production");
 }

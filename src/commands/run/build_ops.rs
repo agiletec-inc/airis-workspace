@@ -7,9 +7,24 @@ use crate::manifest::Manifest;
 
 use super::build_compose_command;
 
+fn validate_app_name(app: &str) -> Result<()> {
+    if !app
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        bail!(
+            "Invalid app name: \"{}\". Only [a-zA-Z0-9._-] allowed.",
+            app
+        );
+    }
+    Ok(())
+}
+
 /// Build production Docker image for an app
 pub fn run_build_prod(app: &str) -> Result<()> {
     use std::time::Instant;
+
+    validate_app_name(app)?;
 
     let app_dir = format!("apps/{}", app);
     let dockerfile = format!("{}/Dockerfile.prod", app_dir);
@@ -32,16 +47,23 @@ pub fn run_build_prod(app: &str) -> Result<()> {
 
     let start = Instant::now();
 
-    let cmd = format!(
-        "DOCKER_BUILDKIT=1 docker build -f {} -t {}:latest -t {}:{} --progress=plain .",
+    let build_cmd = format!(
+        "docker build -f {} -t {}:latest -t {}:{} --progress=plain .",
         dockerfile, app, app, timestamp
     );
+    println!("🚀 Running: {}", build_cmd.cyan());
 
-    println!("🚀 Running: {}", cmd.cyan());
-
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(&cmd)
+    let status = Command::new("docker")
+        .arg("build")
+        .arg("-f")
+        .arg(&dockerfile)
+        .arg("-t")
+        .arg(format!("{}:latest", app))
+        .arg("-t")
+        .arg(format!("{}:{}", app, timestamp))
+        .arg("--progress=plain")
+        .arg(".")
+        .env("DOCKER_BUILDKIT", "1")
         .status()
         .with_context(|| "Failed to execute docker build")?;
 
@@ -83,6 +105,7 @@ pub fn run_build_prod(app: &str) -> Result<()> {
 
 /// Quick build test for standalone output
 pub fn run_build_quick(app: &str) -> Result<()> {
+    validate_app_name(app)?;
     let manifest_path = Path::new("manifest.toml");
 
     if !manifest_path.exists() {

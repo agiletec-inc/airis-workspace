@@ -55,6 +55,38 @@ impl Manifest {
             }
         }
 
+        // 3b. Validate guard command names (shell metacharacter prevention)
+        let cmd_re = regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").unwrap();
+        for cmd in &self.guards.deny {
+            if !cmd_re.is_match(cmd) {
+                errors.push(format!(
+                    "guards.deny contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
+                ));
+            }
+        }
+        for cmd in self.guards.wrap.keys() {
+            if !cmd_re.is_match(cmd) {
+                errors.push(format!(
+                    "guards.wrap contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
+                ));
+            }
+        }
+        for wrapper in self.guards.wrap.values() {
+            let dangerous_chars = ['`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}'];
+            if let Some(bad) = wrapper.chars().find(|c| dangerous_chars.contains(c)) {
+                errors.push(format!(
+                    "guards.wrap value \"{wrapper}\" contains dangerous character '{bad}': shell metacharacters are not allowed"
+                ));
+            }
+        }
+        for cmd in self.guards.deny_with_message.keys() {
+            if !cmd_re.is_match(cmd) {
+                errors.push(format!(
+                    "guards.deny_with_message contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
+                ));
+            }
+        }
+
         // 4. Validate dep_group / env_group references
         self.validate_group_references(&mut errors);
 

@@ -26,12 +26,14 @@ fn test_forbidden_files_check() {
     let forbidden_file = temp.path().join(".env.local");
     std::fs::write(&forbidden_file, "SECRET=123").unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     // Use absolute path to avoid thread-safety issues with set_current_dir
     let abs_path = forbidden_file.to_string_lossy().to_string();
-    check_forbidden_files(&[abs_path.clone()], &mut result).unwrap();
+    check_forbidden_files(std::slice::from_ref(&abs_path), &mut result).unwrap();
 
     assert!(!result.violations.is_empty());
     assert!(result.violations[0].message.contains(".env.local"));
@@ -39,8 +41,10 @@ fn test_forbidden_files_check() {
 
 #[test]
 fn test_required_env_missing() {
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     check_required_env(&["DEFINITELY_NOT_SET_12345".to_string()], &mut result);
 
@@ -78,8 +82,10 @@ vi.mock('../lib/supabase', () => ({
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let patterns = vec![r"vi\.mock.*supabase".to_string()];
     check_mock_patterns(&patterns, Some(temp.path().to_str().unwrap()), &mut result).unwrap();
@@ -101,8 +107,10 @@ fn test_mock_pattern_ignores_non_test_files() {
     let src_file = temp.path().join("api.ts");
     std::fs::write(&src_file, r#"vi.mock('../lib/supabase', () => ({}));"#).unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let patterns = vec![r"vi\.mock.*supabase".to_string()];
     check_mock_patterns(&patterns, Some(temp.path().to_str().unwrap()), &mut result).unwrap();
@@ -128,8 +136,10 @@ const supabase = createClient(process.env.SUPABASE_URL!);
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let patterns = vec![r"vi\.mock.*supabase".to_string()];
     check_mock_patterns(&patterns, Some(temp.path().to_str().unwrap()), &mut result).unwrap();
@@ -151,8 +161,10 @@ jest.mock('../database', () => ({ query: jest.fn() }));
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let patterns = vec![
         r"vi\.mock.*supabase".to_string(),
@@ -194,8 +206,10 @@ describe('users', () => {
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let required = vec![r"from.*@workspace/database".to_string()];
     check_type_enforcement(
@@ -237,8 +251,10 @@ describe('users', () => {
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let required = vec![r"from.*@workspace/database".to_string()];
     check_type_enforcement(
@@ -277,8 +293,10 @@ describe('formatDate', () => {
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let required = vec![r"from.*@workspace/database".to_string()];
     check_type_enforcement(
@@ -314,8 +332,10 @@ const supabase = createClient(
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let banned = vec!["SUPABASE_SERVICE_ROLE_KEY".to_string()];
     check_banned_env_vars(
@@ -354,8 +374,10 @@ const supabase = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY!);
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let banned = vec!["SUPABASE_SERVICE_ROLE_KEY".to_string()];
     let allowed = vec!["supabase/functions/*".to_string()];
@@ -390,8 +412,10 @@ const supabase = createClient(
     )
     .unwrap();
 
-    let mut result = PolicyResult::default();
-    result.passed = true;
+    let mut result = PolicyResult {
+        passed: true,
+        ..Default::default()
+    };
 
     let banned = vec![
         "SUPABASE_SERVICE_ROLE_KEY".to_string(),

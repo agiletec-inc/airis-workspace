@@ -281,16 +281,7 @@ pub fn check_docker() -> Result<()> {
 
     println!("{}", "🔍 Checking Docker environment...".bright_blue());
 
-    // Check DOCKER_CONTAINER environment variable
-    if std::env::var("DOCKER_CONTAINER").unwrap_or_default() == "true" {
-        println!(
-            "{}",
-            "✅ Running inside Docker container (DOCKER_CONTAINER=true)".green()
-        );
-        return Ok(());
-    }
-
-    // Check for /.dockerenv file
+    // Check for /.dockerenv file (highest reliability — hard to spoof)
     if Path::new("/.dockerenv").exists() {
         println!(
             "{}",
@@ -299,13 +290,26 @@ pub fn check_docker() -> Result<()> {
         return Ok(());
     }
 
-    // Check /proc/1/cgroup for Docker
+    // Check /proc/1/cgroup for Docker (high reliability)
     if let Ok(content) = fs::read_to_string("/proc/1/cgroup")
         && (content.contains("docker") || content.contains("containerd"))
     {
         println!(
             "{}",
             "✅ Running inside Docker container (cgroup detected)".green()
+        );
+        return Ok(());
+    }
+
+    // Check DOCKER_CONTAINER environment variable (fallback — can be spoofed)
+    if std::env::var("DOCKER_CONTAINER").unwrap_or_default() == "true" {
+        eprintln!(
+            "{}",
+            "⚠️  Docker detected via environment variable only. Consider using /.dockerenv for reliable detection.".yellow()
+        );
+        println!(
+            "{}",
+            "✅ Running inside Docker container (DOCKER_CONTAINER=true)".green()
         );
         return Ok(());
     }

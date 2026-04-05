@@ -731,9 +731,11 @@ to = "main"
 
     #[test]
     fn testing_policy_empty_when_all_defaults_with_allowed() {
-        let mut testing = TestingSection::default();
         // Override to Allowed — should produce no output
-        testing.mock_policy = MockPolicy::Allowed;
+        let testing = TestingSection {
+            mock_policy: MockPolicy::Allowed,
+            ..Default::default()
+        };
         let lines = render_testing_policy(&testing);
         assert!(
             lines.is_empty(),
