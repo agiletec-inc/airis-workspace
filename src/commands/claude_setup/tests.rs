@@ -2,8 +2,11 @@ use std::fs;
 
 use serde_json::json;
 
-use super::dir_sync::{sync_managed_dir, sync_single_file};
-use super::templates::{ManagedDir, TemplateFile};
+use super::dir_sync::{
+    load_claude_registry, save_claude_registry, sync_from_source, sync_managed_dir,
+    sync_single_file,
+};
+use super::templates::{self, ManagedDir, TemplateFile};
 use super::{check_plugin_installed, is_legacy_airis_entry, remove_legacy_airis_entries};
 
 #[test]
@@ -222,4 +225,115 @@ fn test_remove_legacy_airis_entries_preserves_others() {
 
     let stop = settings["hooks"]["Stop"].as_array().unwrap();
     assert_eq!(stop.len(), 0);
+}
+
+// ── Source-based sync tests ─────────────────────────────────────────
+
+#[test]
+fn test_sync_from_source_basic() {
+    let source = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    let registry = tempfile::NamedTempFile::new().unwrap();
+
+    // Create source files
+    fs::create_dir_all(source.path().join("rules")).unwrap();
+    fs::write(source.path().join("CLAUDE.md"), "global rules").unwrap();
+    fs::write(source.path().join("rules/a.md"), "rule a").unwrap();
+
+    let result = sync_from_source(source.path(), claude.path(), registry.path()).unwrap();
+
+    assert_eq!(result.written.len(), 2);
+    assert_eq!(result.deleted.len(), 0);
+    assert_eq!(
+        fs::read_to_string(claude.path().join("CLAUDE.md")).unwrap(),
+        "global rules"
+    );
+    assert_eq!(
+        fs::read_to_string(claude.path().join("rules/a.md")).unwrap(),
+        "rule a"
+    );
+
+    // Registry should be saved
+    let reg = load_claude_registry(registry.path());
+    assert!(reg.contains(&"CLAUDE.md".to_string()));
+    assert!(reg.contains(&"rules/a.md".to_string()));
+}
+
+#[test]
+fn test_sync_from_source_orphan_removal() {
+    let source = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    let registry = tempfile::NamedTempFile::new().unwrap();
+
+    // First sync: two rule files
+    fs::create_dir_all(source.path().join("rules")).unwrap();
+    fs::write(source.path().join("rules/a.md"), "rule a").unwrap();
+    fs::write(source.path().join("rules/b.md"), "rule b").unwrap();
+    sync_from_source(source.path(), claude.path(), registry.path()).unwrap();
+
+    assert!(claude.path().join("rules/b.md").exists());
+
+    // Second sync: remove b.md from source
+    fs::remove_file(source.path().join("rules/b.md")).unwrap();
+    let result = sync_from_source(source.path(), claude.path(), registry.path()).unwrap();
+
+    assert_eq!(result.deleted.len(), 1);
+    assert!(result.deleted.contains(&"rules/b.md".to_string()));
+    assert!(!claude.path().join("rules/b.md").exists());
+    assert!(claude.path().join("rules/a.md").exists());
+}
+
+#[test]
+fn test_sync_from_source_preserves_non_airis_files() {
+    let source = tempfile::tempdir().unwrap();
+    let claude = tempfile::tempdir().unwrap();
+    let registry = tempfile::NamedTempFile::new().unwrap();
+
+    // Place a non-airis file in ~/.claude/rules/
+    fs::create_dir_all(claude.path().join("rules")).unwrap();
+    fs::write(claude.path().join("rules/user-custom.md"), "user rule").unwrap();
+
+    // Sync airis rules
+    fs::create_dir_all(source.path().join("rules")).unwrap();
+    fs::write(source.path().join("rules/a.md"), "rule a").unwrap();
+    let result = sync_from_source(source.path(), claude.path(), registry.path()).unwrap();
+
+    // user-custom.md must NOT be deleted (not in registry)
+    assert!(claude.path().join("rules/user-custom.md").exists());
+    assert_eq!(result.deleted.len(), 0);
+    assert_eq!(result.written.len(), 1);
+}
+
+#[test]
+fn test_initialize_source_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("claude");
+
+    templates::initialize_source_dir(&source).unwrap();
+
+    assert!(source.join("CLAUDE.md").exists());
+    assert!(source.join("rules/docker-first.md").exists());
+    assert!(source.join("rules/server-access.md").exists());
+
+    // Content should match embedded templates
+    let expected = templates::global_claude_md().content;
+    assert_eq!(fs::read_to_string(source.join("CLAUDE.md")).unwrap(), expected);
+}
+
+#[test]
+fn test_registry_load_save_roundtrip() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+
+    let paths = vec![
+        "CLAUDE.md".to_string(),
+        "rules/docker-first.md".to_string(),
+        "rules/server-access.md".to_string(),
+    ];
+    save_claude_registry(file.path(), &paths).unwrap();
+
+    let loaded = load_claude_registry(file.path());
+    assert_eq!(loaded.len(), 3);
+    assert!(loaded.contains(&"CLAUDE.md".to_string()));
+    assert!(loaded.contains(&"rules/docker-first.md".to_string()));
+    assert!(loaded.contains(&"rules/server-access.md".to_string()));
 }

@@ -11,6 +11,8 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::Value;
 
+use crate::manifest::GlobalConfig;
+
 /// Plugin ID in installed_plugins.json
 const AIRIS_PLUGIN_ID: &str = "airis-mcp-gateway@airis-mcp-gateway";
 
@@ -21,6 +23,30 @@ const LEGACY_HOOKS_DIR: &str = "hooks/airis";
 fn claude_home() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Could not determine home directory")?;
     Ok(home.join(".claude"))
+}
+
+/// Get the ~/.airis/ directory path
+fn airis_home() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    Ok(home.join(".airis"))
+}
+
+/// Resolve a source path that may contain ~ for home directory
+fn resolve_source_path(source: &str) -> Result<PathBuf> {
+    if source.starts_with("~/") {
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        Ok(home.join(&source[2..]))
+    } else if source.starts_with('~') {
+        let home = dirs::home_dir().context("Could not determine home directory")?;
+        Ok(home.join(&source[1..]))
+    } else {
+        Ok(PathBuf::from(source))
+    }
+}
+
+/// Get the registry path for tracking synced files
+fn registry_path() -> Result<PathBuf> {
+    Ok(airis_home()?.join("claude-registry.toml"))
 }
 
 fn print_status(label: &str, ok: bool) {
@@ -143,14 +169,12 @@ pub fn setup_global() -> Result<()> {
     println!();
 
     let home = claude_home()?;
+    let global_config = GlobalConfig::load()?;
 
     // 1. Check plugin status
     let plugin_ok = check_plugin_installed(&home)?;
     if plugin_ok {
-        println!(
-            "   {} airis-mcp-gateway plugin installed",
-            "✓".green()
-        );
+        println!("   {} airis-mcp-gateway plugin installed", "✓".green());
     } else {
         println!(
             "   {} airis-mcp-gateway plugin not found",
@@ -163,59 +187,49 @@ pub fn setup_global() -> Result<()> {
     }
     println!();
 
-    // 2. Sync CLAUDE.md
-    println!("  {}:", "CLAUDE.md".bold());
-    let claude_md = templates::global_claude_md();
-    let updated = dir_sync::sync_single_file(&home, &claude_md)?;
-    if updated {
+    // 2. Resolve source directory
+    let source_dir = resolve_source_path(&global_config.claude.source)?;
+
+    // 3. Initialize source from embedded templates if not exists
+    if !source_dir.exists() {
+        templates::initialize_source_dir(&source_dir)?;
         println!(
-            "   {} {}",
+            "   {} Initialized source: {}",
             "✓".green(),
-            home.join("CLAUDE.md").display().to_string().dimmed()
+            source_dir.display().to_string().dimmed()
         );
-    } else {
-        println!(
-            "   {} {} (unchanged)",
-            "–".dimmed(),
-            home.join("CLAUDE.md").display().to_string().dimmed()
-        );
+        println!();
+    }
+
+    // 4. Sync from source to ~/.claude/ (registry-based)
+    println!(
+        "  {} → {}:",
+        source_dir.display().to_string().dimmed(),
+        home.display().to_string().dimmed()
+    );
+    let reg_path = registry_path()?;
+    let result = dir_sync::sync_from_source(&source_dir, &home, &reg_path)?;
+
+    for path in &result.written {
+        println!("   {} {}", "✓".green(), path.dimmed());
+    }
+    for path in &result.deleted {
+        println!("   {} {} (orphan removed)", "✓".green(), path.dimmed());
+    }
+    for path in &result.unchanged {
+        println!("   {} {} (unchanged)", "–".dimmed(), path.dimmed());
     }
     println!();
 
-    // 3. Sync managed directories (rules/)
-    for managed in templates::managed_dirs() {
-        println!("  {}:", managed.rel_dir.bold());
-        let result = dir_sync::sync_managed_dir(&home, &managed)?;
-
-        for path in &result.written {
-            println!("   {} {}", "✓".green(), path.display().to_string().dimmed());
-        }
-        for path in &result.deleted {
-            println!(
-                "   {} {} (orphan removed)",
-                "✓".green(),
-                path.display().to_string().dimmed()
-            );
-        }
-        for path in &result.unchanged {
-            println!(
-                "   {} {} (unchanged)",
-                "–".dimmed(),
-                path.display().to_string().dimmed()
-            );
-        }
-        println!();
-    }
-
-    // 4. Clean legacy hooks (transition period)
+    // 5. Clean legacy hooks (transition period)
     let legacy_count = clean_legacy_hooks(&home)?;
     if legacy_count > 0 {
-        println!();
         println!(
             "  {} Cleaned {} legacy file(s)",
             "🧹".dimmed(),
             legacy_count
         );
+        println!();
     }
 
     println!("{}", "✅ Global configuration synced".green());
@@ -229,76 +243,52 @@ pub fn status() -> Result<()> {
     println!();
 
     let home = claude_home()?;
+    let global_config = GlobalConfig::load()?;
+    let source_dir = resolve_source_path(&global_config.claude.source)?;
 
     // Plugin status
     let plugin_ok = check_plugin_installed(&home)?;
     println!("  Plugin:");
     print_status(
-        &format!(
-            "  {} (hooks, skills, permissions)",
-            AIRIS_PLUGIN_ID
-        ),
+        &format!("  {} (hooks, skills, permissions)", AIRIS_PLUGIN_ID),
         plugin_ok,
     );
 
-    // CLAUDE.md status
-    let claude_md = templates::global_claude_md();
-    let claude_md_path = home.join(claude_md.rel_path);
-    let claude_md_ok = claude_md_path.exists();
-    let claude_md_current = claude_md_ok
-        && fs::read_to_string(&claude_md_path)
-            .map(|c| c == claude_md.content)
-            .unwrap_or(false);
+    // Source directory
+    println!();
+    println!("  Source:");
+    print_status(
+        &format!("  {}", source_dir.display()),
+        source_dir.exists(),
+    );
+
+    // Registry-tracked files
+    let reg_path = registry_path()?;
+    let registry = dir_sync::load_claude_registry(&reg_path);
 
     println!();
-    println!("  Global config:");
-    if claude_md_current {
-        print_status("  CLAUDE.md (current)", true);
-    } else if claude_md_ok {
-        print_status("  CLAUDE.md (outdated)", false);
+    println!("  Synced files:");
+    let mut all_synced = true;
+    if registry.is_empty() {
+        println!("    (none — run `airis guards install --hooks` to sync)");
+        all_synced = false;
     } else {
-        print_status("  CLAUDE.md (missing)", false);
-    }
-
-    // Rules status
-    for managed in templates::managed_dirs() {
-        let target_dir = home.join(managed.rel_dir);
-        for file in managed.files {
-            let file_path = target_dir.join(file.rel_path);
-            let exists = file_path.exists();
-            let current = exists
-                && fs::read_to_string(&file_path)
-                    .map(|c| c == file.content)
-                    .unwrap_or(false);
-            let label = format!("  {}/{}", managed.rel_dir, file.rel_path);
-            if current {
-                print_status(&format!("{} (current)", label), true);
-            } else if exists {
-                print_status(&format!("{} (outdated)", label), false);
+        for rel_path in &registry {
+            let target = home.join(rel_path);
+            let source = source_dir.join(rel_path);
+            let target_exists = target.exists();
+            let in_sync = target_exists
+                && source.exists()
+                && fs::read_to_string(&target).unwrap_or_default()
+                    == fs::read_to_string(&source).unwrap_or_default();
+            if in_sync {
+                print_status(&format!("  {} (current)", rel_path), true);
+            } else if target_exists {
+                print_status(&format!("  {} (outdated)", rel_path), false);
+                all_synced = false;
             } else {
-                print_status(&format!("{} (missing)", label), false);
-            }
-        }
-
-        // Check for orphans
-        if target_dir.exists() {
-            let expected: std::collections::HashSet<&str> =
-                managed.files.iter().map(|f| f.rel_path).collect();
-            if let Ok(entries) = fs::read_dir(&target_dir) {
-                for entry in entries.flatten() {
-                    if entry.path().is_file() {
-                        let name = entry.file_name();
-                        let name_str = name.to_string_lossy();
-                        if !expected.contains(name_str.as_ref()) {
-                            println!(
-                                "  {} {}/{} (orphan — will be removed on sync)",
-                                "⚠".yellow(),
-                                managed.rel_dir,
-                                name_str,
-                            );
-                        }
-                    }
-                }
+                print_status(&format!("  {} (missing)", rel_path), false);
+                all_synced = false;
             }
         }
     }
@@ -326,8 +316,7 @@ pub fn status() -> Result<()> {
     }
 
     println!();
-    let all_ok = plugin_ok && claude_md_current;
-    if all_ok {
+    if plugin_ok && all_synced {
         println!("{}", "✅ All configuration up to date".green());
     } else {
         println!(
@@ -339,7 +328,7 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-/// Remove airis-managed configuration
+/// Remove airis-managed configuration from ~/.claude/
 pub fn uninstall() -> Result<()> {
     println!(
         "{}",
@@ -349,30 +338,25 @@ pub fn uninstall() -> Result<()> {
 
     let home = claude_home()?;
 
-    // 1. Remove managed rules directory
-    for managed in templates::managed_dirs() {
-        let target_dir = home.join(managed.rel_dir);
-        if target_dir.exists() {
-            fs::remove_dir_all(&target_dir)
-                .with_context(|| format!("Failed to remove {}", target_dir.display()))?;
+    // 1. Remove registry-tracked files only
+    let reg_path = registry_path()?;
+    let registry = dir_sync::load_claude_registry(&reg_path);
+    for rel_path in &registry {
+        let target = home.join(rel_path);
+        if target.exists() {
+            fs::remove_file(&target)
+                .with_context(|| format!("Failed to remove {}", target.display()))?;
             println!(
                 "   {} Removed {}",
                 "✓".green(),
-                target_dir.display().to_string().dimmed()
+                target.display().to_string().dimmed()
             );
         }
     }
 
-    // 2. Remove CLAUDE.md
-    let claude_md_path = home.join("CLAUDE.md");
-    if claude_md_path.exists() {
-        fs::remove_file(&claude_md_path)
-            .with_context(|| format!("Failed to remove {}", claude_md_path.display()))?;
-        println!(
-            "   {} Removed {}",
-            "✓".green(),
-            claude_md_path.display().to_string().dimmed()
-        );
+    // 2. Clear registry
+    if reg_path.exists() {
+        fs::remove_file(&reg_path)?;
     }
 
     // 3. Clean legacy hooks
@@ -381,6 +365,11 @@ pub fn uninstall() -> Result<()> {
     println!();
     println!("{}", "✅ airis configuration removed".green());
     println!();
+    println!(
+        "  {} Source directory preserved: {}",
+        "ℹ".dimmed(),
+        "~/.airis/claude/".bright_cyan()
+    );
     println!(
         "  {} Plugin uninstall (if needed): {}",
         "ℹ".dimmed(),

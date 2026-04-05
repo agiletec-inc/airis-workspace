@@ -37,6 +37,27 @@ fn default_global_deny() -> Vec<String> {
     ]
 }
 
+/// Claude Code global config section
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct GlobalClaudeSection {
+    /// Source directory for global Claude Code config files (CLAUDE.md, rules/).
+    /// Default: ~/.airis/claude
+    #[serde(default = "default_claude_source")]
+    pub source: String,
+}
+
+impl Default for GlobalClaudeSection {
+    fn default() -> Self {
+        GlobalClaudeSection {
+            source: default_claude_source(),
+        }
+    }
+}
+
+fn default_claude_source() -> String {
+    "~/.airis/claude".to_string()
+}
+
 /// Global configuration stored in ~/.airis/global-config.toml
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GlobalConfig {
@@ -44,6 +65,8 @@ pub struct GlobalConfig {
     pub version: u32,
     #[serde(default)]
     pub guards: GlobalGuardsSection,
+    #[serde(default)]
+    pub claude: GlobalClaudeSection,
 }
 
 impl Default for GlobalConfig {
@@ -51,6 +74,7 @@ impl Default for GlobalConfig {
         GlobalConfig {
             version: 1,
             guards: GlobalGuardsSection::default(),
+            claude: GlobalClaudeSection::default(),
         }
     }
 }
