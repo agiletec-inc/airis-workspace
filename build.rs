@@ -1,6 +1,9 @@
 use std::process::Command;
 
 fn main() {
+    // Tell Cargo to rerun if template files change
+    println!("cargo:rerun-if-changed=templates/claude");
+
     // Tell Cargo to rerun if git HEAD changes
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
