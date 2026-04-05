@@ -270,7 +270,7 @@ pub fn status() -> Result<()> {
     println!("  Synced files:");
     let mut all_synced = true;
     if registry.is_empty() {
-        println!("    (none — run `airis guards install --hooks` to sync)");
+        println!("    (none — run `airis claude setup` to sync)");
         all_synced = false;
     } else {
         for rel_path in &registry {
@@ -321,7 +321,7 @@ pub fn status() -> Result<()> {
     } else {
         println!(
             "{}",
-            "⚠️  Some items need attention. Run `airis guards install --hooks` to sync.".yellow()
+            "⚠️  Some items need attention. Run `airis claude setup` to sync.".yellow()
         );
     }
 
