@@ -832,7 +832,7 @@ fn dispatch(command: Commands) -> Result<()> {
             extra_args,
         } => {
             if scan {
-                commands::policy::check(None)?;
+                commands::test_scan::run()?;
             } else if let Some(lvl) = level {
                 let task = match lvl {
                     TestLevel::Unit => "test:unit",

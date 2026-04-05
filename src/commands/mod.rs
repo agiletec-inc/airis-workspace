@@ -22,6 +22,7 @@ pub mod new_cmd;
 pub mod policy;
 pub mod run;
 pub mod shim;
+pub mod test_scan;
 pub mod upgrade;
 pub mod validate_cmd;
 pub mod verify;
