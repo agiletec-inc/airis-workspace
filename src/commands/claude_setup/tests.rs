@@ -218,10 +218,12 @@ fn test_remove_legacy_airis_entries_preserves_others() {
 
     let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
     assert_eq!(pre.len(), 1);
-    assert!(pre[0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains("my-hook.sh"));
+    assert!(
+        pre[0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("my-hook.sh")
+    );
 
     let stop = settings["hooks"]["Stop"].as_array().unwrap();
     assert_eq!(stop.len(), 0);
@@ -317,7 +319,10 @@ fn test_initialize_source_dir() {
 
     // Content should match embedded templates
     let expected = templates::global_claude_md().content;
-    assert_eq!(fs::read_to_string(source.join("CLAUDE.md")).unwrap(), expected);
+    assert_eq!(
+        fs::read_to_string(source.join("CLAUDE.md")).unwrap(),
+        expected
+    );
 }
 
 #[test]

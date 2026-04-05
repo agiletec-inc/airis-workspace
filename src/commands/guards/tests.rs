@@ -800,7 +800,14 @@ fn test_wrap_guard_rejects_shell_injection() {
 #[test]
 fn test_deny_guard_accepts_valid_command_names() {
     let dir = tempfile::tempdir().unwrap();
-    let valid_names = ["npm", "python3", "docker-compose", "g++", "node_modules", "python3.12"];
+    let valid_names = [
+        "npm",
+        "python3",
+        "docker-compose",
+        "g++",
+        "node_modules",
+        "python3.12",
+    ];
 
     for name in valid_names {
         let result = install_deny_guard(dir.path(), name, None);
@@ -867,7 +874,9 @@ pip3 = "Use 'docker compose exec <service> pip3 ...' instead."
         assert!(guards_dir.exists());
 
         // All deny commands should have guard files
-        for cmd in ["npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv"] {
+        for cmd in [
+            "npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv",
+        ] {
             assert!(
                 guards_dir.join(cmd).exists(),
                 "guard for '{}' should exist",
@@ -931,8 +940,17 @@ pip3 = "Use 'docker compose exec <service> pip3 ...' instead."
 
         // Unique command set: deny(9) + global default deny(bun) + deny_with_message only(docker-compose)
         let expected = [
-            "npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv",
-            "bun", "docker-compose",
+            "npm",
+            "yarn",
+            "npx",
+            "pnpm",
+            "node",
+            "python3",
+            "pip3",
+            "pip",
+            "uv",
+            "bun",
+            "docker-compose",
         ];
         for cmd in expected {
             assert!(

@@ -150,8 +150,7 @@ fn is_legacy_airis_entry(entry: &Value) -> bool {
             hook.get("command")
                 .and_then(|c| c.as_str())
                 .is_some_and(|cmd| {
-                    cmd.contains("~/.claude/hooks/airis/")
-                        || cmd.contains(".claude/hooks/airis/")
+                    cmd.contains("~/.claude/hooks/airis/") || cmd.contains(".claude/hooks/airis/")
                 })
         });
     }
@@ -176,10 +175,7 @@ pub fn setup_global() -> Result<()> {
     if plugin_ok {
         println!("   {} airis-mcp-gateway plugin installed", "✓".green());
     } else {
-        println!(
-            "   {} airis-mcp-gateway plugin not found",
-            "⚠".yellow()
-        );
+        println!("   {} airis-mcp-gateway plugin not found", "⚠".yellow());
         println!(
             "     Run: {}",
             "claude plugin install airis-mcp-gateway".bright_cyan()
@@ -239,7 +235,10 @@ pub fn setup_global() -> Result<()> {
 
 /// Show current setup status
 pub fn status() -> Result<()> {
-    println!("{}", "Claude Code Configuration Status".bright_blue().bold());
+    println!(
+        "{}",
+        "Claude Code Configuration Status".bright_blue().bold()
+    );
     println!();
 
     let home = claude_home()?;
@@ -257,10 +256,7 @@ pub fn status() -> Result<()> {
     // Source directory
     println!();
     println!("  Source:");
-    print_status(
-        &format!("  {}", source_dir.display()),
-        source_dir.exists(),
-    );
+    print_status(&format!("  {}", source_dir.display()), source_dir.exists());
 
     // Registry-tracked files
     let reg_path = registry_path()?;
@@ -330,10 +326,7 @@ pub fn status() -> Result<()> {
 
 /// Remove airis-managed configuration from ~/.claude/
 pub fn uninstall() -> Result<()> {
-    println!(
-        "{}",
-        "🗑️  Removing airis configuration...".bright_blue()
-    );
+    println!("{}", "🗑️  Removing airis configuration...".bright_blue());
     println!();
 
     let home = claude_home()?;
