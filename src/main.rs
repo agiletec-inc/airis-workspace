@@ -20,6 +20,7 @@ mod version_resolver;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
+use colored::Colorize;
 
 /// Get version string with dev suffix for non-release builds
 fn get_version() -> String {
@@ -56,7 +57,7 @@ QUICK REFERENCE:
   airis gen                 Regenerate all config files from manifest.toml
   airis up                  Start Docker services (local dev only)
   airis guards install      Block npm/yarn/pnpm on host
-  airis guards install --hooks  Install Claude Code Docker-First hooks
+  airis claude setup         Sync Claude Code configuration
 
 CONFIG: All commands are defined in manifest.toml [commands] section.
   airis run <task>          Execute any command from [commands]
@@ -117,7 +118,13 @@ enum Commands {
         action: ManifestCommands,
     },
 
-    /// Command guard management
+    /// Claude Code integration (CLAUDE.md, rules, plugin status)
+    Claude {
+        #[command(subcommand)]
+        action: ClaudeCommands,
+    },
+
+    /// Command guard management (PATH-based command blocking)
     Guards {
         #[command(subcommand)]
         action: GuardsCommands,
@@ -512,8 +519,8 @@ enum GuardsCommands {
         /// Install global guards (~/.airis/bin/) that block commands outside airis projects
         #[arg(long)]
         global: bool,
-        /// Install Claude Code hooks (~/.claude/) for Docker-First enforcement
-        #[arg(long)]
+        /// Deprecated: use `airis claude setup` instead
+        #[arg(long, hide = true)]
         hooks: bool,
     },
     /// Check if running inside Docker container
@@ -524,8 +531,8 @@ enum GuardsCommands {
         /// Show global guards status
         #[arg(long)]
         global: bool,
-        /// Show Claude Code hooks status
-        #[arg(long)]
+        /// Deprecated: use `airis claude status` instead
+        #[arg(long, hide = true)]
         hooks: bool,
     },
     /// Uninstall command guards
@@ -533,8 +540,8 @@ enum GuardsCommands {
         /// Uninstall global guards
         #[arg(long)]
         global: bool,
-        /// Remove Claude Code hooks
-        #[arg(long)]
+        /// Deprecated: use `airis claude uninstall` instead
+        #[arg(long, hide = true)]
         hooks: bool,
     },
     /// Verify global guards are properly installed and active
@@ -545,6 +552,16 @@ enum GuardsCommands {
         /// Command name to check
         cmd: String,
     },
+}
+
+#[derive(Subcommand)]
+enum ClaudeCommands {
+    /// Sync CLAUDE.md and rules to ~/.claude/, check plugin status
+    Setup,
+    /// Show Claude Code integration status
+    Status,
+    /// Remove airis-managed files from ~/.claude/
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -746,9 +763,18 @@ fn dispatch(command: Commands) -> Result<()> {
 
             manifest_cmd::run(manifest_action)?;
         }
+        Commands::Claude { action } => match action {
+            ClaudeCommands::Setup => commands::claude_setup::setup_global()?,
+            ClaudeCommands::Status => commands::claude_setup::status()?,
+            ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
+        },
         Commands::Guards { action } => match action {
             GuardsCommands::Install { global, hooks } => {
                 if hooks {
+                    eprintln!(
+                        "{}: `airis guards install --hooks` is deprecated. Use `airis claude setup` instead.",
+                        "warning".yellow().bold()
+                    );
                     commands::claude_setup::setup_global()?;
                 } else if global {
                     commands::guards::install_global()?;
@@ -759,6 +785,10 @@ fn dispatch(command: Commands) -> Result<()> {
             GuardsCommands::CheckDocker => commands::guards::check_docker()?,
             GuardsCommands::Status { global, hooks } => {
                 if hooks {
+                    eprintln!(
+                        "{}: `airis guards status --hooks` is deprecated. Use `airis claude status` instead.",
+                        "warning".yellow().bold()
+                    );
                     commands::claude_setup::status()?;
                 } else if global {
                     commands::guards::status_global()?;
@@ -768,6 +798,10 @@ fn dispatch(command: Commands) -> Result<()> {
             }
             GuardsCommands::Uninstall { global, hooks } => {
                 if hooks {
+                    eprintln!(
+                        "{}: `airis guards uninstall --hooks` is deprecated. Use `airis claude uninstall` instead.",
+                        "warning".yellow().bold()
+                    );
                     commands::claude_setup::uninstall()?;
                 } else if global {
                     commands::guards::uninstall_global()?;
