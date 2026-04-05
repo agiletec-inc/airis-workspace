@@ -34,7 +34,9 @@ fn validate_wrapper_path(wrapper: &str) -> Result<()> {
         bail!("Guard wrapper path cannot be empty");
     }
     // Reject shell metacharacters that could enable injection
-    let dangerous_chars = ['`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}'];
+    let dangerous_chars = [
+        '`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}',
+    ];
     if let Some(bad) = wrapper.chars().find(|c| dangerous_chars.contains(c)) {
         bail!(
             "Guard wrapper contains dangerous character '{}': \"{}\". Shell metacharacters are not allowed.",

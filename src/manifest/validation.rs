@@ -72,7 +72,9 @@ impl Manifest {
             }
         }
         for wrapper in self.guards.wrap.values() {
-            let dangerous_chars = ['`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}'];
+            let dangerous_chars = [
+                '`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}',
+            ];
             if let Some(bad) = wrapper.chars().find(|c| dangerous_chars.contains(c)) {
                 errors.push(format!(
                     "guards.wrap value \"{wrapper}\" contains dangerous character '{bad}': shell metacharacters are not allowed"

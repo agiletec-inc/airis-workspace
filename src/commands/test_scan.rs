@@ -4,14 +4,14 @@
 //! INTEGRATION, PURE), then runs forbidden-pattern and type-enforcement
 //! checks from the policy checkers.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use colored::Colorize;
 use std::path::Path;
 use walkdir::WalkDir;
 
-use crate::manifest::{Manifest, MANIFEST_FILE};
 use super::policy::checkers::{check_mock_patterns, check_type_enforcement};
 use super::policy::{PolicyResult, PolicyViolation, Severity};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 
 /// Test file category
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,10 +90,7 @@ pub fn run() -> Result<()> {
     println!();
 
     // --- Phase 1: Categorize test files ---
-    println!(
-        "{}",
-        "Phase 1: Categorize test files".bright_blue().bold()
-    );
+    println!("{}", "Phase 1: Categorize test files".bright_blue().bold());
 
     let mut mock_count: usize = 0;
     let mut structural_count: usize = 0;
@@ -159,17 +156,11 @@ pub fn run() -> Result<()> {
     println!();
 
     // --- Phase 2: Policy violation scan ---
-    println!(
-        "{}",
-        "Phase 2: Policy violation scan".bright_blue().bold()
-    );
+    println!("{}", "Phase 2: Policy violation scan".bright_blue().bold());
 
     let manifest_path = Path::new(MANIFEST_FILE);
     if !manifest_path.exists() {
-        println!(
-            "  {}",
-            "skipped (manifest.toml not found)".dimmed()
-        );
+        println!("  {}", "skipped (manifest.toml not found)".dimmed());
         println!();
         println!("{}", "==================================".bright_blue());
         return Ok(());
@@ -226,10 +217,7 @@ pub fn run() -> Result<()> {
             .collect();
 
         if !errors.is_empty() {
-            println!(
-                "{}",
-                format!("{} violation(s):", errors.len()).red().bold()
-            );
+            println!("{}", format!("{} violation(s):", errors.len()).red().bold());
             for v in &errors {
                 println!("   {} {}", "x".red(), v.message);
             }
@@ -237,10 +225,7 @@ pub fn run() -> Result<()> {
         }
 
         if !warnings.is_empty() {
-            println!(
-                "{}",
-                format!("{} warning(s):", warnings.len()).yellow()
-            );
+            println!("{}", format!("{} warning(s):", warnings.len()).yellow());
             for v in &warnings {
                 println!("   {} {}", "!".yellow(), v.message);
             }
