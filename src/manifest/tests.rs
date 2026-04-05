@@ -140,6 +140,61 @@ pnpm = "docker compose exec workspace pnpm"
 }
 
 #[test]
+fn test_validate_guard_deny_invalid_command_name() {
+    let toml = r#"
+version = 1
+
+[guards]
+deny = ["npm", "bad command", "../escape"]
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("bad command"), "got: {msg}");
+    assert!(msg.contains("../escape"), "got: {msg}");
+}
+
+#[test]
+fn test_validate_guard_wrap_invalid_command_name() {
+    let toml = r#"
+version = 1
+
+[guards.wrap]
+"npm;evil" = "docker compose exec workspace npm"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("npm;evil"), "got: {msg}");
+}
+
+#[test]
+fn test_validate_guard_wrap_dangerous_wrapper_value() {
+    let toml = r#"
+version = 1
+
+[guards.wrap]
+pnpm = "docker $(whoami) pnpm"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("dangerous"), "got: {msg}");
+}
+
+#[test]
+fn test_validate_guard_deny_with_message_invalid_name() {
+    // This is the exact bug that caused airis gen to fail in agiletec:
+    // "docker run" has a space, which is rejected by the command name regex
+    let toml = r#"
+version = 1
+
+[guards.deny_with_message]
+"docker run" = "Use 'airis up' instead."
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("docker run"), "got: {msg}");
+}
+
+#[test]
 fn test_validate_rejects_workspace_bind_mounts() {
     let toml = r#"
 version = 1

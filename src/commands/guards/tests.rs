@@ -639,3 +639,316 @@ fn test_global_guard_script_contains_check_allow() {
     // Should contain opt-out instructions
     assert!(content.contains(".airis/guards.toml"));
 }
+
+// ── bash syntax validation tests ──
+
+fn assert_valid_bash(path: &std::path::Path) {
+    let output = std::process::Command::new("bash")
+        .arg("-n")
+        .arg(path)
+        .output()
+        .expect("failed to run bash -n");
+    assert!(
+        output.status.success(),
+        "bash syntax error in {}: {}",
+        path.display(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn test_deny_guard_script_is_valid_bash() {
+    let dir = tempfile::tempdir().unwrap();
+    install_deny_guard(dir.path(), "npm", None).unwrap();
+    assert_valid_bash(&dir.path().join("npm"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_deny_guard_with_custom_message_is_valid_bash() {
+    let dir = tempfile::tempdir().unwrap();
+    let msg = "Use 'docker compose exec <service> pnpm ...' instead. Docker First!".to_string();
+    install_deny_guard(dir.path(), "pnpm", Some(&msg)).unwrap();
+    assert_valid_bash(&dir.path().join("pnpm"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_wrap_guard_script_is_valid_bash() {
+    let dir = tempfile::tempdir().unwrap();
+    install_wrap_guard(dir.path(), "pnpm", "docker compose exec workspace pnpm").unwrap();
+    assert_valid_bash(&dir.path().join("pnpm"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_global_guard_script_is_valid_bash() {
+    let dir = tempfile::tempdir().unwrap();
+    install_global_guard(dir.path(), "npm").unwrap();
+    assert_valid_bash(&dir.path().join("npm"));
+}
+
+// ── deny_with_message edge cases ──
+
+#[cfg(unix)]
+#[test]
+fn test_deny_guard_message_with_single_quotes() {
+    let dir = tempfile::tempdir().unwrap();
+    let msg = "Use 'airis install' instead of 'npm install'.".to_string();
+    install_deny_guard(dir.path(), "npm", Some(&msg)).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("npm")).unwrap();
+    // Single quotes inside <<'AIRIS_ERR' heredoc are safe
+    assert!(content.contains("Use 'airis install' instead of 'npm install'."));
+    assert_valid_bash(&dir.path().join("npm"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_deny_guard_message_airis_err_delimiter_collision() {
+    let dir = tempfile::tempdir().unwrap();
+    let msg = "Error code: AIRIS_ERR_001 — use Docker instead.".to_string();
+    install_deny_guard(dir.path(), "npm", Some(&msg)).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("npm")).unwrap();
+    // Sanitizer replaces "AIRIS_ERR" with "AIRIS_E_R_R" in message body
+    assert!(
+        content.contains("AIRIS_E_R_R"),
+        "sanitized delimiter should appear in message"
+    );
+    // Heredoc structure itself must remain intact (opening + closing delimiters)
+    let delimiter_count = content.matches("AIRIS_ERR").count();
+    assert!(
+        delimiter_count >= 2,
+        "heredoc delimiters should be intact, found {} occurrences",
+        delimiter_count
+    );
+    assert_valid_bash(&dir.path().join("npm"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_deny_guard_message_with_shell_special_chars() {
+    let dir = tempfile::tempdir().unwrap();
+    // Characters that would break unquoted strings but are safe in <<'AIRIS_ERR' heredoc
+    let msg = "Use \"docker compose\" — not $npm! <hint>: see docs & wiki".to_string();
+    install_deny_guard(dir.path(), "npm", Some(&msg)).unwrap();
+    assert_valid_bash(&dir.path().join("npm"));
+}
+
+// ── command name / wrapper validation rejection tests ──
+
+#[test]
+fn test_deny_guard_rejects_command_with_spaces() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = install_deny_guard(dir.path(), "npm install", None);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("invalid characters"), "got: {msg}");
+}
+
+#[test]
+fn test_deny_guard_rejects_command_with_path_traversal() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = install_deny_guard(dir.path(), "../../../etc/passwd", None);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("invalid characters"), "got: {msg}");
+}
+
+#[test]
+fn test_deny_guard_rejects_empty_command() {
+    let dir = tempfile::tempdir().unwrap();
+    let result = install_deny_guard(dir.path(), "", None);
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string();
+    assert!(msg.contains("cannot be empty"), "got: {msg}");
+}
+
+#[test]
+fn test_wrap_guard_rejects_shell_injection() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let injections = [
+        ("backtick", "docker `rm -rf /`"),
+        ("dollar", "docker $HOME/evil"),
+        ("semicolon", "docker; rm -rf /"),
+        ("pipe", "docker | cat /etc/passwd"),
+        ("ampersand", "docker & malicious"),
+        ("subshell", "docker $(whoami)"),
+    ];
+
+    for (label, wrapper) in injections {
+        let result = install_wrap_guard(dir.path(), "pnpm", wrapper);
+        assert!(
+            result.is_err(),
+            "wrapper with {} should be rejected: {}",
+            label,
+            wrapper
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("dangerous character"),
+            "{}: expected 'dangerous character', got: {}",
+            label,
+            msg
+        );
+    }
+}
+
+#[test]
+fn test_deny_guard_accepts_valid_command_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let valid_names = ["npm", "python3", "docker-compose", "g++", "node_modules", "python3.12"];
+
+    for name in valid_names {
+        let result = install_deny_guard(dir.path(), name, None);
+        assert!(
+            result.is_ok(),
+            "valid command '{}' was rejected: {:?}",
+            name,
+            result.err()
+        );
+    }
+}
+
+// ── design invariant: docker must never be in deny lists ──
+
+#[test]
+fn test_docker_never_in_deny_lists() {
+    // airis internally uses `docker run` and `docker compose exec` (lockfile.rs).
+    // If "docker" were in any deny list, airis would block itself.
+    let global = GlobalConfig::default();
+    assert!(
+        !global.guards.deny.contains(&"docker".to_string()),
+        "docker must not be in global deny — airis uses it internally"
+    );
+
+    for cmd in STRICT_MODE_DENY {
+        assert_ne!(
+            *cmd, "docker",
+            "docker must not be in STRICT_MODE_DENY — airis uses it internally"
+        );
+    }
+}
+
+// ── realistic end-to-end integration test ──
+
+#[cfg(unix)]
+#[test]
+fn test_full_install_agiletec_style_manifest() {
+    let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+
+    let result = std::panic::catch_unwind(|| {
+        // Mirrors the actual agiletec manifest.toml guards section
+        let manifest_content = r#"
+[workspace]
+name = "agiletec-style"
+
+[guards]
+deny = ["npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv"]
+
+[guards.deny_with_message]
+docker-compose = "Use 'docker compose' (with space) or 'airis up' instead."
+pnpm = "Use 'docker compose exec <service> pnpm ...' instead. Docker First!"
+npm = "Use 'docker compose exec <service> pnpm ...' instead. Docker First!"
+node = "Use 'docker compose exec <service> node ...' instead."
+python3 = "Use 'docker compose exec <service> python3 ...' instead."
+pip3 = "Use 'docker compose exec <service> pip3 ...' instead."
+"#;
+        fs::write("manifest.toml", manifest_content).unwrap();
+        install().unwrap();
+
+        let guards_dir = PathBuf::from(GUARDS_DIR);
+        assert!(guards_dir.exists());
+
+        // All deny commands should have guard files
+        for cmd in ["npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv"] {
+            assert!(
+                guards_dir.join(cmd).exists(),
+                "guard for '{}' should exist",
+                cmd
+            );
+        }
+
+        // docker-compose is only in deny_with_message (not in deny)
+        assert!(
+            guards_dir.join("docker-compose").exists(),
+            "docker-compose guard should exist"
+        );
+
+        // deny_with_message should take precedence (overwrites deny scripts)
+        let pnpm_content = fs::read_to_string(guards_dir.join("pnpm")).unwrap();
+        assert!(
+            pnpm_content.contains("Docker First!"),
+            "pnpm should have custom deny_with_message"
+        );
+
+        let npm_content = fs::read_to_string(guards_dir.join("npm")).unwrap();
+        assert!(
+            npm_content.contains("Docker First!"),
+            "npm should have custom deny_with_message"
+        );
+
+        let dc_content = fs::read_to_string(guards_dir.join("docker-compose")).unwrap();
+        assert!(dc_content.contains("docker compose"));
+        assert!(dc_content.contains("airis up"));
+
+        // All generated scripts must be valid bash
+        for entry in fs::read_dir(&guards_dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_file() {
+                assert_valid_bash(&path);
+            }
+        }
+
+        // Guard count: 9 from deny + 1 unique from deny_with_message (docker-compose)
+        // deny_with_message also has bun which isn't in deny = total 11
+        // Wait — no bun in this manifest. Let's count properly:
+        // deny: npm, yarn, npx, pnpm, node, python3, pip3, pip, uv = 9 files
+        // deny_with_message: docker-compose, pnpm, npm, node, python3, pip3
+        //   pnpm/npm/node/python3/pip3 overwrite existing deny scripts = no new files
+        //   docker-compose is NEW = +1 file
+        // Total unique commands: 9 + 1 = 10 files
+        //
+        // But install() also creates a guard for commands in deny_with_message
+        // that overlap with deny — the count depends on unique file names.
+        let guard_files: Vec<_> = fs::read_dir(&guards_dir)
+            .unwrap()
+            .filter_map(|e| {
+                let e = e.ok()?;
+                if e.path().is_file() {
+                    Some(e.file_name().to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Unique command set: deny(9) + global default deny(bun) + deny_with_message only(docker-compose)
+        let expected = [
+            "npm", "yarn", "npx", "pnpm", "node", "python3", "pip3", "pip", "uv",
+            "bun", "docker-compose",
+        ];
+        for cmd in expected {
+            assert!(
+                guard_files.contains(&cmd.to_string()),
+                "missing guard for '{}'",
+                cmd
+            );
+        }
+        assert_eq!(
+            guard_files.len(),
+            expected.len(),
+            "unexpected guard files: {:?}",
+            guard_files
+        );
+    });
+
+    std::env::set_current_dir(original_dir).unwrap();
+    result.unwrap();
+}
