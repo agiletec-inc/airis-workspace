@@ -686,7 +686,7 @@ strategy = "manual"
 source = "0.1.0"
 
 [docs]
-mode = "warn"
+mode = "backup"
 vendors = ["codex", "claude", "gemini"]
 sources = [
   "docs/ai/PROJECT_RULES.md",
