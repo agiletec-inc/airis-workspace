@@ -5,6 +5,28 @@ All notable changes to airis-monorepo will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-04-06
+
+### Breaking Changes
+- `airis guards install --hooks` is deprecated; use `airis claude setup` instead
+- `airis sync-deps` removed (use `airis init`)
+
+### Added
+- `airis claude setup/status/uninstall` — Claude Code integration as top-level command
+- `airis policy check/apply` — Policy gates for testing, security, deployment
+- `airis test --scan` — Test quality governance (forbidden patterns, type enforcement)
+- `airis build --docker --affected` — Multi-target Docker builds with change detection
+- `airis bundle` — Deployment bundle generation
+- `airis deps tree/check` — Dependency graph visualization and architecture validation
+- `airis diff` — Preview changes between manifest.toml and generated files
+- `airis new` — Project scaffolding from templates
+- Global guards (`~/.airis/bin/`) for host-wide command blocking
+- Registry-based file sync for Claude Code configuration
+
+### Changed
+- Guards command now exclusively manages PATH-based command blocking
+- Ownership model: CLI owns specs (CLAUDE.md, rules/), plugin owns hooks
+
 ## [1.70.0] - 2026-03-02
 
 ### Removed
