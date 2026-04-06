@@ -99,11 +99,7 @@ impl<'a> ContextBuilder<'a> {
         fs::create_dir_all(&dst_dir)?;
 
         // Files to copy for each package
-        let essential_files = [
-            "package.json",
-            "tsconfig.json",
-            "tsconfig.build.json",
-        ];
+        let essential_files = ["package.json", "tsconfig.json", "tsconfig.build.json"];
 
         for file in &essential_files {
             let src = src_dir.join(file);

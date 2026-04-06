@@ -51,5 +51,4 @@ impl TemplateEngine {
 
         Ok(lines.join("\n"))
     }
-
 }

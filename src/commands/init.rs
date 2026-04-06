@@ -174,4 +174,3 @@ fn run_template_mode(write: bool) -> Result<()> {
 
     Ok(())
 }
-

@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use crate::channel::{RuntimeFamily, Toolchain};
 use super::{PNPM_STORE_DIR, PNPM_VIRTUAL_STORE_DIR};
+use crate::channel::{RuntimeFamily, Toolchain};
 
 /// Generate Dockerfile based on runtime family
 pub fn generate_dockerfile_for_toolchain(
