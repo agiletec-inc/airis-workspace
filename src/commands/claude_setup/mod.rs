@@ -33,12 +33,12 @@ fn airis_home() -> Result<PathBuf> {
 
 /// Resolve a source path that may contain ~ for home directory
 fn resolve_source_path(source: &str) -> Result<PathBuf> {
-    if source.starts_with("~/") {
+    if let Some(rest) = source.strip_prefix("~/") {
         let home = dirs::home_dir().context("Could not determine home directory")?;
-        Ok(home.join(&source[2..]))
-    } else if source.starts_with('~') {
+        Ok(home.join(rest))
+    } else if let Some(rest) = source.strip_prefix('~') {
         let home = dirs::home_dir().context("Could not determine home directory")?;
-        Ok(home.join(&source[1..]))
+        Ok(home.join(rest))
     } else {
         Ok(PathBuf::from(source))
     }
