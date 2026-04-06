@@ -6,3 +6,4 @@
 apps/
 *.pnpm-store/
 pnpm-lock.yaml
+*.bak
