@@ -101,9 +101,6 @@ enum Commands {
         /// Skip snapshot capture (for CI or repeated runs)
         #[arg(long)]
         no_snapshot: bool,
-        /// Setup .npmrc symlinks for Docker-First enforcement
-        #[arg(long)]
-        setup_npmrc: bool,
         /// Actually write generated files (default: dry-run, shows what would be generated)
         #[arg(long)]
         write: bool,
@@ -743,14 +740,10 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Init {
             snapshot,
             no_snapshot,
-            setup_npmrc,
             write,
             skip_discovery,
         } => {
             commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
-            if setup_npmrc {
-                commands::init::setup_npmrc()?;
-            }
         }
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};

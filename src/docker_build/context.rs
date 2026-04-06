@@ -73,7 +73,6 @@ impl<'a> ContextBuilder<'a> {
             "package.json",
             "pnpm-lock.yaml",
             "pnpm-workspace.yaml",
-            ".npmrc",
             "tsconfig.base.json",
             "tsconfig.json",
         ];
@@ -104,7 +103,6 @@ impl<'a> ContextBuilder<'a> {
             "package.json",
             "tsconfig.json",
             "tsconfig.build.json",
-            ".npmrc",
         ];
 
         for file in &essential_files {

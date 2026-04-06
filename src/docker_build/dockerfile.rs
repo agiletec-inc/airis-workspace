@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::channel::{RuntimeFamily, Toolchain};
+use super::{PNPM_STORE_DIR, PNPM_VIRTUAL_STORE_DIR};
 
 /// Generate Dockerfile based on runtime family
 pub fn generate_dockerfile_for_toolchain(
@@ -43,7 +44,9 @@ RUN apk add --no-cache libc6-compat \
 # ---- deps ----
 FROM base AS deps
 WORKDIR /app
-COPY pnpm-lock.yaml package.json pnpm-workspace.yaml .npmrc* ./
+ENV NPM_CONFIG_STORE_DIR={{pnpm_store_dir}}
+ENV NPM_CONFIG_VIRTUAL_STORE_DIR={{pnpm_virtual_store_dir}}
+COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
 COPY apps/ apps/
 COPY libs/ libs/
 RUN pnpm install --frozen-lockfile
@@ -93,6 +96,8 @@ RUN apk add --no-cache libc6-compat \
 # ---- deps ----
 FROM base AS deps
 WORKDIR /app
+ENV NPM_CONFIG_STORE_DIR={{pnpm_store_dir}}
+ENV NPM_CONFIG_VIRTUAL_STORE_DIR={{pnpm_virtual_store_dir}}
 COPY pnpm-lock.yaml package.json pnpm-workspace.yaml ./
 COPY apps/ apps/
 COPY libs/ libs/
@@ -101,7 +106,9 @@ RUN pnpm fetch
 # ---- build ----
 FROM base AS build
 WORKDIR /app
-COPY --from=deps /root/.local/share/pnpm/store /root/.local/share/pnpm/store
+ENV NPM_CONFIG_STORE_DIR={{pnpm_store_dir}}
+ENV NPM_CONFIG_VIRTUAL_STORE_DIR={{pnpm_virtual_store_dir}}
+COPY --from=deps {{pnpm_store_dir}} {{pnpm_store_dir}}
 COPY . .
 {{extra_args}}ARG NODE_ENV=production
 ENV NODE_ENV=${NODE_ENV}
@@ -281,6 +288,8 @@ fn generate_nextjs_dockerfile(
             .to_string(),
     );
     vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
+    vars.insert("pnpm_store_dir", PNPM_STORE_DIR.to_string());
+    vars.insert("pnpm_virtual_store_dir", PNPM_VIRTUAL_STORE_DIR.to_string());
     render_dockerfile_template(NEXTJS_DOCKERFILE, &vars)
 }
 
@@ -300,6 +309,8 @@ fn generate_node_dockerfile(
             .to_string(),
     );
     vars.insert("pm_install_cmd", "npm install -g pnpm".to_string());
+    vars.insert("pnpm_store_dir", PNPM_STORE_DIR.to_string());
+    vars.insert("pnpm_virtual_store_dir", PNPM_VIRTUAL_STORE_DIR.to_string());
     render_dockerfile_template(NODE_DOCKERFILE, &vars)
 }
 

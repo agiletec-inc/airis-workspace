@@ -405,8 +405,8 @@ impl TemplateEngine {
 
 fn root_artifact_mount_target(workdir: &str, dir: &str) -> String {
     match dir {
-        ".pnpm" => "/pnpm/virtual-store".to_string(),
-        ".pnpm-store" => "/pnpm/store".to_string(),
+        ".pnpm" => crate::docker_build::PNPM_VIRTUAL_STORE_DIR.to_string(),
+        ".pnpm-store" => crate::docker_build::PNPM_STORE_DIR.to_string(),
         _ => format!("{}/{}", workdir, dir),
     }
 }

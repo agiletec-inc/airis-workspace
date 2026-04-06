@@ -8,6 +8,11 @@ pub mod context;
 pub mod dockerfile;
 pub mod hash;
 
+/// pnpm store directory inside Docker containers (named volume mount target)
+pub const PNPM_STORE_DIR: &str = "/pnpm/store";
+/// pnpm virtual store directory inside Docker containers (named volume mount target)
+pub const PNPM_VIRTUAL_STORE_DIR: &str = "/pnpm/virtual-store";
+
 #[cfg(test)]
 mod tests;
 

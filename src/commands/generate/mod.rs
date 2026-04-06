@@ -20,8 +20,8 @@ mod tsconfig_gen;
 
 use catalog::{resolve_catalog_versions, resolve_package_data};
 use docker_gen::generate_docker_compose;
-use env_gen::{generate_env_example, generate_envrc, generate_npmrc};
-use hooks_gen::{generate_git_hooks, generate_native_hooks};
+use env_gen::generate_env_example;
+use hooks_gen::generate_native_hooks;
 use lockfile::sync_lockfile;
 use package_gen::{generate_package_json, generate_pnpm_workspace};
 use registry::{load_generation_registry, save_generation_registry};
@@ -373,11 +373,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generated_files.push(format!("{} app package.json files (full-gen)", app_count));
         }
 
-        // Generate .npmrc for pnpm store isolation
-        generate_npmrc(&engine)?;
-        generated_paths.push(".npmrc".into());
-        generated_files.push(".npmrc (pnpm store isolation)".into());
-
         // Generate tsconfig files (tsconfig.base.json + tsconfig.json)
         if !manifest.typescript.skip {
             generate_tsconfig(manifest, &engine, &resolved_catalog)?;
@@ -391,26 +386,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generated_files.push(".env.example".into());
         }
 
-        // Generate .envrc for direnv
-        generate_envrc(manifest, &engine)?;
-        generated_paths.push(".envrc".into());
-        generated_files.push(".envrc".into());
-
-        // Generate git hooks
-        generate_git_hooks(&engine)?;
+        // Generate native git hooks
         generate_native_hooks()?;
-        generated_paths.extend([
-            ".husky/pre-commit".into(),
-            ".husky/pre-push".into(),
-            "hooks/pre-commit".into(),
-            "hooks/pre-push".into(),
-        ]);
-        generated_files.extend([
-            ".husky/pre-commit".into(),
-            ".husky/pre-push".into(),
-            "hooks/pre-commit".into(),
-            "hooks/pre-push".into(),
-        ]);
+        generated_paths.extend(["hooks/pre-commit".into(), "hooks/pre-push".into()]);
+        generated_files.extend(["hooks/pre-commit".into(), "hooks/pre-push".into()]);
 
         // Sync pnpm-lock.yaml
         sync_lockfile(manifest)?;

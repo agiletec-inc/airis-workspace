@@ -340,7 +340,6 @@ All these files are generated from `manifest.toml`:
 - `compose.yml` - Docker Compose for services and workspace
 - `tsconfig.json` / `tsconfig.base.json` - TypeScript project references
 - Per-app `package.json` - App-level dependencies from catalog
-- `.npmrc` - pnpm store isolation inside container
 - `.env.example` - Environment variable template
 - `.github/workflows/` - CI/CD pipelines
 

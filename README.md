@@ -51,7 +51,6 @@ manifest.toml  ──  airis gen  ──▶  package.json
                                    compose.yml
                                    tsconfig.json
                                    per-app package.json
-                                   .npmrc
                                    .github/workflows/
 ```
 
@@ -195,7 +194,6 @@ airis up               # start everything
 | `compose.yml` | Docker Compose for services and workspace |
 | `tsconfig.json` / `tsconfig.base.json` | TypeScript project references |
 | Per-app `package.json` | App-level dependencies from catalog |
-| `.npmrc` | pnpm store isolation inside container |
 | `.env.example` | Environment variable template |
 | `.github/workflows/` | CI/CD pipelines |
 

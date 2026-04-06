@@ -1,33 +1,13 @@
 use std::fs;
-#[cfg(unix)]
-use std::os::unix::fs::symlink;
 use std::path::Path;
 
 use anyhow::Result;
-#[cfg(unix)]
-use chrono::Local;
 use colored::Colorize;
 
 use crate::manifest::MANIFEST_FILE;
 
 use super::discover;
 use super::migrate;
-
-/// Create a backup of a file before replacing it
-/// Returns the backup path if successful
-#[cfg(unix)]
-fn backup_file(path: &Path) -> Result<std::path::PathBuf> {
-    let timestamp = Local::now().format("%Y%m%d_%H%M%S");
-    let backup_name = format!(
-        "{}.bak.{}",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        timestamp
-    );
-    let backup_path = path.parent().unwrap_or(Path::new(".")).join(&backup_name);
-
-    fs::copy(path, &backup_path)?;
-    Ok(backup_path)
-}
 
 /// Default manifest.toml template (embedded at compile time)
 const MANIFEST_TEMPLATE: &str = include_str!("../../examples/manifest.toml");
@@ -195,138 +175,3 @@ fn run_template_mode(write: bool) -> Result<()> {
     Ok(())
 }
 
-/// Setup .npmrc symlinks for Docker-First enforcement
-/// This creates symlinks in apps/* and libs/* pointing to root .npmrc
-#[cfg(not(unix))]
-pub fn setup_npmrc() -> Result<()> {
-    anyhow::bail!("setup-npmrc requires Unix (symlink support)");
-}
-
-#[cfg(unix)]
-pub fn setup_npmrc() -> Result<()> {
-    println!("{}", "🔗 Setting up .npmrc symlinks...".bright_blue());
-    println!();
-
-    let root_npmrc = Path::new(".npmrc");
-    if !root_npmrc.exists() {
-        anyhow::bail!("Root .npmrc not found. Create it first.");
-    }
-
-    let mut created = 0;
-    let mut skipped = 0;
-
-    // Process apps directory
-    let apps_dir = Path::new("apps");
-    if apps_dir.exists() {
-        for entry in fs::read_dir(apps_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if !path.is_dir() {
-                continue;
-            }
-
-            // Check if package.json exists (valid app)
-            if !path.join("package.json").exists() {
-                continue;
-            }
-
-            let npmrc_path = path.join(".npmrc");
-            let relative_root = "../../.npmrc";
-
-            if npmrc_path.exists() {
-                // Check if it's already a symlink to root
-                if npmrc_path.is_symlink() {
-                    println!(
-                        "  {} {} (already linked)",
-                        "⏭️".yellow(),
-                        npmrc_path.display()
-                    );
-                    skipped += 1;
-                } else {
-                    // Backup existing file before replacing
-                    let backup_path = backup_file(&npmrc_path)?;
-                    println!(
-                        "  {} {} → {}",
-                        "📦".cyan(),
-                        npmrc_path.display(),
-                        backup_path.display()
-                    );
-                    fs::remove_file(&npmrc_path)?;
-                    symlink(relative_root, &npmrc_path)?;
-                    println!("  {} {} (replaced)", "✓".green(), npmrc_path.display());
-                    created += 1;
-                }
-            } else {
-                // Create new symlink
-                symlink(relative_root, &npmrc_path)?;
-                println!("  {} {}", "✓".green(), npmrc_path.display());
-                created += 1;
-            }
-        }
-    }
-
-    // Process libs directory
-    let libs_dir = Path::new("libs");
-    if libs_dir.exists() {
-        for entry in fs::read_dir(libs_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if !path.is_dir() {
-                continue;
-            }
-
-            // Check if package.json exists (valid lib)
-            if !path.join("package.json").exists() {
-                continue;
-            }
-
-            let npmrc_path = path.join(".npmrc");
-            let relative_root = "../../.npmrc";
-
-            if npmrc_path.exists() {
-                if npmrc_path.is_symlink() {
-                    println!(
-                        "  {} {} (already linked)",
-                        "⏭️".yellow(),
-                        npmrc_path.display()
-                    );
-                    skipped += 1;
-                } else {
-                    // Backup existing file before replacing
-                    let backup_path = backup_file(&npmrc_path)?;
-                    println!(
-                        "  {} {} → {}",
-                        "📦".cyan(),
-                        npmrc_path.display(),
-                        backup_path.display()
-                    );
-                    fs::remove_file(&npmrc_path)?;
-                    symlink(relative_root, &npmrc_path)?;
-                    println!("  {} {} (replaced)", "✓".green(), npmrc_path.display());
-                    created += 1;
-                }
-            } else {
-                symlink(relative_root, &npmrc_path)?;
-                println!("  {} {}", "✓".green(), npmrc_path.display());
-                created += 1;
-            }
-        }
-    }
-
-    println!();
-    println!(
-        "{} Created {} symlinks, skipped {} existing",
-        "✅".green(),
-        created,
-        skipped
-    );
-    println!();
-    println!("{}", "🛡️  Triple-layer defense active:".bright_yellow());
-    println!("  1. .npmrc symlinks (primary)");
-    println!("  2. preinstall hooks (backup)");
-    println!("  3. Root preinstall + monorepo check (fallback)");
-
-    Ok(())
-}

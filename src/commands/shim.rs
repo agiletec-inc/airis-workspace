@@ -51,8 +51,7 @@ pub fn install() -> Result<()> {
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!("  1. Add to PATH: export PATH=\"$(pwd)/bin:$PATH\"");
-    println!("  2. Or add to .envrc: export PATH=\"$(pwd)/bin:$PATH\"");
-    println!("  3. Run 'direnv allow' if using direnv");
+    println!("  2. Or use: airis shell");
     println!();
     println!(
         "{}",
