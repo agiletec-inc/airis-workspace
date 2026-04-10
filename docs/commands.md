@@ -25,35 +25,28 @@ Guide for using the `airis` CLI to safely work within Docker workspaces across y
 ## Setup & Startup
 
 ```bash
-airis init                    # Auto-discover existing projects + preview (dry-run)
-airis init --write            # Execute discovery and create manifest.toml
-airis init --skip-discovery   # Create from empty template (legacy mode)
-airis gen          # Regenerate workspace files from manifest.toml
-airis up                      # Start Docker services
-airis down                    # Stop Docker services
-airis install                 # Run pnpm install inside workspace container
-airis shell                   # Enter workspace shell (/app)
+airis init                    # Auto-discover existing projects + create manifest.toml
+airis up                      # Docker-First: Sync configs, install deps, and start services
+airis down                    # Stop all services
+airis shell                   # Enter workspace container shell (/app)
 ```
 
-### How `airis init` works (v1.43+)
+### The `airis up` Workflow (One Command)
 
-1. **Discovery Phase**: Scans `apps/`, `libs/` and detects Next.js/Vite/Hono/Rust/Python
-2. **Compose Detection**: Locates docker-compose.yml files (root, workspace/, supabase/, traefik/)
-3. **Catalog Extraction**: Extracts catalog from package.json devDependencies
-4. **Migration Plan**: Previews all changes
-5. **Execute (`--write`)**: Generates manifest.toml, moves files as needed
+1. **Sync**: Compares `manifest.toml` with generated files and updates them.
+2. **Install**: Runs `pnpm install` (or equivalent) inside the Docker container.
+3. **Startup**: Starts all services (containers). Development servers start within the containers.
 
 ---
 
 ## Development
 
+Use `airis up` for your daily development workflow. For specific tasks:
+
 ```bash
-airis dev                     # Start dev servers (from dev.autostart)
-airis build                   # Build all apps
-airis test                    # Run tests
-airis lint                    # Run linting
-airis format                  # Run code formatting
-airis typecheck               # Run type checking
+airis run <task>              # Run any command defined in manifest.toml (build, test, etc.)
+airis build                   # Build all apps (alias for 'run build')
+airis test                    # Run tests (alias for 'run test')
 ```
 
 ---

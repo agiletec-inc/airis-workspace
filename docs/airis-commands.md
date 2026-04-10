@@ -33,31 +33,17 @@
 
 ```bash
 airis init                    # 既存プロジェクトを自動検出 + manifest.toml 生成 (dry-run)
-airis init --write            # 検出結果を実行し manifest.toml を作成
-airis init --skip-discovery   # 空テンプレートから作成 (従来モード)
-airis gen          # manifest.toml から workspace ファイル再生成
-airis up                      # Traefik → Supabase → workspace を順に起動
-airis down                    # dev サーバ → Supabase → Traefik の順に停止
-airis install                 # workspace コンテナ内で pnpm install
-airis shell                   # workspace シェルに入る（/app）
+airis init --write            # 実行して manifest.toml を作成
+airis up                      # Docker-First: manifest同期 + 依存インストール + コンテナ起動
+airis down                    # サービスの停止
+airis shell                   # workspace コンテナのシェルに入る (/app)
 ```
 
-#### airis init の動作 (v1.43+)
+#### airis up の動作 (The "One Command")
 
-1. **Discovery Phase**: apps/, libs/ をスキャンし、Next.js/Vite/Hono/Rust/Python を検出
-2. **Compose Detection**: docker-compose.yml の場所を検出 (root, workspace/, supabase/, traefik/)
-3. **Catalog Extraction**: package.json の devDependencies からカタログを抽出
-4. **Migration Plan**: 変更内容をプレビュー表示
-5. **Execute (`--write`)**: manifest.toml を生成、必要に応じてファイルを移動
-
-### 開発
-
-```bash
-airis dev          # dev.autostart のアプリを自動起動
-airis build        # 全アプリをビルド
-airis test         # テスト実行
-airis lint         # リント実行
-```
+1.  **Sync**: `manifest.toml` と生成ファイル（`compose.yml`, `package.json` 等）の同期。
+2.  **Install**: コンテナ内での依存関係インストール（`pnpm install` 等）。
+3.  **Startup**: Docker サービスの起動（開発サーバーもコンテナ内で立ち上がります）。
 
 ### モニタリング
 
