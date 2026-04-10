@@ -1,6 +1,6 @@
 {
   "name": "@agiletec-inc/airis-darwin-arm64",
-  "version": "1.102.0",
+  "version": "3.0.0",
   "description": "airis binary for macOS ARM64",
   "license": "MIT",
   "repository": {

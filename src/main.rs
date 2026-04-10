@@ -53,15 +53,15 @@ Doppler, Vercel, Railway — all your choice. airis handles the Docker layer tha
 those tools leave to you.")]
 #[command(after_help = "\
 QUICK REFERENCE:
-  airis init --write        Create manifest.toml from project discovery
-  airis gen                 Regenerate all config files from manifest.toml
-  airis up                  Start Docker services (local dev only)
-  airis guards install      Block npm/yarn/pnpm on host
-  airis claude setup         Sync Claude Code configuration
+  airis init --write        Analyze project and create manifest.toml
+  airis up                  Docker-First: Sync config, install deps, and start dev server
+  airis down                Stop all services
+  airis shell               Enter workspace container shell
+  airis doctor              Diagnose and fix workspace issues
 
 CONFIG: All commands are defined in manifest.toml [commands] section.
-  airis run <task>          Execute any command from [commands]
-  airis up/down/shell/...   Built-in aliases for common [commands] entries
+  airis run <task>          Execute any command (e.g., test, lint, build)
+  airis up/down/shell/...   Surgical shortcuts for common Docker-first workflows
 
 MANIFEST SECTIONS:
   [commands]    Command definitions (what 'airis run <task>' executes)
@@ -91,9 +91,9 @@ enum Commands {
     /// Initialize workspace by discovering projects and creating manifest.toml.
     ///
     /// Scans apps/, libs/ for projects, detects frameworks (Next.js, Vite,
-    /// Hono, Rust, Python), and generates manifest.toml as single source of truth.
-    /// Default is dry-run (preview only). Use --write to execute.
-    /// NEVER overwrites existing manifest.toml.
+    /// Hono, Rust, Python, Cloudflare Workers, Node.js), and generates
+    /// manifest.toml as single source of truth. Default is dry-run (preview only).
+    /// Use --write to execute. NEVER overwrites existing manifest.toml.
     Init {
         /// Force snapshot capture (default: auto on first run)
         #[arg(long)]
@@ -188,21 +188,24 @@ enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Build and start all services.
+    /// Start the entire Docker-first workspace (The "One Command").
     ///
-    /// Rebuilds Docker images and starts containers.
-    /// Extra args are forwarded to docker compose (e.g., --no-cache, --force-recreate).
+    /// Automatically performs:
+    /// 1. Syncing manifest.toml -> generated configs (gen)
+    /// 2. Syncing dependencies inside the container (install)
+    /// 3. Starting all Docker services (up)
+    ///
+    /// This is the primary entry point for development.
     Up {
         /// Extra arguments forwarded to docker compose (e.g., --no-cache, --force-recreate)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
     },
 
-    /// Install dependencies inside Docker container.
+    /// Install dependencies inside Docker container (normally automatic).
     ///
     /// Runs the package manager specified in manifest.toml inside the
-    /// workspace container. This is the only way to install dependencies
-    /// while keeping the host clean.
+    /// workspace container. Note: This is automatically executed by 'airis up'.
     Install {
         /// Extra arguments passed to the package manager
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

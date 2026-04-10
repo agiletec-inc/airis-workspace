@@ -130,14 +130,10 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!(
-        "  1. Run {} to regenerate workspace files",
-        "airis init".cyan()
+        "  1. Run {} to analyze and sync workspace",
+        "airis up".cyan()
     );
-    println!(
-        "  2. Run {} to install dependencies",
-        "airis install".cyan()
-    );
-    println!("  3. Start development with {}", "airis dev".cyan());
+    println!("     (This will automatically sync manifest, install deps, and start services)");
 
     Ok(())
 }

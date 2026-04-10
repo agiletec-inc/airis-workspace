@@ -75,8 +75,7 @@ deny = ["npm", "yarn", "pnpm", "bun"]
 ```
 
 ```bash
-airis gen    # generates compose.yml, package.json, tsconfig, CI workflows
-airis up     # builds containers, installs deps inside Docker, starts services
+airis up     # The One Command: Syncs config, installs deps inside Docker, and starts services
 ```
 
 ### Command guards keep AI inside Docker
@@ -89,7 +88,7 @@ $ pnpm install
 #    Use: airis up
 
 $ airis up
-# ✔ Containers built. Dependencies installed. Services running.
+# ✔ Config synced. Dependencies installed. Services running.
 ```
 
 AI agents can also be auto-remapped transparently:
@@ -156,9 +155,8 @@ cargo install --git https://github.com/agiletec-inc/airis-monorepo
 
 ```bash
 mkdir my-monorepo && cd my-monorepo
-airis init --write     # creates manifest.toml
-airis gen              # generates all config files
-airis up               # start Docker services
+airis init --write     # Analyzes repo and creates manifest.toml
+airis up               # Docker-First: Sync config, install deps, and start services
 ```
 
 ### Existing project
@@ -169,8 +167,7 @@ airis up               # start Docker services
 cd your-monorepo
 airis init             # auto-discovers apps, libs, compose files (dry-run)
 airis init --write     # writes manifest.toml
-airis gen              # generates workspace files
-airis up               # start everything
+airis up               # Start everything (Syncs config + installs deps + up)
 ```
 
 `airis init` detects your project structure automatically:
@@ -300,10 +297,10 @@ When `[secrets]` is configured, `airis up` wraps Docker Compose with the provide
 
 | Category | Commands |
 |----------|----------|
-| **Setup** | `init`, `gen`, `upgrade` |
-| **Docker** | `up`, `down`, `ps`, `logs`, `exec`, `restart`, `shell`, `network` |
+| **Lifecycle** | `init`, `up`, `down`, `upgrade` |
+| **Docker** | `ps`, `logs`, `exec`, `restart`, `shell`, `network` |
 | **Development** | `build`, `test`, `lint`, `format`, `typecheck`, `run` |
-| **Analysis** | `doctor`, `diff`, `affected`, `deps`, `validate`, `verify` |
+| **Analysis** | `doctor`, `diff`, `affected`, `deps`, `validate`, `verify`, `gen` |
 | **Scaffolding** | `new` |
 | **Deployment** | `bundle`, `bump-version`, `policy` |
 | **Guards** | `guards install`, `shim`, `hooks` |

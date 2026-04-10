@@ -1,6 +1,6 @@
 {
   "name": "@agiletec-inc/airis",
-  "version": "1.102.0",
+  "version": "3.0.0",
   "description": "Docker-first monorepo workspace manager",
   "license": "MIT",
   "repository": {
