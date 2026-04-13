@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -32,3 +34,39 @@ jobs:
 
       - name: Build release
         run: cargo build --release
+
+      - name: Package (debug sizing — replicates crates.io upload environment)
+        run: |
+          set -euo pipefail
+          echo "=== cargo package --list (full file inventory) ==="
+          cargo package --list --allow-dirty
+          echo ""
+          echo "=== Running cargo package --no-verify ==="
+          cargo package --no-verify --allow-dirty
+          echo ""
+          echo "=== Generated .crate size ==="
+          ls -lh target/package/*.crate
+          echo ""
+          echo "=== Uncompressed package dir size (top-level breakdown) ==="
+          CRATE_DIR=$(find target/package -maxdepth 1 -type d -name 'airis-monorepo-*' | head -1)
+          if [ -n "$CRATE_DIR" ]; then
+            du -sh "$CRATE_DIR"
+            echo ""
+            echo "=== Top 20 largest files inside package ==="
+            find "$CRATE_DIR" -type f -printf '%s %p\n' | sort -rn | head -20
+            echo ""
+            echo "=== Size by top-level subdirectory ==="
+            du -sh "$CRATE_DIR"/* 2>/dev/null | sort -rh
+          fi
+          echo ""
+          echo "=== 10MB limit check ==="
+          CRATE_FILE=$(ls target/package/*.crate | head -1)
+          CRATE_BYTES=$(stat -c%s "$CRATE_FILE")
+          LIMIT=10485760
+          echo "Crate size: $CRATE_BYTES bytes"
+          echo "Limit:      $LIMIT bytes"
+          if [ "$CRATE_BYTES" -gt "$LIMIT" ]; then
+            echo "::error::Package exceeds crates.io 10MB limit ($CRATE_BYTES > $LIMIT)"
+            exit 1
+          fi
+          echo "OK: under limit"
