@@ -1,5 +1,3 @@
-mod compose;
-mod env;
 mod package;
 mod tsconfig;
 

@@ -10,8 +10,6 @@ use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
 mod catalog;
-mod docker_gen;
-mod env_gen;
 mod hooks_gen;
 mod lockfile;
 mod package_gen;
@@ -19,8 +17,6 @@ mod registry;
 mod tsconfig_gen;
 
 use catalog::{resolve_catalog_versions, resolve_package_data};
-use docker_gen::generate_docker_compose;
-use env_gen::generate_env_example;
 use hooks_gen::generate_native_hooks;
 use lockfile::sync_lockfile;
 use package_gen::{generate_package_json, generate_pnpm_workspace};
@@ -30,38 +26,9 @@ use tsconfig_gen::generate_tsconfig;
 #[cfg(test)]
 mod tests;
 
-/// Legacy compose file names that should be migrated to compose.yml
-const LEGACY_COMPOSE_FILES: &[&str] =
-    &["docker-compose.yml", "docker-compose.yaml", "compose.yaml"];
-
-/// Compose override/variant files that should not exist (use manifest.toml instead)
-const COMPOSE_VARIANTS: &[&str] = &[
-    "compose.override.yml",
-    "compose.override.yaml",
-    "compose.dev.yml",
-    "compose.prod.yml",
-    "compose.test.yml",
-    "docker-compose.override.yml",
-    "docker-compose.override.yaml",
-    "docker-compose.dev.yml",
-    "docker-compose.prod.yml",
-    "docker-compose.test.yml",
-];
-
-/// Check for legacy or variant compose files and return them
-fn detect_legacy_compose_files() -> Vec<String> {
-    let mut found = Vec::new();
-    for name in LEGACY_COMPOSE_FILES.iter().chain(COMPOSE_VARIANTS.iter()) {
-        if Path::new(name).exists() {
-            found.push(name.to_string());
-        }
-    }
-    found
-}
-
 /// CLI entry point for `airis gen`
 /// Regenerates workspace files from existing manifest.toml
-pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
+pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if !manifest_path.exists() {
@@ -75,39 +42,6 @@ pub fn run(dry_run: bool, force: bool, migrate: bool) -> Result<()> {
             "This analyzes your repository and generates an optimized manifest.".cyan()
         );
         return Ok(());
-    }
-
-    // Check for legacy compose files
-    let legacy_files = detect_legacy_compose_files();
-    if !legacy_files.is_empty() && !force && !migrate && !dry_run {
-        println!("{}", "⛔ Legacy compose files detected:".bright_red());
-        for f in &legacy_files {
-            println!("   {} {}", "•".red(), f);
-        }
-        println!();
-        println!(
-            "Only {} is supported. Choose an action:",
-            "compose.yml".bright_cyan()
-        );
-        println!(
-            "  {} — ignore legacy files and generate compose.yml",
-            "airis gen --force".bright_cyan()
-        );
-        println!(
-            "  {} — delete legacy files and generate compose.yml",
-            "airis gen --migrate".bright_cyan()
-        );
-        anyhow::bail!("Legacy compose files exist. Use --force or --migrate.");
-    }
-
-    // Migrate: delete legacy files
-    if migrate && !legacy_files.is_empty() {
-        println!("{}", "🔄 Migrating compose files...".bright_blue());
-        for f in &legacy_files {
-            fs::remove_file(f)?;
-            println!("   {} Deleted {}", "✗".red(), f);
-        }
-        println!();
     }
 
     println!("{}", "📖 Loading manifest.toml...".bright_blue());
@@ -182,7 +116,6 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
     // Check existing files vs new files
     let files_to_check = vec![
         ("package.json", has_workspace),
-        ("compose.yml", has_workspace),
         (
             "pnpm-workspace.yaml",
             has_workspace && !manifest.packages.workspaces.is_empty(),
@@ -267,15 +200,10 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         )?;
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
-        generate_docker_compose(manifest, &engine, force)?;
-        generated_paths.push("compose.yml".into());
         generate_package_json(manifest, &engine, &resolved_catalog, force)?;
         generated_paths.push("package.json".into());
 
-        generated_files.extend([
-            "package.json (with workspaces)".into(),
-            "compose.yml".into(),
-        ]);
+        generated_files.push("package.json (with workspaces)".into());
 
         if !manifest.packages.workspaces.is_empty() {
             generate_pnpm_workspace(manifest, &engine, force)?;
@@ -378,12 +306,6 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             generate_tsconfig(manifest, &engine, &resolved_catalog)?;
             generated_paths.extend(["tsconfig.base.json".into(), "tsconfig.json".into()]);
             generated_files.push("tsconfig.base.json + tsconfig.json".into());
-        }
-
-        // Generate .env.example if [env] section has required or optional vars
-        if !manifest.env.required.is_empty() || !manifest.env.optional.is_empty() {
-            generate_env_example(manifest, &engine)?;
-            generated_files.push(".env.example".into());
         }
 
         // Generate native git hooks

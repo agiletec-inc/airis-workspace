@@ -1,15 +1,13 @@
 # Docker-First Development — 絶対ルール
 
-## 原則: manifest.toml → airis gen → airis up
+## 原則: manifest.toml は workspace tooling の SoT
 
-これだけ。手で Dockerfile や compose.yml を直すな。
+`manifest.toml` が `package.json` / `pnpm-workspace.yaml` / `tsconfig.*` / git hooks を生成する。`compose.yml` / `Dockerfile` / `.env.example` / `.github/workflows/` はユーザー所有で airis は一切触らない — 各プロジェクトが自由に編集する。
 
-1. `manifest.toml` を編集する（唯一の設定ファイル）
-2. `airis gen` で Dockerfile, compose.yml, CI設定を再生成する
+1. Node/TS workspace tooling の変更 → `manifest.toml` を編集し、`airis gen` で再生成
+2. Docker/compose/Dockerfile の変更 → エディタで直接編集
 3. `airis up` でビルド＋起動（`pnpm install` は Docker ビルド時に自動実行）
-4. 問題が出たら **manifest.toml か airis-monorepo のテンプレートを直す**
-
-「手で直した方が早い」は禁止。それは技術的負債の先送り。
+4. CI で落ちたら根本原因を直す（「手で直した方が早い」で場当たり対応しない）
 
 ## エラーが出たときの対処フロー
 
@@ -17,9 +15,9 @@
 
 ```
 エラー発生
-  ├→ 自分の設定ミス？ → manifest.toml を直して airis gen
-  ├→ テンプレートのバグ？ → airis-monorepo のテンプレートを修正
-  ├→ Dockerfile の構成問題？ → manifest.toml の [docker] セクションを修正して airis gen
+  ├→ workspace tooling (package.json/tsconfig 等) の問題？ → manifest.toml を直して airis gen
+  ├→ compose.yml / Dockerfile の問題？ → 該当ファイルを直接編集
+  ├→ テンプレートや airis 本体のバグ？ → airis-monorepo に Issue/PR
   └→ 一時的な回避策で push → 絶対禁止。CI で落ちる。時間の無駄。
 ```
 
@@ -40,7 +38,7 @@ pip install / python -m pip
 | Dockerfile に `/Users/...` や `/home/...` を書く | ホスト依存パス。CI で通らない | コンテナ内パスのみ使う |
 | `PNPM_STORE_DIR=./.pnpm-store` | ホストに漏れる | `PNPM_STORE_DIR=/pnpm/store` (named volume) |
 | compose.yml に `./node_modules:/app/node_modules` | bind mount でホスト汚染 | `node_modules:/app/node_modules` (named volume) |
-| `airis gen` 生成ファイル（`_generated` / `DO NOT EDIT` ヘッダー付き）の手動編集 | airis gen で上書きされる | manifest.toml を変更して `airis gen` |
+| `airis gen` が生成する `package.json` / `pnpm-workspace.yaml` / `tsconfig.*` の手動編集 | 次回 `airis gen` で上書きされる | `manifest.toml` を編集して `airis gen` |
 
 ### hooks の回避禁止
 
@@ -106,6 +104,6 @@ git / gh / docker compose / doppler / supabase
 ## 完了の定義
 
 1. `airis test` がエラー0
-2. `airis gen` で生成されたファイルと手動変更が矛盾していない
-3. ホスト固有パスが一切含まれていない
+2. `manifest.toml` と airis gen 生成物（`package.json`, `pnpm-workspace.yaml`, `tsconfig.*`）が同期している
+3. ホスト固有パスが一切含まれていない（`compose.yml` / `Dockerfile` に `/Users/...` を書かない）
 4. CI で通ることが確認できている（push 後 `gh run watch`）
