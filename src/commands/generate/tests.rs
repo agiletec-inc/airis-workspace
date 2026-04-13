@@ -4,7 +4,6 @@ use std::fs;
 use crate::manifest::{CatalogEntry, Manifest};
 
 use super::catalog::{matches_wildcard_catalog, wildcard_matches};
-use super::detect_legacy_compose_files;
 use super::registry::{load_generation_registry, save_generation_registry};
 use super::tsconfig_gen::detect_ts_major;
 
@@ -100,14 +99,14 @@ fn test_load_generation_registry() {
     let path = dir.path().join("generated.toml");
     fs::write(
         &path,
-        "# comment\npackage.json\ncompose.yml\n\npnpm-workspace.yaml\n",
+        "# comment\npackage.json\ntsconfig.json\n\npnpm-workspace.yaml\n",
     )
     .unwrap();
 
     let result = load_generation_registry(&path);
     assert_eq!(
         result,
-        vec!["package.json", "compose.yml", "pnpm-workspace.yaml"]
+        vec!["package.json", "tsconfig.json", "pnpm-workspace.yaml"]
     );
 }
 
@@ -127,42 +126,19 @@ fn test_save_generation_registry_deduplicates_and_sorts() {
     let path = dir.path().join(".airis").join("generated.toml");
 
     let paths = vec![
-        "compose.yml".to_string(),
+        "tsconfig.json".to_string(),
         "package.json".to_string(),
-        "compose.yml".to_string(), // duplicate
+        "tsconfig.json".to_string(), // duplicate
     ];
     save_generation_registry(&path, &paths).unwrap();
 
     let content = fs::read_to_string(&path).unwrap();
-    assert!(content.contains("compose.yml"));
+    assert!(content.contains("tsconfig.json"));
     assert!(content.contains("package.json"));
-    // Sorted: compose.yml before package.json
-    let compose_pos = content.find("compose.yml").unwrap();
+    // Sorted: package.json before tsconfig.json
     let pkg_pos = content.find("package.json").unwrap();
-    assert!(compose_pos < pkg_pos);
-}
-
-// ── detect_legacy_compose_files (filesystem test) ──
-
-#[test]
-fn test_detect_legacy_compose_files() {
-    let _guard = crate::test_lock::DIR_LOCK.lock().unwrap();
-    let original_dir = std::env::current_dir().unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
-
-    let result = std::panic::catch_unwind(|| {
-        // No legacy files exist
-        assert!(detect_legacy_compose_files().is_empty());
-
-        // Create a legacy file
-        fs::write("docker-compose.yml", "version: '3'").unwrap();
-        let found = detect_legacy_compose_files();
-        assert!(found.contains(&"docker-compose.yml".to_string()));
-    });
-
-    std::env::set_current_dir(original_dir).unwrap();
-    result.unwrap();
+    let ts_pos = content.find("tsconfig.json").unwrap();
+    assert!(pkg_pos < ts_pos);
 }
 
 /// Helper: create a minimal manifest for testing

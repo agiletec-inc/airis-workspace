@@ -188,11 +188,12 @@ airis up               # Start everything (Syncs config + installs deps + up)
 |------|---------|
 | `package.json` | Root workspace package with catalog versions |
 | `pnpm-workspace.yaml` | Workspace member discovery |
-| `compose.yml` | Docker Compose for services and workspace |
 | `tsconfig.json` / `tsconfig.base.json` | TypeScript project references |
 | Per-app `package.json` | App-level dependencies from catalog |
-| `.env.example` | Environment variable template |
-| `.github/workflows/` | CI/CD pipelines |
+| `hooks/pre-commit`, `hooks/pre-push` | Native git hooks |
+| `airis.lock` | Resolved catalog versions |
+
+`compose.yml`, `Dockerfile`, `.env.example`, and `.github/workflows/` are project-owned — airis never writes to them. Hand-edit freely to use compose features (custom healthchecks, `env_file`, `entrypoint`, `depends_on` conditions) or language runtimes (Python, Rust, Go) that would not fit a uniform schema.
 
 ### Framework Auto-Detection
 
@@ -202,9 +203,9 @@ airis up               # Start everything (Syncs config + installs deps + up)
 
 airis tracks three levels of file ownership:
 
-- **Tool-owned** — fully managed, regenerated on `airis gen` (package.json, compose.yml, tsconfig)
+- **Tool-owned** — fully managed, regenerated on `airis gen` (package.json, pnpm-workspace.yaml, tsconfig)
 - **Hybrid** — specific fields are managed, your edits are preserved (per-app package.json)
-- **User-owned** — never touched (manifest.toml, README.md, source code)
+- **User-owned** — never touched (manifest.toml, compose.yml, Dockerfile, .env.example, README.md, source code)
 
 Automatic backups in `.airis/backups/` before any modification.
 
@@ -314,10 +315,12 @@ Run `airis --help` or `airis <command> --help` for details.
 
 ```
 my-monorepo/
-  manifest.toml           # single source of truth (edit this)
+  manifest.toml           # single source of truth for workspace tooling (edit this)
   package.json            # auto-generated (DO NOT EDIT)
   pnpm-workspace.yaml     # auto-generated (DO NOT EDIT)
-  compose.yml             # auto-generated (DO NOT EDIT)
+  compose.yml             # user-owned (hand-edit for services, healthchecks, etc.)
+  Dockerfile              # user-owned (hand-edit for build steps)
+  .env.example            # user-owned (document env vars here)
   apps/
     dashboard/
     api/
@@ -346,7 +349,7 @@ airis is part of a broader toolkit for AI-assisted development. Each component e
 
 | Component | What it does |
 |-----------|-------------|
-| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → compose.yml, package.json, CI workflows. Command guards keep AI inside Docker. |
+| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → package.json, tsconfig, git hooks. Command guards keep AI inside Docker. |
 | **[airis-agent](https://github.com/agiletec-inc/airis-agent)** | LLM intelligence layer for editors. |
 | **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy — 60+ tools through 3 meta-endpoints. 90% token reduction so the AI keeps more context for your code. |
 | **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory. What the AI learned yesterday is still there today. |

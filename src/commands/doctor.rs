@@ -233,19 +233,7 @@ fn check_generated_files(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result
         )?;
     }
 
-    // Check compose.yml (modern) or docker-compose.yml (legacy)
-    let compose_file = if Path::new("compose.yml").exists() {
-        "compose.yml"
-    } else {
-        "docker-compose.yml"
-    };
-    check_file(
-        compose_file,
-        || engine.render_docker_compose(manifest),
-        issues,
-    )?;
-
-    // CI/CD workflows are project-owned — not checked by airis doctor
+    // compose.yml and CI/CD workflows are project-owned — not checked by airis doctor
 
     Ok(())
 }
