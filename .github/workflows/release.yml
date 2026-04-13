@@ -185,6 +185,12 @@ jobs:
             artifacts/airis-* \
             SHA256SUMS.txt
 
+      - name: Clean downloaded artifacts before publish
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          rm -rf artifacts SHA256SUMS.txt
+          ls -la
+
       - name: Publish to crates.io
         if: steps.check_tag.outputs.exists == 'false'
         env:
