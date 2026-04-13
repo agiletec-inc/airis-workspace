@@ -34,6 +34,11 @@ exclude = [
     "/docs",
     "/scripts",
     "/npm",
+    # Release workflow side-effects: downloaded artifacts and checksums
+    # must not be packaged into the crate when cargo publish runs in the
+    # same working directory after build artifacts are fetched.
+    "/artifacts",
+    "/SHA256SUMS.txt",
     "**/.DS_Store",
     "/demo.tape",
     "/pnpm-lock.yaml",
