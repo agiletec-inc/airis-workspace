@@ -3,6 +3,7 @@
 **/.DS_Store
 .airis/
 .envrc
+.npmrc
 apps/
 *.pnpm-store/
 pnpm-lock.yaml

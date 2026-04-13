@@ -71,7 +71,7 @@ fi
 # Check root-level shared files that affect all builds
 root_changed=false
 if [ -n "$changed_files" ]; then
-  if echo "$changed_files" | grep -qE '^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|\.npmrc)$'; then
+  if echo "$changed_files" | grep -qE '^(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$'; then
     root_changed=true
   fi
 fi
