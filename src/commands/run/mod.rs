@@ -227,14 +227,22 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
     // Auto-converge: Ensure workspace is ready before starting Docker-First environment
     if task == "up" {
-        println!("{}", "⚓ Docker-First initialization starting...".bright_cyan().bold());
-        
+        println!(
+            "{}",
+            "⚓ Docker-First initialization starting..."
+                .bright_cyan()
+                .bold()
+        );
+
         // 1. Sync manifest -> generated files (gen)
         println!("   {} Syncing workspace configuration...", "🔄".cyan());
         crate::commands::generate::sync_from_manifest(&manifest)?;
 
         // 2. Sync dependencies inside Docker (install)
-        println!("   {} Syncing dependencies inside container...", "📦".blue());
+        println!(
+            "   {} Syncing dependencies inside container...",
+            "📦".blue()
+        );
         let _ = crate::commands::install::run(&[]);
         println!();
     }
