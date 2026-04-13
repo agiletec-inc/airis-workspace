@@ -52,7 +52,6 @@ exclude = [
     "/package.json.md",
     "/pnpm-workspace.yaml",
     "/pnpm-workspace.yaml.md",
-    "/.npmrc",
     "/tsconfig.json",
     "/tsconfig.base.json",
     "/AGENTS.md",
