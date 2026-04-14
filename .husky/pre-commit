@@ -1,7 +1,15 @@
 #!/bin/bash
 # airis-monorepo pre-commit hook
-# Auto-increments version based on commit message
-# Works for both airis projects (manifest.toml) and Rust projects (Cargo.toml)
+#
+# Auto-increments version based on the *pending* commit message.
+#
+# Historical bug: earlier versions shelled out to `git log -1` here, which
+# reads the *previous* HEAD commit — so a routine `fix:` change after a
+# `feat!:` landed would falsely major-bump. `airis bump-version --auto` now
+# prefers .git/COMMIT_EDITMSG (written before pre-commit runs) so this hook
+# sees the message that is actually about to be committed.
+#
+# Works for both airis projects (manifest.toml) and Rust projects (Cargo.toml).
 
 set -e
 
@@ -41,6 +49,15 @@ if [ "$SOURCE_CHANGED" = false ]; then
     exit 0
 fi
 
+# Explicit opt-out for commits that manage the version themselves (resets,
+# release prep). Set `AIRIS_SKIP_BUMP=1 git commit ...` — this is the
+# sanctioned way to skip, so callers do not need `--no-verify`.
+if [ "${AIRIS_SKIP_BUMP:-}" = "1" ]; then
+    echo "ℹ️  AIRIS_SKIP_BUMP=1 set — skipping auto-bump."
+    # Still run the safety checks below.
+    SOURCE_CHANGED=skipped
+fi
+
 # Check versioning strategy (for manifest.toml projects)
 if [ "$HAS_MANIFEST" = true ]; then
     STRATEGY=$(grep 'strategy = ' manifest.toml 2>/dev/null | sed 's/.*strategy = "\([^"]*\)".*/\1/' || echo "auto")
@@ -51,26 +68,28 @@ if [ "$HAS_MANIFEST" = true ]; then
     fi
 fi
 
-# Run airis bump-version --auto
-echo "🔄 Auto-bumping version based on commit message..."
-if command -v airis &> /dev/null; then
-    airis bump-version --auto
-else
-    echo "⚠️  airis not found. Please install airis or bump version manually."
-    echo "   Run: cargo install --path . (if in airis-monorepo)"
-    exit 1
-fi
+if [ "$SOURCE_CHANGED" != "skipped" ]; then
+    # Run airis bump-version --auto
+    echo "🔄 Auto-bumping version based on commit message..."
+    if command -v airis &> /dev/null; then
+        airis bump-version --auto
+    else
+        echo "⚠️  airis not found. Please install airis or bump version manually."
+        echo "   Run: cargo install --path . (if in airis-monorepo)"
+        exit 1
+    fi
 
-# Stage updated version files
-if [ "$HAS_MANIFEST" = true ]; then
-    git add manifest.toml
-fi
+    # Stage updated version files
+    if [ "$HAS_MANIFEST" = true ]; then
+        git add manifest.toml
+    fi
 
-if [ "$HAS_CARGO" = true ]; then
-    git add Cargo.toml Cargo.lock 2>/dev/null || true
-fi
+    if [ "$HAS_CARGO" = true ]; then
+        git add Cargo.toml Cargo.lock 2>/dev/null || true
+    fi
 
-echo "✅ Version auto-bumped and staged"
+    echo "✅ Version auto-bumped and staged"
+fi
 
 # -------------------------------------------------------
 # Safety checks: .env, node_modules, secrets
