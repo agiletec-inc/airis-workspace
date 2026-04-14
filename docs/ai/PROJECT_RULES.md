@@ -8,6 +8,7 @@
 
 ## Non-Negotiables
 
+- For **runtime application** configuration (DB-backed settings, tenant boundaries, feature flags), follow `docs/ai/architecture-invariants.md` alongside this file—`manifest.toml` remains the SoT for workspace tooling, not for per-app DB config.
 - Preserve the Docker-first value proposition of airis. Changes must not weaken command guards or make host-side workflows the default path.
 - Keep `airis init` and related generation flows safe by default. Avoid destructive overwrites unless the feature explicitly supports backups or opt-in replacement.
 - Prefer minimal, reviewable diffs. When changing generation or enforcement logic, document the intended invariant.
