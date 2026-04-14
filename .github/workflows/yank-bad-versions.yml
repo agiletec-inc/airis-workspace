@@ -1,0 +1,29 @@
+name: Yank bad versions (one-shot cleanup)
+
+# One-shot maintenance workflow to yank crates.io releases that landed as a
+# result of the auto-bump bug fixed in #147. Run via workflow_dispatch, then
+# delete this file via PR.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  yank:
+    name: Yank airis-monorepo 3.0.3 / 3.0.4 / 4.0.1
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Yank versions
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -e
+          for v in 3.0.3 3.0.4 4.0.1; do
+            echo "Yanking airis-monorepo@$v"
+            cargo yank --version "$v" airis-monorepo
+          done
+          echo "Done."
