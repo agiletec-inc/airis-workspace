@@ -193,20 +193,32 @@ jobs:
         if: steps.check_tag.outputs.exists == 'false'
         shell: bash
         run: |
+          set -euo pipefail
           LOCAL="${{ steps.version.outputs.version }}"
-          # Query crates.io for the current max_stable_version.
-          REMOTE=$(curl -sf https://crates.io/api/v1/crates/airis-monorepo \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crate"].get("max_stable_version","0.0.0"))' \
-            || echo "0.0.0")
+          # crates.io rejects requests without a descriptive User-Agent.
+          UA="airis-monorepo-release (+https://github.com/agiletec-inc/airis-monorepo)"
+          RESPONSE=$(curl -sf -A "$UA" https://crates.io/api/v1/crates/airis-monorepo || true)
+          if [ -z "$RESPONSE" ]; then
+            echo "⚠️  Failed to query crates.io — skipping publish to avoid regressions."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          REMOTE=$(printf '%s' "$RESPONSE" \
+            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crate"].get("max_stable_version",""))')
           echo "Local version:  $LOCAL"
           echo "Remote version: $REMOTE"
-          # Compare with sort -V: if LOCAL is strictly greater, we can publish.
+          if [ -z "$REMOTE" ]; then
+            echo "⚠️  crates.io returned no max_stable_version — skipping publish."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Publish only when LOCAL is strictly higher than REMOTE (semver order).
           HIGHEST=$(printf '%s\n%s\n' "$LOCAL" "$REMOTE" | sort -V | tail -n1)
           if [ "$LOCAL" = "$HIGHEST" ] && [ "$LOCAL" != "$REMOTE" ]; then
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
           else
-            echo "should_publish=false" >> "$GITHUB_OUTPUT"
             echo "Skipping crates.io publish: $LOCAL is not higher than $REMOTE."
+            echo "should_publish=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Publish to crates.io
