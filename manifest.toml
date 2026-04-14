@@ -203,12 +203,6 @@ hooks_policy = "docs/ai/hooks/HOOKS_POLICY.md"
 enabled = true
 auto_version = true
 
-[ci.actions]
-checkout = "latest"
-setup_node = "latest"
-upload_artifact = "latest"
-download_artifact = "latest"
-
 [ci.auto_merge]
 enabled = true
 from = "stg"

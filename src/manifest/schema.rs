@@ -1452,9 +1452,6 @@ pub struct CiSection {
     /// Runner label for Cloudflare Workers deploy jobs. Default: "ubuntu-latest"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_runner: Option<String>,
-    /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
-    #[serde(default)]
-    pub actions: ActionsVersions,
     /// CI validate job timeout in minutes. Default: 5
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validate_timeout: Option<u8>,
@@ -1482,7 +1479,6 @@ impl Default for CiSection {
             cache: true,
             pnpm_store_path: None,
             worker_runner: None,
-            actions: ActionsVersions::default(),
             validate_timeout: None,
             jobs: default_ci_jobs(),
             e2e: E2eSection::default(),
@@ -1513,58 +1509,6 @@ pub struct E2eSection {
     /// Trigger workflow name (workflow_run). Default: "Deploy"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_workflow: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ActionsVersions {
-    /// actions/checkout version. Default: "v6"
-    #[serde(default = "default_v6")]
-    pub checkout: String,
-    /// pnpm/action-setup version. Default: "v5"
-    #[serde(default = "default_v5")]
-    pub pnpm: String,
-    /// actions/setup-node version. Default: "v6"
-    #[serde(default = "default_v6")]
-    pub setup_node: String,
-    /// actions/cache version. Default: "v5"
-    #[serde(default = "default_v5")]
-    pub cache: String,
-    /// dopplerhq/cli-action version. Default: "v3"
-    #[serde(default = "default_v3")]
-    pub doppler: String,
-    /// actions/upload-artifact version. Default: "v7"
-    #[serde(default = "default_v7")]
-    pub upload_artifact: String,
-    /// actions/download-artifact version. Default: "v7"
-    #[serde(default = "default_v7")]
-    pub download_artifact: String,
-}
-
-fn default_v7() -> String {
-    "v7".to_string()
-}
-fn default_v6() -> String {
-    "v6".to_string()
-}
-fn default_v5() -> String {
-    "v5".to_string()
-}
-fn default_v3() -> String {
-    "v3".to_string()
-}
-
-impl Default for ActionsVersions {
-    fn default() -> Self {
-        ActionsVersions {
-            checkout: default_v6(),
-            pnpm: default_v5(),
-            setup_node: default_v6(),
-            cache: default_v5(),
-            doppler: default_v3(),
-            upload_artifact: default_v7(),
-            download_artifact: default_v7(),
-        }
-    }
 }
 
 fn default_ci_enabled() -> bool {
