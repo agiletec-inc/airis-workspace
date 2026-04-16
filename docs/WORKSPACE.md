@@ -1,12 +1,12 @@
 # WORKSPACE
 
-`workspace.yaml` は airis-monorepo が自動生成するメタデータであり、モノレポの物理構造 (packages / docker image 名 / volume / path) を記述するファイル。人間が直接編集したり dev ロジックを書く場ではない。
+`workspace.yaml` は airis-workspace が自動生成するメタデータであり、モノレポの物理構造 (packages / docker image 名 / volume / path) を記述するファイル。人間が直接編集したり dev ロジックを書く場ではない。
 
 ## ポリシー
 
 1. `workspace.yaml` はジェネレーターが再生成するので手動変更しない。ロジックや設定は `manifest.toml` に置く。
 2. Justfile / docker-compose / エージェントは `workspace.yaml` のメタ情報を参照するだけで、 dev/CI の意思決定には使わない。
-3. workspace の構成を変えたい場合は airis-monorepo のテンプレートや設定を更新して再生成する。
+3. workspace の構成を変えたい場合は airis-workspace のテンプレートや設定を更新して再生成する。
 
 ## 利用例
 

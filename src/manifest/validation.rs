@@ -291,10 +291,8 @@ impl Manifest {
                 continue;
             }
 
-            if !app.name.is_empty() {
-                if !names.insert(app.name.clone()) {
-                    errors.push(format!("Duplicate app/lib name: \"{}\"", app.name));
-                }
+            if !app.name.is_empty() && !names.insert(app.name.clone()) {
+                errors.push(format!("Duplicate app/lib name: \"{}\"", app.name));
             }
 
             if let Some(ref path) = app.path {

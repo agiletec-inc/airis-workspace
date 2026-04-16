@@ -57,7 +57,7 @@ Project metadata. Acts as the source of truth for `Cargo.toml`, Homebrew formula
 
 | Field          | Type     | Default | Description                                    |
 |----------------|----------|---------|------------------------------------------------|
-| `id`           | string   | `""`    | Project identifier (e.g., `"airis-monorepo"`). |
+| `id`           | string   | `""`    | Project identifier (e.g., `"airis-workspace"`). |
 | `binary_name`  | string   | `""`    | CLI binary name (e.g., `"airis"`).             |
 | `version`      | string   | `""`    | Semantic version (e.g., `"1.56.0"`).           |
 | `description`  | string   | `""`    | Short project description.                     |
@@ -71,14 +71,14 @@ Project metadata. Acts as the source of truth for `Cargo.toml`, Homebrew formula
 
 ```toml
 [project]
-id = "airis-monorepo"
+id = "airis-workspace"
 binary_name = "airis"
 version = "1.56.0"
 description = "Docker-first monorepo workspace manager"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
-homepage = "https://github.com/agiletec-inc/airis-monorepo"
-repository = "https://github.com/agiletec-inc/airis-monorepo"
+homepage = "https://github.com/agiletec-inc/airis-workspace"
+repository = "https://github.com/agiletec-inc/airis-workspace"
 keywords = ["monorepo", "docker", "workspace", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 rust_edition = "2024"

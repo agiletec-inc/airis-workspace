@@ -1,5 +1,5 @@
 #!/bin/bash
-# airis-monorepo pre-commit hook
+# airis-workspace pre-commit hook
 #
 # Auto-increments version based on the *pending* commit message.
 #
@@ -75,7 +75,7 @@ if [ "$SOURCE_CHANGED" != "skipped" ]; then
         airis bump-version --auto
     else
         echo "⚠️  airis not found. Please install airis or bump version manually."
-        echo "   Run: cargo install --path . (if in airis-monorepo)"
+        echo "   Run: cargo install --path . (if in airis-workspace)"
         exit 1
     fi
 

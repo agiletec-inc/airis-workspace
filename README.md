@@ -1,10 +1,10 @@
-# airis-monorepo
+# airis-workspace
 
 **AI doesn't break your build system. It breaks your environment.**
 
 [![Crates.io](https://img.shields.io/crates/v/airis.svg)](https://crates.io/crates/airis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/agiletec-inc/airis-monorepo/actions/workflows/ci.yml/badge.svg)](https://github.com/agiletec-inc/airis-monorepo/actions/workflows/ci.yml)
+[![CI](https://github.com/agiletec-inc/airis-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/agiletec-inc/airis-workspace/actions/workflows/ci.yml)
 
 ![airis demo](assets/airis-demo.gif)
 
@@ -47,7 +47,7 @@ The result is airis — not a replacement for Turborepo or NX (we use Turborepo 
 
 ## The AIRIS Suite
 
-airis-monorepo is part of the **AIRIS Suite**: Infrastructure for AI-assisted coding.
+airis-workspace is part of the **AIRIS Suite**: Infrastructure for AI-assisted coding.
 
 - **AIRIS Workspace (this repo):** The deterministic environment compiler.
 - **[AIRIS Gateway](https://github.com/agiletec-inc/airis-mcp-gateway):** The MCP connectivity hub. Standardizes tool access for any LLM.
@@ -159,13 +159,13 @@ cargo install airis
 Pre-built binaries (macOS ARM/Intel, Linux x64/ARM, Windows):
 
 ```bash
-curl -fsSL https://github.com/agiletec-inc/airis-monorepo/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/agiletec-inc/airis-workspace/releases/latest/download/install.sh | bash
 ```
 
 From source:
 
 ```bash
-cargo install --git https://github.com/agiletec-inc/airis-monorepo
+cargo install --git https://github.com/agiletec-inc/airis-workspace
 ```
 
 ### New project
@@ -366,7 +366,7 @@ airis is part of a broader toolkit for AI-assisted development. Each component e
 
 | Component | What it does |
 |-----------|-------------|
-| **[airis](https://github.com/agiletec-inc/airis-monorepo)** | Workspace manager. `manifest.toml` → package.json, tsconfig, git hooks. Command guards keep AI inside Docker. |
+| **[airis](https://github.com/agiletec-inc/airis-workspace)** | Workspace manager. `manifest.toml` → package.json, tsconfig, git hooks. Command guards keep AI inside Docker. |
 | **[airis-agent](https://github.com/agiletec-inc/airis-agent)** | LLM intelligence layer for editors. |
 | **[airis-mcp-gateway](https://github.com/agiletec-inc/airis-mcp-gateway)** | Unified MCP proxy — 60+ tools through 3 meta-endpoints. 90% token reduction so the AI keeps more context for your code. |
 | **[mindbase](https://github.com/agiletec-inc/mindbase)** | Cross-session memory. What the AI learned yesterday is still there today. |

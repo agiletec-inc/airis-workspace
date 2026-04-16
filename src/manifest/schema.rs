@@ -131,7 +131,7 @@ pub struct Manifest {
 /// Project metadata - Source of Truth for Cargo.toml, Homebrew formula, etc.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct MetaSection {
-    /// Project ID (e.g., "airis-monorepo")
+    /// Project ID (e.g., "airis-workspace")
     #[serde(default)]
     pub id: String,
     /// CLI binary name (e.g., "airis")

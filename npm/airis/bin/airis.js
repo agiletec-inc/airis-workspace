@@ -24,7 +24,7 @@ function getBinaryPath() {
     console.error(
       `Error: Unsupported platform ${process.platform}/${process.arch}\n` +
         `Supported: ${supported}\n` +
-        `You can build from source: cargo install airis-monorepo`
+        `You can build from source: cargo install airis-workspace`
     );
     process.exit(1);
   }
@@ -41,7 +41,7 @@ function getBinaryPath() {
       `Error: Could not find package ${pkg}\n` +
         `This usually means the optional dependency was not installed.\n` +
         `Try reinstalling: npm install @agiletec-inc/airis\n` +
-        `Or build from source: cargo install airis-monorepo`
+        `Or build from source: cargo install airis-workspace`
     );
     process.exit(1);
   }

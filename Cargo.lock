@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "airis-monorepo"
+name = "airis-workspace"
 version = "2.1.2"
 dependencies = [
  "anyhow",

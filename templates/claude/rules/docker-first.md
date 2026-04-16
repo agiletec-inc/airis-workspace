@@ -17,8 +17,7 @@
 エラー発生
   ├→ workspace tooling (package.json/tsconfig 等) の問題？ → manifest.toml を直して airis gen
   ├→ compose.yml / Dockerfile の問題？ → 該当ファイルを直接編集
-  ├→ テンプレートや airis 本体のバグ？ → airis-monorepo に Issue/PR
-  └→ 一時的な回避策で push → 絶対禁止。CI で落ちる。時間の無駄。
+  ├→ テンプレートや airis 本体のバグ？ → airis-workspace に Issue/PR  └→ 一時的な回避策で push → 絶対禁止。CI で落ちる。時間の無駄。
 ```
 
 ## 絶対禁止リスト

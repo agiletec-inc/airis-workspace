@@ -2,7 +2,7 @@
 
 **目的**: Agiletec モノレポ全体で `airis` CLI を使い、Docker ワークスペース上で安全に作業するためのガイド。
 
-- **CLI ツール**: [airis-monorepo](https://github.com/agiletec-inc/airis-monorepo)
+- **CLI ツール**: [airis-workspace](https://github.com/agiletec-inc/airis-workspace)
 - **設定ファイル**: `manifest.toml`（唯一の設定ファイル）
 - **読込方式**: `airis` が `manifest.toml` を直接読み込む（Rust TOML パーサー使用）
 
@@ -191,7 +191,7 @@ deny_with_message = { "docker" = "Use 'airis' instead" }
 
 ## 参考
 
-- [airis-monorepo GitHub](https://github.com/agiletec-inc/airis-monorepo)
+- [airis-workspace GitHub](https://github.com/agiletec-inc/airis-workspace)
 - [PNPM Catalog](https://pnpm.io/catalogs)
 - [Docker Compose Spec](https://docs.docker.com/compose/compose-file/)
 - [TOML Spec](https://toml.io/)
