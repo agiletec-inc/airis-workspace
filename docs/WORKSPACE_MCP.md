@@ -1,4 +1,4 @@
-# airis-monorepo-mcp Design
+# airis-workspace-mcp Design
 
 **Status**: Design Proposal
 **Author**: Claude + Kazuki
@@ -14,7 +14,7 @@
 - airis-agent が直接ファイル操作をしている（責務の混在）
 
 **解決策:**
-- **airis-monorepo-mcp** を作る
+- **airis-workspace-mcp** を作る
 - CLI の本体ロジックを MCP ツールとして公開
 - LLM が `uvx` 経由で CLI を"仮想的に"叩けるようにする
 
@@ -32,7 +32,7 @@
 └─────────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────┐
-│      airis-monorepo-mcp (薄いラッパー)      │
+│      airis-workspace-mcp (薄いラッパー)      │
 ├─────────────────────────────────────────────┤
 │  • MCP Server (Python or Rust)              │
 │  • subprocess.run(["airis", "init"])        │
@@ -40,7 +40,7 @@
 └─────────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────────┐
-│     airis-monorepo (Rust CLI/Library)      │
+│     airis-workspace (Rust CLI/Library)      │
 ├─────────────────────────────────────────────┤
 │  • 本体ロジック                              │
 │  • manifest.toml 解析                        │
@@ -54,7 +54,7 @@
 
 ## Responsibilities
 
-### airis-monorepo (Rust CLI)
+### airis-workspace (Rust CLI)
 **責務:** モノレポ管理ロジックの本体
 
 - `airis init` - プロジェクト初期化
@@ -63,7 +63,7 @@
 - `airis generate types` - 型定義生成
 - `airis bump-version` - バージョン管理
 
-### airis-monorepo-mcp
+### airis-workspace-mcp
 **責務:** CLI を MCP ツールとして公開する薄いラッパー
 
 **ツール一覧:**
@@ -83,7 +83,7 @@
 
 - リポジトリの状態解析
 - 「こういう変更が必要」と判断
-- **実行は airis-monorepo-mcp のツールを呼ぶ**
+- **実行は airis-workspace-mcp のツールを呼ぶ**
 
 ### プラグイン (airis-agent-plugin)
 **責務:** UX層、ボタンのラベルだけ
@@ -98,7 +98,7 @@
 
 1. airis-agent MCP の `analyze_workspace` を呼ぶ
 2. 必要な変更を計画
-3. airis-monorepo-mcp の `workspace_init` を呼ぶ
+3. airis-workspace-mcp の `workspace_init` を呼ぶ
 4. 結果を報告
 ```
 
@@ -109,15 +109,15 @@
 ```json
 {
   "mcpServers": {
-    "airis-monorepo": {
+    "airis-workspace": {
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/agiletec-inc/airis-monorepo-mcp",
+        "git+https://github.com/agiletec-inc/airis-workspace-mcp",
         "airis_workspace_mcp"
       ],
       "env": {
-        "AIRIS_WORKSPACE_ROOT": "${HOME}/github/airis-monorepo"
+        "AIRIS_WORKSPACE_ROOT": "${HOME}/github/airis-workspace"
       }
     }
   }
@@ -142,7 +142,7 @@ from mcp.types import Tool
 import subprocess
 import json
 
-server = Server("airis-monorepo")
+server = Server("airis-workspace")
 
 @server.list_tools()
 async def list_tools():
@@ -188,7 +188,7 @@ async def call_tool(name: str, arguments: dict):
 ### Option B: Rust MCP Server
 
 **メリット:**
-- airis-monorepo のライブラリを直接呼び出せる
+- airis-workspace のライブラリを直接呼び出せる
 - 型安全
 - パフォーマンス
 
@@ -203,7 +203,7 @@ use airis_workspace::commands;
 
 #[tokio::main]
 async fn main() {
-    let server = Server::new("airis-monorepo");
+    let server = Server::new("airis-workspace");
 
     server.add_tool(Tool {
         name: "workspace_init".into(),
@@ -233,10 +233,10 @@ async fn main() {
 
 **Goal:** 最小限の動作確認
 
-1. **airis-monorepo-mcp リポジトリ作成**
+1. **airis-workspace-mcp リポジトリ作成**
    ```bash
-   mkdir airis-monorepo-mcp
-   cd airis-monorepo-mcp
+   mkdir airis-workspace-mcp
+   cd airis-workspace-mcp
    uv init
    ```
 
@@ -271,7 +271,7 @@ async fn main() {
 
 2. **動作確認**
    - `/airis:init` が正しく動く
-   - 実装は airis-monorepo-mcp に移っている
+   - 実装は airis-workspace-mcp に移っている
 
 ### Phase 4: Rust 版の検討 (Optional)
 
@@ -288,8 +288,8 @@ async fn main() {
 
 ```
 思考・判断     → airis-agent (MCP)
-実際の作業     → airis-monorepo-mcp
-本体ロジック   → airis-monorepo (Rust CLI)
+実際の作業     → airis-workspace-mcp
+本体ロジック   → airis-workspace (Rust CLI)
 UX            → プラグイン
 ```
 
@@ -338,16 +338,16 @@ airis-agent
 
 ```
 プラグイン (/airis:init)
-  └─ プロンプトのみ: "airis-monorepo-mcp の workspace_init を呼べ"
+  └─ プロンプトのみ: "airis-workspace-mcp の workspace_init を呼べ"
 
 airis-agent (MCP)
   ├─ 思考・プランニング
   └─ tool call "workspace_init"
 
-airis-monorepo-mcp (MCP)
+airis-workspace-mcp (MCP)
   └─ subprocess.run(["airis", "init"])
 
-airis-monorepo (Rust CLI)
+airis-workspace (Rust CLI)
   └─ 本体ロジック
 ```
 
@@ -356,7 +356,7 @@ airis-monorepo (Rust CLI)
 ## Next Steps
 
 1. **Phase 1 の実装開始**
-   - `airis-monorepo-mcp` リポジトリ作成
+   - `airis-workspace-mcp` リポジトリ作成
    - `workspace_init` ツールだけ実装
    - ローカルでテスト
 
@@ -368,9 +368,9 @@ airis-monorepo (Rust CLI)
    ```json
    {
      "mcpServers": {
-       "airis-monorepo": {
+       "airis-workspace": {
          "command": "uvx",
-         "args": ["--from", "git+https://github.com/agiletec-inc/airis-monorepo-mcp", "airis_workspace_mcp"]
+         "args": ["--from", "git+https://github.com/agiletec-inc/airis-workspace-mcp", "airis_workspace_mcp"]
        }
      }
    }
@@ -382,7 +382,7 @@ airis-monorepo (Rust CLI)
 
 ## Conclusion
 
-**airis-monorepo-mcp** を作ることで：
+**airis-workspace-mcp** を作ることで：
 
 ✅ 責務が明確になる
 ✅ 実装が一元化される

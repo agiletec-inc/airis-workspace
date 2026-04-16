@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::manifest::{GlobalConfig, MANIFEST_FILE, Manifest, Mode};
 
 use super::scripts::{install_deny_guard, install_wrap_guard, is_airis_guard};
-use super::{GUARDS_DIR, HYBRID_MODE_ALLOW, STRICT_MODE_DENY};
+use super::{GUARDS_DIR, STRICT_MODE_DENY};
 
 /// Lightweight guard config for repos without manifest.toml
 const REPO_GUARDS_FILE: &str = ".airis/guards.toml";
@@ -92,9 +92,6 @@ pub(super) fn merge_deny_list(
     // Apply mode adjustment
     match mode {
         Mode::DockerFirst => {}
-        Mode::Hybrid => {
-            effective.retain(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()));
-        }
         Mode::Strict => {
             for cmd in STRICT_MODE_DENY {
                 if !effective.contains(&cmd.to_string()) {
@@ -142,9 +139,6 @@ pub fn install() -> Result<()> {
     match &mode {
         Mode::DockerFirst => {
             println!("{}", "Mode: docker-first (standard guards)".dimmed());
-        }
-        Mode::Hybrid => {
-            println!("{}", "Mode: hybrid (allowing local toolchains)".yellow());
         }
         Mode::Strict => {
             println!("{}", "Mode: strict (maximum restrictions)".bright_red());
@@ -263,22 +257,6 @@ pub fn check_allow(cmd: &str) -> Result<()> {
 
 /// Check if running inside Docker container (respects mode)
 pub fn check_docker() -> Result<()> {
-    // Load manifest to check mode
-    let manifest_path = Path::new(MANIFEST_FILE);
-    let mode = if manifest_path.exists() {
-        Manifest::load(manifest_path)
-            .map(|m| m.mode)
-            .unwrap_or_default()
-    } else {
-        Mode::default()
-    };
-
-    // Hybrid mode allows host execution
-    if matches!(mode, Mode::Hybrid) {
-        println!("{}", "✅ Hybrid mode: host execution allowed".green());
-        return Ok(());
-    }
-
     println!("{}", "🔍 Checking Docker environment...".bright_blue());
 
     // Check for /.dockerenv file (highest reliability — hard to spoof)
@@ -349,11 +327,6 @@ pub fn check_docker() -> Result<()> {
     println!(
         "  {} # コンテナ内で直接実行",
         "airis exec workspace <command>".cyan()
-    );
-    println!();
-    println!("{}", "【ヒント】".bright_yellow());
-    println!(
-        "  ホストでの実行を許可するには、manifest.toml で mode = \"hybrid\" を設定してください"
     );
     println!();
     println!("{}", "=".repeat(70).red());

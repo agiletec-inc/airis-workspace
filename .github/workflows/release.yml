@@ -196,8 +196,8 @@ jobs:
           set -euo pipefail
           LOCAL="${{ steps.version.outputs.version }}"
           # crates.io rejects requests without a descriptive User-Agent.
-          UA="airis-monorepo-release (+https://github.com/agiletec-inc/airis-monorepo)"
-          RESPONSE=$(curl -sf -A "$UA" https://crates.io/api/v1/crates/airis-monorepo || true)
+          UA="airis-workspace-release (+https://github.com/agiletec-inc/airis-workspace)"
+          RESPONSE=$(curl -sf -A "$UA" https://crates.io/api/v1/crates/airis-workspace || true)
           if [ -z "$RESPONSE" ]; then
             echo "⚠️  Failed to query crates.io — skipping publish to avoid regressions."
             echo "should_publish=false" >> "$GITHUB_OUTPUT"

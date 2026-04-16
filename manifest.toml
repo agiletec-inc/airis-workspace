@@ -2,17 +2,17 @@ version = 1
 mode = "docker-first"
 
 [project]
-id = "airis-monorepo"
+id = "airis-workspace"
 binary_name = "airis"
 # version is managed by git tags only - Cargo.toml is synced via airis init
 description = "Docker-first monorepo workspace manager for rapid prototyping"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
-homepage = "https://github.com/agiletec-inc/airis-monorepo"
-repository = "https://github.com/agiletec-inc/airis-monorepo"
-keywords = [
-    "monorepo",
-    "docker",
+homepage = "https://github.com/agiletec-inc/airis-workspace"
+repository = "https://github.com/agiletec-inc/airis-workspace"
+...
+[workspace]
+name = "airis-workspace"
     "workspace",
     "cli",
     "prototyping",
@@ -24,7 +24,7 @@ categories = [
 rust_edition = "2024"
 
 [workspace]
-name = "airis-monorepo"
+name = "airis-workspace"
 package_manager = "pnpm@10.22.0"
 service = "workspace"
 image = "node:22-alpine"

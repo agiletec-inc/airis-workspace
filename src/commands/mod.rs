@@ -16,6 +16,7 @@ pub mod hooks;
 pub mod init;
 pub mod install;
 pub mod manifest_cmd;
+pub mod mcp;
 pub mod migrate;
 pub mod network;
 pub mod new_cmd;

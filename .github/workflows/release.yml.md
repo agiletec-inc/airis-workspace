@@ -126,9 +126,9 @@ jobs:
           {
             echo 'class AirisWorkspace < Formula'
             echo '  desc "Docker-first monorepo workspace manager for rapid prototyping"'
-            echo '  homepage "https://github.com/agiletec-inc/airis-monorepo"'
+            echo '  homepage "https://github.com/agiletec-inc/airis-workspace"'
             echo '  license "MIT"'
-            echo "  url \"https://github.com/agiletec-inc/airis-monorepo/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz\""
+            echo "  url \"https://github.com/agiletec-inc/airis-workspace/releases/download/v${VERSION}/airis-${VERSION}-${ARCH}.tar.gz\""
             echo "  sha256 \"${SHA256}\""
             echo "  version \"${VERSION}\""
             echo ''
@@ -157,13 +157,13 @@ jobs:
             echo '    system "#{bin}/airis", "--version"'
             echo '  end'
             echo 'end'
-          } > Formula/airis-monorepo.rb
+          } > Formula/airis-workspace.rb
 
           # Commit and push
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git add Formula/airis-monorepo.rb
-          git commit -m "Update airis-monorepo to v${VERSION}" || echo "No changes to commit"
+          git add Formula/airis-workspace.rb
+          git commit -m "Update airis-workspace to v${VERSION}" || echo "No changes to commit"
           git push origin main || echo "Push failed, check if token has permissions"
 
           echo "✅ Homebrew formula updated to v${VERSION}"

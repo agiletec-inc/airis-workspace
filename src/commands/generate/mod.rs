@@ -67,14 +67,14 @@ pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
 }
 
 /// Backup a file to .airis/backups/ before modification
-/// Only backs up tool-owned and hybrid files
+/// Only backs up tool-owned files
 pub(super) fn backup_file(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }
 
     let ownership = get_ownership(path);
-    if !matches!(ownership, Ownership::Tool | Ownership::Hybrid) {
+    if !matches!(ownership, Ownership::Tool) {
         return Ok(());
     }
 
@@ -99,6 +99,10 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
 
 /// Write a file with ownership-aware backup
 pub(super) fn write_with_backup(path: &Path, content: &str) -> Result<()> {
+    let ownership = get_ownership(path);
+    if matches!(ownership, Ownership::User) {
+        return Ok(());
+    }
     backup_file(path)?;
     fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(())
@@ -137,7 +141,6 @@ pub fn preview_from_manifest(manifest: &Manifest) -> Result<()> {
         let status = if path.exists() {
             match ownership {
                 Ownership::Tool => "exists → would overwrite (tool-owned)".green(),
-                Ownership::Hybrid => "exists → would update (marker-protected)".green(),
                 Ownership::User => "exists → would skip (user-owned)".yellow(),
             }
         } else {
@@ -174,7 +177,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
 }
 
 /// Sync from manifest with explicit force flag
-pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result<()> {
+pub fn sync_from_manifest_with_force(manifest: &Manifest, _force: bool) -> Result<()> {
     let has_workspace = manifest.has_workspace();
     let engine = TemplateEngine::new()?;
     let mut generated_files: Vec<String> = Vec::new();
@@ -200,13 +203,13 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
         )?;
 
         println!("{}", "🧩 Rendering templates...".bright_blue());
-        generate_package_json(manifest, &engine, &resolved_catalog, force)?;
+        generate_package_json(manifest, &engine, &resolved_catalog, true)?;
         generated_paths.push("package.json".into());
 
         generated_files.push("package.json (with workspaces)".into());
 
         if !manifest.packages.workspaces.is_empty() {
-            generate_pnpm_workspace(manifest, &engine, force)?;
+            generate_pnpm_workspace(manifest, &engine, true)?;
             generated_paths.push("pnpm-workspace.yaml".into());
         }
 
@@ -215,7 +218,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
             println!();
             println!(
                 "{}",
-                "📦 Generating app package.json files (full-gen mode)...".bright_blue()
+                "📦 Generating app package.json files (deterministic mode)...".bright_blue()
             );
             let workspace_root = env::current_dir().context("Failed to get current directory")?;
 
@@ -248,7 +251,15 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                     };
                     auto_app.resolve(&manifest.workspace);
 
-                    // Full-gen: scan imports + convention scripts
+                    // Skip if the package.json path is user-owned
+                    if let Some(ref path) = auto_app.path {
+                        let pkg_path = Path::new(path).join("package.json");
+                        if get_ownership(&pkg_path) == Ownership::User {
+                            continue;
+                        }
+                    }
+
+                    // Scan imports + convention scripts
                     let resolved_data = resolve_package_data(
                         &auto_app,
                         &workspace_root,
@@ -275,6 +286,14 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
 
             // Generate for explicitly defined apps
             for app in &manifest.app {
+                // Skip if the package.json path is user-owned
+                if let Some(ref path) = app.path {
+                    let pkg_path = Path::new(path).join("package.json");
+                    if get_ownership(&pkg_path) == Ownership::User {
+                        continue;
+                    }
+                }
+
                 let resolved_data = resolve_package_data(
                     app,
                     &workspace_root,
@@ -298,7 +317,7 @@ pub fn sync_from_manifest_with_force(manifest: &Manifest, force: bool) -> Result
                 app_count += 1;
             }
 
-            generated_files.push(format!("{} app package.json files (full-gen)", app_count));
+            generated_files.push(format!("{} app package.json files (deterministic)", app_count));
         }
 
         // Generate tsconfig files (tsconfig.base.json + tsconfig.json)

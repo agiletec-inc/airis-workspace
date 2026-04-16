@@ -474,6 +474,9 @@ enum Commands {
         #[arg(long)]
         version: Option<String>,
     },
+
+    /// Start the MCP server (for AI/LLM integration)
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -1053,6 +1056,9 @@ fn dispatch(command: Commands) -> Result<()> {
             } else {
                 commands::upgrade::run(version)?;
             }
+        }
+        Commands::Mcp => {
+            commands::mcp::run()?;
         }
     }
 

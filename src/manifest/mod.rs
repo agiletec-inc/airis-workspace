@@ -24,8 +24,13 @@ impl Manifest {
         let content = fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
 
+        Self::parse(&content)
+    }
+
+    /// Parse manifest from TOML string and perform post-processing (migration, validation, resolution)
+    pub fn parse(content: &str) -> Result<Self> {
         let mut manifest: Manifest =
-            toml::from_str(&content).with_context(|| "Failed to parse manifest.toml")?;
+            toml::from_str(content).with_context(|| "Failed to parse manifest.toml")?;
 
         // [testing] → [policy.testing] migration fallback
         manifest.migrate_testing_to_policy();

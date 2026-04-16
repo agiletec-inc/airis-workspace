@@ -3,13 +3,13 @@
 # Sync version via `airis bump-version`.
 
 [package]
-name = "airis-monorepo"
+name = "airis-workspace"
 version = "2.1.2"
 edition = "2024"
-authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
+authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
-homepage = "https://github.com/agiletec-inc/airis-monorepo"
-repository = "https://github.com/agiletec-inc/airis-monorepo"
+homepage = "https://github.com/agiletec-inc/airis-workspace"
+repository = "https://github.com/agiletec-inc/airis-workspace"
 license = "MIT"
 keywords = ["monorepo", "docker", "workspace", "cli", "prototyping"]
 categories = ["command-line-utilities", "development-tools"]

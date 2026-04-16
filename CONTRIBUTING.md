@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to AIris, a Docker-first monorepo workspace manager built in Rust.
 
-Repository: https://github.com/agiletec-inc/airis-monorepo
+Repository: https://github.com/agiletec-inc/airis-workspace
 
 ## Getting Started
 
@@ -14,8 +14,8 @@ Repository: https://github.com/agiletec-inc/airis-monorepo
 ### Build
 
 ```bash
-git clone https://github.com/agiletec-inc/airis-monorepo.git
-cd airis-monorepo
+git clone https://github.com/agiletec-inc/airis-workspace.git
+cd airis-workspace
 cargo build
 ```
 

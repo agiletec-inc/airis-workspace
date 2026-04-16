@@ -2,7 +2,7 @@
 
 Guide for using the `airis` CLI to safely work within Docker workspaces across your monorepo.
 
-- **CLI Tool**: [airis-monorepo](https://github.com/agiletec-inc/airis-monorepo)
+- **CLI Tool**: [airis-workspace](https://github.com/agiletec-inc/airis-workspace)
 - **Config File**: `manifest.toml` (single source of truth)
 - **Parser**: Rust TOML parser reads `manifest.toml` directly
 

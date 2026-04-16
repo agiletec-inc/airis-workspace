@@ -5,40 +5,16 @@ use anyhow::Result;
 use indexmap::IndexMap;
 
 impl TemplateEngine {
-    /// Render root package.json in hybrid mode.
+    /// Render root package.json.
     ///
-    /// Managed fields: name, version, private, type, packageManager, workspaces.
-    /// All other fields (dependencies, scripts, engines, pnpm config) are user-managed.
+    /// The root package.json is tool-owned and fully generated from manifest.toml.
     pub fn render_package_json(
         &self,
         manifest: &Manifest,
-        _resolved_catalog: &IndexMap<String, String>,
+        resolved_catalog: &IndexMap<String, String>,
     ) -> Result<String> {
-        let managed_fields = [
-            "name",
-            "version",
-            "private",
-            "type",
-            "packageManager",
-            "workspaces",
-        ];
+        let mut obj = serde_json::Map::new();
 
-        // Read existing package.json if it exists
-        let package_json_path = std::path::Path::new("package.json");
-        let mut package_json = if package_json_path.exists() {
-            let existing = std::fs::read_to_string(package_json_path)
-                .context("Failed to read existing root package.json")?;
-            serde_json::from_str::<serde_json::Value>(&existing)
-                .context("Failed to parse existing root package.json")?
-        } else {
-            serde_json::json!({})
-        };
-
-        let obj = package_json
-            .as_object_mut()
-            .ok_or_else(|| anyhow::anyhow!("Root package.json is not a JSON object"))?;
-
-        // Update only managed fields
         obj.insert(
             "name".to_string(),
             serde_json::json!(manifest.workspace.name),
@@ -46,10 +22,13 @@ impl TemplateEngine {
         obj.insert("version".to_string(), serde_json::json!("0.0.0"));
         obj.insert("private".to_string(), serde_json::json!(true));
         obj.insert("type".to_string(), serde_json::json!("module"));
-        obj.insert(
-            "packageManager".to_string(),
-            serde_json::json!(manifest.workspace.package_manager),
-        );
+        
+        if !manifest.workspace.package_manager.is_empty() {
+            obj.insert(
+                "packageManager".to_string(),
+                serde_json::json!(manifest.workspace.package_manager),
+            );
+        }
 
         if !manifest.packages.workspaces.is_empty() {
             obj.insert(
@@ -58,14 +37,71 @@ impl TemplateEngine {
             );
         }
 
+        // Add root dependencies from manifest.packages.root
+        let root_pkg = &manifest.packages.root;
+
+        if !root_pkg.scripts.is_empty() {
+            obj.insert(
+                "scripts".to_string(),
+                serde_json::to_value(&root_pkg.scripts)?,
+            );
+        }
+
+        if !root_pkg.dependencies.is_empty() {
+            let mut deps = serde_json::Map::new();
+            for (k, v) in &root_pkg.dependencies {
+                let version = if v == "catalog" || v == "catalog:" {
+                    resolved_catalog.get(k).cloned().unwrap_or_else(|| v.clone())
+                } else {
+                    v.clone()
+                };
+                deps.insert(k.clone(), serde_json::json!(version));
+            }
+            obj.insert("dependencies".to_string(), serde_json::Value::Object(deps));
+        }
+
+        if !root_pkg.dev_dependencies.is_empty() {
+            let mut dev_deps = serde_json::Map::new();
+            for (k, v) in &root_pkg.dev_dependencies {
+                let version = if v == "catalog" || v == "catalog:" {
+                    resolved_catalog.get(k).cloned().unwrap_or_else(|| v.clone())
+                } else {
+                    v.clone()
+                };
+                dev_deps.insert(k.clone(), serde_json::json!(version));
+            }
+            obj.insert("devDependencies".to_string(), serde_json::Value::Object(dev_deps));
+        }
+
+        if !root_pkg.engines.is_empty() {
+            obj.insert(
+                "engines".to_string(),
+                serde_json::to_value(&root_pkg.engines)?,
+            );
+        }
+
+        // pnpm specific config
+        if !root_pkg.pnpm.overrides.is_empty()
+            || !root_pkg.pnpm.peer_dependency_rules.ignore_missing.is_empty()
+        {
+            let mut pnpm = serde_json::Map::new();
+            if !root_pkg.pnpm.overrides.is_empty() {
+                pnpm.insert(
+                    "overrides".to_string(),
+                    serde_json::to_value(&root_pkg.pnpm.overrides)?,
+                );
+            }
+            obj.insert("pnpm".to_string(), serde_json::Value::Object(pnpm));
+        }
+
         // Update generation marker
         obj.insert("_generated".to_string(), serde_json::json!({
             "by": "airis gen",
-            "managed_fields": managed_fields,
-            "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
+            "mode": "full",
+            "warning": "This file is fully generated by airis gen. Do not edit manually."
         }));
 
-        // Serialize to pretty JSON
+        let package_json = serde_json::Value::Object(obj);
         let content = serde_json::to_string_pretty(&package_json)
             .context("Failed to serialize package.json")?;
         Ok(format!("{content}\n"))

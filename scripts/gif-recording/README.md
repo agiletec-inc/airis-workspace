@@ -1,6 +1,6 @@
 # GIF Recording Guide
 
-This directory contains scripts for recording killer GIFs for the airis-monorepo README.
+This directory contains scripts for recording killer GIFs for the airis-workspace README.
 
 ## Prerequisites
 

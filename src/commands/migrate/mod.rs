@@ -23,8 +23,11 @@ use std::path::Path;
 use super::discover::{ComposeLocation, DiscoveryResult};
 use operations::{execute_create_directory, execute_generate_manifest, execute_move_file};
 
+use serde::{Deserialize, Serialize};
+
 /// A single migration task
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MigrationTask {
     /// Create a new directory
     CreateDirectory { path: String },

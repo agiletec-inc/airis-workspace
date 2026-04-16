@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to airis-monorepo will be documented in this file.
+All notable changes to airis-workspace will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -148,7 +148,7 @@ airis clean           # ビルド成果物削除
 - **UX の統一**: すべてのワークフロー操作を `airis` コマンド配下に集約
 
 ### Philosophy
-この変更により、airis-monorepo は単なる「モノレポツール」から「**開発環境ポリシーエンジン**」へと進化：
+この変更により、airis-workspace は単なる「モノレポツール」から「**開発環境ポリシーエンジン**」へと進化：
 
 - **人間向け**: `[commands]` に定義すれば誰でも従う（便利だから）
 - **LLM向け**: `[guards]` + `[remap]` で強制的に安全なコマンドに変換
@@ -185,8 +185,8 @@ airis clean           # ビルド成果物削除
 
 ---
 
-[1.0.2]: https://github.com/agiletec-inc/airis-monorepo/releases/tag/v1.0.2
-[0.4.0]: https://github.com/agiletec-inc/airis-monorepo/releases/tag/v0.4.0
-[0.3.0]: https://github.com/agiletec-inc/airis-monorepo/releases/tag/v0.3.0
-[0.2.1]: https://github.com/agiletec-inc/airis-monorepo/releases/tag/v0.2.1
-[0.1.0]: https://github.com/agiletec-inc/airis-monorepo/releases/tag/v0.1.0
+[1.0.2]: https://github.com/agiletec-inc/airis-workspace/releases/tag/v1.0.2
+[0.4.0]: https://github.com/agiletec-inc/airis-workspace/releases/tag/v0.4.0
+[0.3.0]: https://github.com/agiletec-inc/airis-workspace/releases/tag/v0.3.0
+[0.2.1]: https://github.com/agiletec-inc/airis-workspace/releases/tag/v0.2.1
+[0.1.0]: https://github.com/agiletec-inc/airis-workspace/releases/tag/v0.1.0

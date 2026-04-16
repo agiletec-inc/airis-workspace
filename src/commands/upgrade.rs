@@ -217,7 +217,7 @@ fn fetch_release(version: &str) -> Result<Release> {
     let repo_slug = env!("CARGO_PKG_REPOSITORY")
         .trim_end_matches('/')
         .strip_prefix("https://github.com/")
-        .unwrap_or("agiletec-inc/airis-monorepo");
+        .unwrap_or("agiletec-inc/airis-workspace");
 
     let url = if version == "latest" {
         format!("https://api.github.com/repos/{}/releases/latest", repo_slug)

@@ -17,6 +17,21 @@ impl Manifest {
         let mut errors: Vec<String> = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
 
+        // 0. Base Metadata Validation
+        if self.project.id.is_empty() {
+            errors.push("project.id is required".to_string());
+        }
+
+        // 0b. Workspace Validation
+        let known_pms = ["pnpm", "npm", "yarn", "bun"];
+        let pm_base = self.workspace.package_manager.split('@').next().unwrap_or("");
+        if !self.workspace.package_manager.is_empty() && !known_pms.contains(&pm_base) {
+            errors.push(format!(
+                "workspace.package_manager \"{}\" is unknown. Supported: pnpm, npm, yarn, bun",
+                self.workspace.package_manager
+            ));
+        }
+
         // 1. Check for duplicate ports in service entries
         {
             let mut seen: std::collections::HashMap<u16, String> = std::collections::HashMap::new();
@@ -91,6 +106,9 @@ impl Manifest {
 
         // 4. Validate dep_group / env_group references
         self.validate_group_references(&mut errors);
+
+        // 4b. Validate app/lib names and paths
+        self.validate_projects(&mut errors);
 
         // 5. Detect cycles in catalog follow chains
         self.validate_catalog_cycles(&mut errors);
@@ -234,8 +252,8 @@ impl Manifest {
         }
     }
 
-    /// Emit warnings for catalog version strings that look like typos of "latest" or "lts".
-    fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
+    /// Detect likely typos of "latest" / "lts" in catalog versions (warning)
+    pub(crate) fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
         const KNOWN_POLICIES: &[&str] = &["latest", "lts"];
 
         for (key, entry) in &self.packages.catalog {
@@ -257,6 +275,31 @@ impl Manifest {
                         ));
                         break;
                     }
+                }
+            }
+        }
+    }
+
+    /// Validate app/lib consistency (names, paths, uniqueness)
+    fn validate_projects(&self, errors: &mut Vec<String>) {
+        let mut names = std::collections::HashSet::new();
+        let mut paths = std::collections::HashSet::new();
+
+        for app in &self.app {
+            if app.name.is_empty() && app.path.is_none() {
+                errors.push("[[app]] entry must have at least a name or a path".to_string());
+                continue;
+            }
+
+            if !app.name.is_empty() && !names.insert(app.name.clone()) {
+                errors.push(format!("Duplicate app/lib name: \"{}\"", app.name));
+            }
+
+            if let Some(ref path) = app.path {
+                if path.is_empty() {
+                    errors.push(format!("[[app]] \"{}\": path cannot be empty", app.name));
+                } else if !paths.insert(path.clone()) {
+                    errors.push(format!("Duplicate project path: \"{}\"", path));
                 }
             }
         }
