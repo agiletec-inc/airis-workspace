@@ -16,36 +16,6 @@ fn test_strict_mode_deny_list() {
 }
 
 #[test]
-fn test_hybrid_mode_allow_list() {
-    // Hybrid mode should allow cargo, python, etc.
-    assert!(HYBRID_MODE_ALLOW.contains(&"cargo"));
-    assert!(HYBRID_MODE_ALLOW.contains(&"python"));
-}
-
-#[test]
-fn test_hybrid_mode_filters_deny_list() {
-    // Simulate hybrid mode filtering
-    let deny_list = vec![
-        "npm".to_string(),
-        "yarn".to_string(),
-        "cargo".to_string(),
-        "python".to_string(),
-    ];
-
-    let filtered: Vec<String> = deny_list
-        .into_iter()
-        .filter(|cmd| !HYBRID_MODE_ALLOW.contains(&cmd.as_str()))
-        .collect();
-
-    // npm and yarn should remain denied
-    assert!(filtered.contains(&"npm".to_string()));
-    assert!(filtered.contains(&"yarn".to_string()));
-    // cargo and python should be allowed
-    assert!(!filtered.contains(&"cargo".to_string()));
-    assert!(!filtered.contains(&"python".to_string()));
-}
-
-#[test]
 fn test_strict_mode_adds_to_deny_list() {
     // Simulate strict mode adding commands
     let mut deny_list: Vec<String> = vec!["npm".to_string(), "yarn".to_string()];
@@ -471,23 +441,6 @@ fn test_merge_repo_deny_adds() {
     let result = merge_deny_list(&global, &repo, &[], &[], &Mode::DockerFirst);
 
     assert!(result.contains(&"cargo".to_string()));
-    assert!(result.contains(&"npm".to_string()));
-}
-
-#[test]
-fn test_merge_hybrid_mode_removes_toolchains() {
-    let global = GlobalConfig::default();
-    let repo = RepoGuards {
-        deny: vec!["cargo".to_string(), "python".to_string()],
-        allow: vec![],
-    };
-
-    let result = merge_deny_list(&global, &repo, &[], &[], &Mode::Hybrid);
-
-    // Hybrid mode should remove cargo, python from deny
-    assert!(!result.contains(&"cargo".to_string()));
-    assert!(!result.contains(&"python".to_string()));
-    // npm/yarn should remain
     assert!(result.contains(&"npm".to_string()));
 }
 

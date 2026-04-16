@@ -248,7 +248,7 @@ where
 
     if !path.exists() {
         // Only report missing for tool-owned files
-        if matches!(ownership, Ownership::Tool | Ownership::Hybrid) {
+        if matches!(ownership, Ownership::Tool) {
             issues.push(Issue {
                 file: filename.to_string(),
                 description: "Missing (will be created)".to_string(),
@@ -293,9 +293,8 @@ where
 
         // Severity depends on ownership
         let severity = match ownership {
-            Ownership::Tool => Severity::Error,     // Tool files must match
-            Ownership::Hybrid => Severity::Warning, // Hybrid files may have user edits
-            Ownership::User => Severity::Warning,   // User files are their responsibility
+            Ownership::Tool => Severity::Error, // Tool files must match
+            Ownership::User => Severity::Warning, // User files are their responsibility
         };
 
         issues.push(Issue {

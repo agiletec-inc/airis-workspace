@@ -5,13 +5,12 @@ fn default_true() -> bool {
     true
 }
 
-/// Workspace mode (docker-first, hybrid, strict)
+/// Workspace mode (docker-first, strict)
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum Mode {
     #[default]
     DockerFirst,
-    Hybrid,
     Strict,
 }
 

@@ -1,6 +1,6 @@
 # airis-monorepo
 
-**The Docker-first monorepo manager for the vibe coding era.**
+**AI doesn't break your build system. It breaks your environment.**
 
 [![Crates.io](https://img.shields.io/crates/v/airis.svg)](https://crates.io/crates/airis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -8,7 +8,9 @@
 
 ![airis demo](assets/airis-demo.gif)
 
-One manifest file. Compose, packages, and workspace config — all generated. Your AI pair-programmer stays inside the container where it belongs.
+AI pair-programmers are powerful, but they have terrible environment hygiene. They run `npm install` on the host, break bind mounts, leak credentials, and destroy reproducibility. 
+
+**airis** is the deterministic environment compiler for Docker-first monorepos. It doesn't replace your build tools—it makes them safe to use in AI-assisted workflows.
 
 ---
 
@@ -16,28 +18,41 @@ One manifest file. Compose, packages, and workspace config — all generated. Yo
 
 Development tools were designed for humans. Humans read docs, memorize project conventions, and don't forget which package manager to use mid-session. LLMs do.
 
+Nx and Turborepo optimize builds. **airis makes the environment deterministic.**
+
 We wanted Docker-first development for one simple reason: **reproducibility** — every dependency inside a container, same behavior on every machine. But when your AI pair-programmer writes the code, Docker-first breaks in ways it never did with human developers:
 
-1. **The AI forgets the rules.** After context compression or a long session, your coding agent forgets to prefix commands with `docker compose exec`. It runs `pnpm install` on the host. Dependencies leak out of the container. Reproducibility is gone.
+1. **The AI forgets the rules.** It runs commands on the host. Dependencies leak. Reproducibility is gone.
+2. **It destroys the filesystem.** Bind mounts and `node_modules` drift apart.
+3. **Docker-first is hard to keep correct.** One manual change to `compose.yml` and the "truth" is gone.
 
-2. **It picks the wrong tool.** Your project uses pnpm, but the AI reaches for npm or yarn. Now you have a `package-lock.json` sitting next to your `pnpm-lock.yaml`.
-
-3. **Docker boilerplate is fragile.** Manually wiring compose volumes, keeping `compose.yml` in sync with your workspace structure, making sure `node_modules` and pnpm store never leak onto the host — one mistake and your "Docker-first" setup is Docker-in-name-only.
-
-We fixed these one at a time. Command guards that block `npm`/`yarn` and redirect `pnpm` through Docker. A manifest that generates compose configs, workspace files, and dependency catalogs so the boilerplate can't drift. Named volumes that structurally prevent dependency leakage.
+airis enforces Docker-first hygiene structurally. Adopting `manifest.toml` as your Source of Truth guarantees that AI agents operate in a locked-down, reproducible environment.
 
 The result is airis — not a replacement for Turborepo or NX (we use Turborepo ourselves and `turbo prune` internally), but **the layer that keeps Docker-first actually working** when your AI pair-programmer has a short memory.
 
 ```
 ┌─────────────────────────────────────────────┐
-│  Your Build Tool (Turborepo / NX / Bazel)   │  ← task orchestration, caching
+│  Your Build Tool (Turborepo / NX / Bazel)   │  ← Task orchestration, caching
 ├─────────────────────────────────────────────┤
-│  airis                                      │  ← config generation, Docker wiring,
-│                                             │     filesystem boundaries, CI/CD
+│  AIRIS Workspace                            │  ← Environment SoT, Config Compiler,
+│                                             │    Command Guards, Hygiene Enforcer
 ├─────────────────────────────────────────────┤
-│  Docker / Compose                           │  ← containers, volumes, networking
+│  Docker / Compose                           │  ← Containers, Volumes, Networking
 └─────────────────────────────────────────────┘
 ```
+
+**Works with Nx and Turborepo. Does not replace them.**
+
+---
+
+## The AIRIS Suite
+
+airis-monorepo is part of the **AIRIS Suite**: Infrastructure for AI-assisted coding.
+
+- **AIRIS Workspace (this repo):** The deterministic environment compiler.
+- **[AIRIS Gateway](https://github.com/agiletec-inc/airis-mcp-gateway):** The MCP connectivity hub. Standardizes tool access for any LLM.
+- **[MindBase](https://github.com/agiletec-inc/mindbase):** The durable semantic memory substrate.
+- **[AIRIS Keeper](https://github.com/agiletec-inc/airis-keeper):** The scoped credential control plane. Contain the blast radius.
 
 ---
 
@@ -54,12 +69,14 @@ manifest.toml  ──  airis gen  ──▶  package.json
                                    .github/workflows/
 ```
 
-Edit `manifest.toml`. Run `airis gen`. Everything else is derived.
+Edit `manifest.toml`. Run `airis gen`. Everything else is derived. No "hybrid" states, no guessing. It's a compiler.
 
 ### Generate everything from one file
 
 ```toml
 # manifest.toml
+mode = "docker-first"
+
 [workspace]
 name = "my-project"
 package_manager = "pnpm@10.22.0"
