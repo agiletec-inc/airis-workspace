@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "2.1.4"
+version = "2.1.5"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -75,7 +75,7 @@ serde_yml = "0.0"
 toml = { version = "1.1", features = ["preserve_order"] }
 anyhow = "1.0"
 colored = "3.1"
-tokio = { version = "1.50", features = ["macros", "sync", "rt-multi-thread", "net"] }
+tokio = { version = "1.50", features = ["full"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 indexmap = { version = "2.13", features = ["serde"] }
 regex = "1.12"
@@ -88,6 +88,10 @@ tempfile = "3.27"
 dialoguer = "0.12"   # Interactive prompts
 dirs = "6.0"         # Home directory resolution
 ureq = { version = "3.3", features = ["json"] }  # Sync HTTP client for npm registry API
+clap_complete = "4.6.2"
+miette = { version = "7.6.0", features = ["fancy"] }
+indicatif = "0.18.4"
+thiserror = "2.0.18"
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.tar.gz"

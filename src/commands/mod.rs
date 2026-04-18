@@ -4,6 +4,7 @@ pub mod bump_version;
 pub mod bundle;
 pub mod claude_setup;
 pub mod clean;
+pub mod completion;
 pub mod deps;
 pub mod diff;
 pub mod discover;

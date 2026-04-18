@@ -138,7 +138,7 @@ pub fn run(fix: bool) -> Result<()> {
         println!();
 
         // 1. Regenerate files
-        crate::commands::generate::sync_from_manifest_with_force(&manifest, true)?;
+        crate::commands::generate::sync_from_manifest(&manifest)?;
 
         // 2. Install guards if missing
         for issue in &issues {
