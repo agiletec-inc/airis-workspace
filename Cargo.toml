@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "2.1.2"
+version = "2.1.4"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -21,7 +21,6 @@ readme = "README.md"
 exclude = [
     "/.github",
     "/.claude",
-    "/.workspace",
     "/.husky",
     "/.cargo",
     "/apps",
@@ -97,6 +96,12 @@ pkg-fmt = "tgz"
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
 pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.zip"
 pkg-fmt = "zip"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true
 
 [dev-dependencies]
 assert_cmd = "2.2"

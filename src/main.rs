@@ -1,26 +1,8 @@
-mod channel;
-mod commands;
-mod conventions;
-mod dag;
-mod docker_build;
-mod executor;
-mod generators;
-mod import_scanner;
-mod manifest;
-mod ownership;
-mod pnpm;
-mod preset;
-mod remote_cache;
-mod safe_fs;
-mod secrets;
-mod templates;
-#[cfg(test)]
-mod test_lock;
-mod version_resolver;
-
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
 use colored::Colorize;
+
+use airis_workspace::commands;
 
 /// Get version string with dev suffix for non-release builds
 fn get_version() -> String {
@@ -95,18 +77,9 @@ enum Commands {
     /// manifest.toml as single source of truth. Default is dry-run (preview only).
     /// Use --write to execute. NEVER overwrites existing manifest.toml.
     Init {
-        /// Force snapshot capture (default: auto on first run)
-        #[arg(long)]
-        snapshot: bool,
-        /// Skip snapshot capture (for CI or repeated runs)
-        #[arg(long)]
-        no_snapshot: bool,
         /// Actually write generated files (default: dry-run, shows what would be generated)
         #[arg(long)]
         write: bool,
-        /// Skip project discovery and use empty template instead
-        #[arg(long)]
-        skip_discovery: bool,
     },
 
     /// Query MANIFEST.toml data (used by justfile)
@@ -571,6 +544,8 @@ enum ClaudeCommands {
 enum HooksCommands {
     /// Install Git hooks (pre-commit for version auto-bump)
     Install,
+    /// Remove airis-managed Git hooks
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -744,12 +719,9 @@ fn main() -> Result<()> {
 fn dispatch(command: Commands) -> Result<()> {
     match command {
         Commands::Init {
-            snapshot,
-            no_snapshot,
             write,
-            skip_discovery,
         } => {
-            commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
+            commands::init::run(false, false, write, false)?;
         }
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
@@ -813,6 +785,7 @@ fn dispatch(command: Commands) -> Result<()> {
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
+            HooksCommands::Uninstall => commands::hooks::uninstall()?,
         },
         Commands::Shim { action } => match action {
             ShimCommands::Install => commands::shim::install()?,

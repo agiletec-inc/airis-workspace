@@ -42,7 +42,7 @@ pub(super) fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<S
         "".to_string(),
         // Project section
         "[project]".to_string(),
-        "name = \"workspace\"".to_string(),
+        "id = \"workspace\"".to_string(),
         "description = \"Auto-discovered workspace\"".to_string(),
         "".to_string(),
         // Workspace section

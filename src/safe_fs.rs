@@ -484,7 +484,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("manifest.toml"),
-            "version = 1\n[workspace]\nname = \"test\"",
+            "version = 1\n[project]\nid = \"test\"\n[workspace]\nname = \"test\"",
         )
         .unwrap();
         dir

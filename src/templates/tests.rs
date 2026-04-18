@@ -13,6 +13,10 @@ fn test_glob_expansion_adds_products_workspaces() {
     std::fs::write(root.join("products/bidalert/package.json"), "{}").unwrap();
 
     let toml_str = r#"
+version = 1
+[project]
+id = "test"
+
 [workspace]
 name = "test-project"
 image = "node:22-alpine"
@@ -45,6 +49,10 @@ fn test_glob_expansion_skips_exclude_patterns() {
     std::fs::write(root.join("apps/web/package.json"), "{}").unwrap();
 
     let toml_str = r#"
+version = 1
+[project]
+id = "test"
+
 [workspace]
 name = "test-project"
 image = "node:22-alpine"
