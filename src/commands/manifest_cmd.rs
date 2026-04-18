@@ -200,6 +200,8 @@ mod tests {
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test-workspace"
@@ -246,6 +248,8 @@ compose = "compose.yml"
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test"
@@ -281,6 +285,8 @@ name = "test"
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test"

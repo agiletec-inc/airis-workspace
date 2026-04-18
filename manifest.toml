@@ -10,9 +10,9 @@ authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
 homepage = "https://github.com/agiletec-inc/airis-workspace"
 repository = "https://github.com/agiletec-inc/airis-workspace"
-...
-[workspace]
-name = "airis-workspace"
+keywords = [
+    "monorepo",
+    "docker",
     "workspace",
     "cli",
     "prototyping",

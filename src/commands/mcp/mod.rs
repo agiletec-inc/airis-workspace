@@ -5,7 +5,6 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 
 use crate::manifest::Manifest;
-use crate::commands::discover::discover_from_workspaces;
 use crate::commands::migrate::{MigrationPlan, MigrationTask};
 
 /// MCP Request
@@ -72,16 +71,16 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
         "tools/list" => Some(json!({
             "tools": [
                 {
-                    "name": "workspace_analyze",
-                    "description": "Analyze the current physical workspace and return detected frameworks and project structures.",
+                    "name": "workspace_discover",
+                    "description": "Scan and analyze the current workspace to detect apps, libraries, docker-compose files, and package catalogs. This is the first step for initializing or migrating a workspace.",
                     "input_schema": {
                         "type": "object",
                         "properties": {}
                     }
                 },
                 {
-                    "name": "manifest_propose",
-                    "description": "Propose a new manifest.toml structure. Validates and writes to disk if valid.",
+                    "name": "manifest_validate",
+                    "description": "Validate a proposed manifest.toml content without writing it to disk.",
                     "input_schema": {
                         "type": "object",
                         "properties": {
@@ -94,8 +93,27 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                     }
                 },
                 {
-                    "name": "migration_plan_execute",
-                    "description": "Execute a list of migration tasks (file moves, directory creation).",
+                    "name": "manifest_apply",
+                    "description": "Write manifest.toml to disk and optionally run 'airis gen' to update the environment.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "manifest": {
+                                "type": "string",
+                                "description": "The manifest.toml content to apply"
+                            },
+                            "run_gen": {
+                                "type": "boolean",
+                                "description": "Whether to run 'airis gen' immediately after writing",
+                                "default": true
+                            }
+                        },
+                        "required": ["manifest"]
+                    }
+                },
+                {
+                    "name": "migration_execute",
+                    "description": "Execute a list of physical migration tasks (moving files, creating directories).",
                     "input_schema": {
                         "type": "object",
                         "properties": {
@@ -127,9 +145,10 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
             let arguments = &params["arguments"];
 
             let tool_result = match name {
-                "workspace_analyze" => handle_workspace_analyze()?,
-                "manifest_propose" => handle_manifest_propose(arguments)?,
-                "migration_plan_execute" => handle_migration_plan_execute(arguments)?,
+                "workspace_discover" => handle_workspace_discover()?,
+                "manifest_validate" => handle_manifest_validate(arguments)?,
+                "manifest_apply" => handle_manifest_apply(arguments)?,
+                "migration_execute" => handle_migration_execute(arguments)?,
                 _ => json!({
                     "content": [
                         {
@@ -153,46 +172,32 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
     })
 }
 
-fn handle_workspace_analyze() -> Result<Value> {
-    let workspace_root = std::env::current_dir()?;
-    let manifest_path = Path::new("manifest.toml");
+fn handle_workspace_discover() -> Result<Value> {
+    // Run full discovery using the actual discovery engine
+    let discovered = crate::commands::discover::run()?;
     
-    let mut analysis = json!({
-        "root": workspace_root.display().to_string(),
-        "has_manifest": manifest_path.exists(),
-    });
-
-    // Basic discovery logic
-    let patterns = vec!["apps/*".to_string(), "libs/*".to_string(), "packages/*".to_string()];
-    let discovered = discover_from_workspaces(&patterns, &workspace_root)?;
-    
-    analysis["projects"] = serde_json::to_value(discovered)?;
-
     Ok(json!({
         "content": [
             {
                 "type": "text",
-                "text": serde_json::to_string_pretty(&analysis)?
+                "text": serde_json::to_string_pretty(&discovered)?
             }
         ]
     }))
 }
 
-fn handle_manifest_propose(arguments: &Value) -> Result<Value> {
+fn handle_manifest_validate(arguments: &Value) -> Result<Value> {
     let content = arguments["manifest"].as_str().context("Missing manifest content")?;
     
-    // Attempt to parse and validate
     match Manifest::parse(content) {
         Ok(manifest) => {
             match manifest.validate() {
                 Ok(_) => {
-                    // Valid manifest, write it to disk
-                    std::fs::write("manifest.toml", content)?;
                     Ok(json!({
                         "content": [
                             {
                                 "type": "text",
-                                "text": "Manifest is valid and has been written to manifest.toml. Run `airis gen` to apply changes to the environment."
+                                "text": "Manifest is valid."
                             }
                         ]
                     }))
@@ -224,9 +229,40 @@ fn handle_manifest_propose(arguments: &Value) -> Result<Value> {
     }
 }
 
-fn handle_migration_plan_execute(arguments: &Value) -> Result<Value> {
+fn handle_manifest_apply(arguments: &Value) -> Result<Value> {
+    let content = arguments["manifest"].as_str().context("Missing manifest content")?;
+    let run_gen = arguments["run_gen"].as_bool().unwrap_or(true);
+    
+    // 1. Write to disk
+    std::fs::write("manifest.toml", content)?;
+    
+    let mut response_text = "Manifest written to manifest.toml.".to_string();
+
+    // 2. Optionally run gen
+    if run_gen {
+        // Load the manifest we just wrote to ensure we're using the latest
+        let _manifest = Manifest::load(Path::new("manifest.toml"))?;
+        crate::commands::generate::run(false, false, false)?;
+        response_text.push_str("\nEnvironment updated with 'airis gen'.");
+    } else {
+        response_text.push_str("\nRun 'airis gen' to update the environment.");
+    }
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": response_text
+            }
+        ]
+    }))
+}
+
+fn handle_migration_execute(arguments: &Value) -> Result<Value> {
     let tasks: Vec<MigrationTask> = serde_json::from_value(arguments["tasks"].clone())?;
     
+    // Create a plan from tasks. Discovery results are empty here as we are executing
+    // pre-defined tasks from the AI.
     let plan = MigrationPlan {
         tasks,
         discovery: crate::commands::discover::DiscoveryResult {

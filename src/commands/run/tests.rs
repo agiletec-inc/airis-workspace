@@ -31,13 +31,13 @@ fn test_run_missing_manifest() {
 fn test_run_missing_command() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
+rust_edition = "2024"
+binary_name = "test"
 
 [workspace]
 name = "test"
-
-[project]
-rust_edition = "2024"
-binary_name = "test"
 
 [commands]
 test = "echo 'test'"
@@ -51,6 +51,8 @@ test = "echo 'test'"
 fn test_get_package_manager_pnpm() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "pnpm@10.22.0"
@@ -63,6 +65,8 @@ package_manager = "pnpm@10.22.0"
 fn test_get_package_manager_bun() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "bun@1.0.0"
@@ -75,6 +79,8 @@ package_manager = "bun@1.0.0"
 fn test_get_package_manager_npm() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "npm@10.0.0"
@@ -87,6 +93,8 @@ package_manager = "npm@10.0.0"
 fn test_get_package_manager_yarn() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "yarn@4.0.0"
@@ -99,6 +107,8 @@ package_manager = "yarn@4.0.0"
 fn test_get_package_manager_default() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 "#;
@@ -117,6 +127,8 @@ fn test_default_commands_uses_package_manager() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "bun@1.0.0"
@@ -152,6 +164,8 @@ fn test_manifest_commands_override_defaults() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "pnpm@10.0.0"
@@ -185,6 +199,8 @@ fn test_manifest_can_add_custom_commands() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 [commands]
@@ -283,6 +299,8 @@ fn test_build_clean_command_filters_unsafe() {
     use build_ops::build_clean_command;
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 [workspace.clean]
@@ -308,6 +326,8 @@ fn test_build_compose_command_no_compose_file_errors() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 "#;
@@ -335,6 +355,8 @@ fn test_build_compose_command_with_compose_file_succeeds() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 "#;
@@ -360,6 +382,8 @@ fn test_build_compose_command_with_orchestration_succeeds() {
 
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 [orchestration.dev]
@@ -476,6 +500,8 @@ fn test_parse_service_ports_skips_zero_port() {
 fn test_manifest_dev_urls_parsing() {
     let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 [[dev.urls.infra]]
@@ -561,6 +587,8 @@ fn test_dev_section_post_up_default_empty() {
     let manifest: Manifest = toml::from_str(
         r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 "#,
@@ -574,6 +602,8 @@ fn test_dev_section_post_up_with_hooks() {
     let manifest: Manifest = toml::from_str(
         r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 [dev]
@@ -605,6 +635,8 @@ fn test_extra_args_blocks_shell_injection_semicolon() {
         "manifest.toml",
         r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "pnpm"
@@ -641,6 +673,8 @@ fn test_extra_args_blocks_shell_injection_pipe() {
         "manifest.toml",
         r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "pnpm"
@@ -677,6 +711,8 @@ fn test_extra_args_blocks_command_substitution() {
         "manifest.toml",
         r#"
 version = 1
+[project]
+id = "test"
 [workspace]
 name = "test"
 package_manager = "pnpm"

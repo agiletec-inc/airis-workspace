@@ -390,46 +390,41 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
         "coverage",
     ];
 
-    for name in &artifact_names {
-        let output = std::process::Command::new("find")
-            .args([
-                ".",
-                "-name",
-                name,
-                "-type",
-                "d",
-                "-not",
-                "-path",
-                "./.git/*",
-                "-not",
-                "-path",
-                "*/node_modules/*",
-                "-maxdepth",
-                "4",
-            ])
-            .output()
-            .with_context(|| format!("Failed to run find for {}", name))?;
+    use walkdir::WalkDir;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        for line in stdout.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
+    for entry in WalkDir::new(".")
+        .max_depth(5)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            // Skip .git and nested node_modules to keep it fast
+            name != ".git" && (name != "node_modules" || e.depth() == 0)
+        })
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy();
+        if artifact_names.contains(&name.as_ref()) {
+            let path_str = path.to_string_lossy();
+            
             // Skip root-level matches for artifacts that might legitimately exist at root
             // (e.g., ./node_modules is the root volume mount)
-            if trimmed == format!("./{}", name) && *name == "node_modules" {
+            if (path_str == "./node_modules" || path_str == "node_modules") && name == "node_modules" {
                 continue;
             }
 
-            let severity = artifact_severity(name);
+            let severity = artifact_severity(&name);
             let hint = match severity {
                 Severity::Error => "run `airis clean && airis install`",
                 Severity::Warning => "run `airis clean`",
             };
 
             issues.push(Issue {
-                file: trimmed.to_string(),
+                file: path_str.to_string(),
                 description: format!("Host artifact `{}` leaked from container ({})", name, hint),
                 severity,
             });

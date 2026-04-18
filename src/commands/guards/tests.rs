@@ -235,6 +235,10 @@ fn test_full_install_with_tempdir() {
     let result = std::panic::catch_unwind(|| {
         // Write a minimal manifest.toml with deny, wrap, and deny_with_message entries
         let manifest_content = r#"
+version = 1
+[project]
+id = "test"
+
 [workspace]
 name = "test-workspace"
 
@@ -806,6 +810,10 @@ fn test_full_install_agiletec_style_manifest() {
     let result = std::panic::catch_unwind(|| {
         // Mirrors the actual agiletec manifest.toml guards section
         let manifest_content = r#"
+version = 1
+[project]
+id = "test"
+
 [workspace]
 name = "agiletec-style"
 

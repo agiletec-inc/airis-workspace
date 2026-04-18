@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
@@ -8,9 +7,6 @@ use crate::manifest::MANIFEST_FILE;
 
 use super::discover;
 use super::migrate;
-
-/// Default manifest.toml template (embedded at compile time)
-const MANIFEST_TEMPLATE: &str = include_str!("../../examples/manifest.toml");
 
 /// Initialize a new airis workspace
 ///
@@ -25,7 +21,7 @@ pub fn run(
     _force_snapshot: bool,
     _no_snapshot: bool,
     write: bool,
-    skip_discovery: bool,
+    _skip_discovery: bool,
 ) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
@@ -50,12 +46,6 @@ pub fn run(
         );
         println!("  Ask Claude to analyze your repo and update manifest.toml");
         return Ok(());
-    }
-
-    // manifest.toml doesn't exist - run auto-migration workflow
-    if skip_discovery {
-        // Skip discovery, just create from template (legacy behavior)
-        return run_template_mode(write);
     }
 
     // Run discovery workflow
@@ -109,66 +99,10 @@ fn run_discovery_mode(write: bool) -> Result<()> {
         let _report = migrate::execute(&plan, true)?;
 
         println!();
-        println!(
-            "Run {} to execute this plan",
-            "airis init --write".bright_cyan()
-        );
-        println!();
         println!("{}", "Options:".dimmed());
         println!(
-            "  {} - Use empty template instead of discovery",
-            "--skip-discovery".dimmed()
-        );
-    }
-
-    Ok(())
-}
-
-/// Run the template-based initialization (legacy mode)
-fn run_template_mode(write: bool) -> Result<()> {
-    let manifest_path = Path::new(MANIFEST_FILE);
-
-    if write {
-        fs::write(manifest_path, MANIFEST_TEMPLATE)?;
-        println!("{} Created {}", "✓".green(), MANIFEST_FILE.bright_cyan());
-        println!();
-        println!("{}", "Next steps:".bright_yellow());
-        println!("  1. Edit {} to configure your workspace:", MANIFEST_FILE);
-        println!("     - Set [workspace].name to your project name");
-        println!("     - Add your apps under [apps.*]");
-        println!("     - Add your libs under [libs.*]");
-        println!("     - Configure [packages.catalog] for shared dependencies");
-        println!();
-        println!(
-            "  2. Run {} to generate workspace files",
-            "airis gen".bright_cyan()
-        );
-        println!();
-        println!("{}", "Pro tip:".bright_yellow());
-        println!("  Use Claude Code to intelligently configure manifest.toml");
-        println!("  based on your existing project structure.");
-    } else {
-        // Dry-run mode - show what would be created
-        println!(
-            "{} Would create {}",
-            "→".bright_blue(),
-            MANIFEST_FILE.bright_cyan()
-        );
-        println!();
-        println!("{}", "Preview (first 50 lines):".bright_yellow());
-        println!("{}", "─".repeat(60));
-        for line in MANIFEST_TEMPLATE.lines().take(50) {
-            println!("{}", line);
-        }
-        println!("{}", "─".repeat(60));
-        println!(
-            "... ({} more lines)",
-            MANIFEST_TEMPLATE.lines().count() - 50
-        );
-        println!();
-        println!(
-            "Run {} to actually create the file",
-            "airis init --write --skip-discovery".bright_cyan()
+            "  {} - Analyze and write generated files",
+            "--write".dimmed()
         );
     }
 

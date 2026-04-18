@@ -52,29 +52,17 @@ pub fn extract_catalog_from_path(base_path: &Path) -> Result<IndexMap<String, St
 
     // Also check pnpm-workspace.yaml for existing catalog
     let pnpm_workspace_path = base_path.join("pnpm-workspace.yaml");
-    if pnpm_workspace_path.exists()
-        && let Ok(content) = fs::read_to_string(pnpm_workspace_path)
-    {
-        // Simple YAML parsing for catalog section
-        // Format: catalog:
-        //           package: "version"
-        let mut in_catalog = false;
-        for line in content.lines() {
-            if line.trim() == "catalog:" {
-                in_catalog = true;
-                continue;
+    if pnpm_workspace_path.exists() {
+        if let Ok(content) = fs::read_to_string(&pnpm_workspace_path) {
+            #[derive(serde::Deserialize)]
+            struct PnpmWorkspace {
+                catalog: Option<IndexMap<String, String>>,
             }
-            if in_catalog {
-                if !line.starts_with(' ') && !line.starts_with('\t') && !line.is_empty() {
-                    break; // End of catalog section
-                }
-                // Parse "  package: version" or "  package: \"version\""
-                let trimmed = line.trim();
-                if let Some((key, value)) = trimmed.split_once(':') {
-                    let key = key.trim().trim_matches('"');
-                    let value = value.trim().trim_matches('"').trim_matches('\'');
-                    if !key.is_empty() && !value.is_empty() {
-                        catalog.insert(key.to_string(), value.to_string());
+
+            if let Ok(workspace) = serde_yml::from_str::<PnpmWorkspace>(&content) {
+                if let Some(existing_catalog) = workspace.catalog {
+                    for (pkg, version) in existing_catalog {
+                        catalog.insert(pkg, version);
                     }
                 }
             }

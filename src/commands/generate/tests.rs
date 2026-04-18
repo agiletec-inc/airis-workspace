@@ -143,5 +143,5 @@ fn test_save_generation_registry_deduplicates_and_sorts() {
 
 /// Helper: create a minimal manifest for testing
 fn default_test_manifest() -> Manifest {
-    toml::from_str("version = 1").unwrap()
+    toml::from_str("version = 1\n[project]\nid = \"test\"").unwrap()
 }

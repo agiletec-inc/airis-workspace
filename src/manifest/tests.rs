@@ -6,6 +6,8 @@ use std::io::Write;
 fn minimal_manifest() -> String {
     r#"
 version = 1
+[project]
+id = "test-project"
 "#
     .to_string()
 }
@@ -27,6 +29,8 @@ fn test_validate_passes_for_minimal_manifest() {
 fn test_validate_duplicate_ports() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [service.redis]
 image = "redis:7"
@@ -47,6 +51,8 @@ port = 6379
 fn test_validate_no_duplicate_when_ports_differ() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [service.redis]
 image = "redis:7"
@@ -63,6 +69,8 @@ port = 5432
 fn test_validate_skip_none_ports() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [service.redis]
 image = "redis:7"
@@ -77,6 +85,8 @@ image = "redis:7"
 fn test_validate_catalog_follow_missing_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog]
 react = "latest"
@@ -96,6 +106,8 @@ follow = "nonexistent"
 fn test_validate_catalog_follow_valid_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog]
 react = "latest"
@@ -110,6 +122,8 @@ follow = "react"
 fn test_validate_guard_deny_wrap_conflict() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards]
 deny = ["pnpm"]
@@ -129,6 +143,8 @@ pnpm = "docker compose exec workspace pnpm"
 fn test_validate_guard_no_conflict() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards]
 deny = ["npm", "yarn"]
@@ -143,6 +159,8 @@ pnpm = "docker compose exec workspace pnpm"
 fn test_validate_guard_deny_invalid_command_name() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards]
 deny = ["npm", "bad command", "../escape"]
@@ -157,6 +175,8 @@ deny = ["npm", "bad command", "../escape"]
 fn test_validate_guard_wrap_invalid_command_name() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards.wrap]
 "npm;evil" = "docker compose exec workspace npm"
@@ -170,6 +190,8 @@ version = 1
 fn test_validate_guard_wrap_dangerous_wrapper_value() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards.wrap]
 pnpm = "docker $(whoami) pnpm"
@@ -185,6 +207,8 @@ fn test_validate_guard_deny_with_message_invalid_name() {
     // "docker run" has a space, which is rejected by the command name regex
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [guards.deny_with_message]
 "docker run" = "Use 'airis up' instead."
@@ -198,6 +222,8 @@ version = 1
 fn test_validate_rejects_workspace_bind_mounts() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 volumes = ["./:/app"]
@@ -212,6 +238,8 @@ volumes = ["./:/app"]
 fn test_validate_rejects_service_bind_mounts() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [service.web]
 image = "node:22"
@@ -227,6 +255,8 @@ volumes = ["./apps/web:/app"]
 fn test_validate_allows_named_volumes() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 volumes = ["workspace-node-modules:/app/node_modules"]
@@ -242,6 +272,8 @@ volumes = ["web-data:/app/data"]
 fn test_validate_multiple_errors_collected() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [service.a]
 image = "redis:7"
@@ -371,6 +403,8 @@ fn test_resolve_deploy_explicit_not_overridden() {
 fn test_validate_dep_group_missing_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [dep_group.shadcn]
 "@radix-ui/react-slot" = "^1.0.0"
@@ -390,6 +424,8 @@ dep_groups = ["shadcn", "nonexistent"]
 fn test_validate_dep_group_valid_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [dep_group.shadcn]
 "@radix-ui/react-slot" = "^1.0.0"
@@ -406,6 +442,8 @@ dep_groups = ["shadcn"]
 fn test_validate_dev_dep_group_missing_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [[app]]
 name = "dashboard"
@@ -421,6 +459,8 @@ dev_dep_groups = ["missing-group"]
 fn test_validate_env_group_missing_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [env_group.supabase]
 SUPABASE_URL = "${SUPABASE_URL}"
@@ -439,6 +479,8 @@ env_groups = ["supabase", "nonexistent"]
 fn test_validate_env_group_valid_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [env_group.supabase]
 SUPABASE_URL = "${SUPABASE_URL}"
@@ -454,6 +496,8 @@ env_groups = ["supabase"]
 fn test_validate_preset_dep_group_missing_reference() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [preset.nextjs-app]
 framework = "nextjs"
@@ -473,6 +517,8 @@ dep_groups = ["nonexistent"]
 fn test_validate_catalog_follow_cycle_direct() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog.a]
 follow = "b"
@@ -489,6 +535,8 @@ follow = "a"
 fn test_validate_catalog_follow_cycle_indirect() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog.a]
 follow = "b"
@@ -508,6 +556,8 @@ follow = "a"
 fn test_validate_catalog_follow_chain_no_cycle() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog]
 react = "latest"
@@ -527,6 +577,8 @@ follow = "react"
 fn test_validate_env_validation_orphan() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [env]
 required = ["DATABASE_URL"]
@@ -549,6 +601,8 @@ description = "Some URL"
 fn test_validate_env_validation_all_declared() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [env]
 required = ["DATABASE_URL"]
@@ -570,6 +624,8 @@ fn test_validate_catalog_typo_warning_lates() {
     // "lates" is Levenshtein distance 1 from "latest" — should warn but not error
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog]
 react = "lates"
@@ -583,6 +639,8 @@ fn test_validate_catalog_no_false_positive_semver() {
     // Semver strings should not trigger typo warnings
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [packages.catalog]
 react = "^18.2.0"
@@ -613,6 +671,8 @@ fn test_testing_section_defaults_when_absent() {
 fn test_testing_section_full_config() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "unit-only"
@@ -664,6 +724,8 @@ timeout = 10
 fn test_testing_section_mock_policy_forbidden() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "forbidden"
@@ -676,6 +738,8 @@ mock_policy = "forbidden"
 fn test_testing_section_mock_policy_allowed() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "allowed"
@@ -688,6 +752,8 @@ mock_policy = "allowed"
 fn test_testing_smoke_default_timeout() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [[testing.smoke]]
 name = "check"
@@ -701,6 +767,8 @@ command = "curl localhost"
 fn test_testing_invalid_regex_rejected() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "allowed"
@@ -719,6 +787,8 @@ forbidden_patterns = ["[invalid(regex"]
 fn test_testing_valid_regex_accepted() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "allowed"
@@ -731,6 +801,8 @@ forbidden_patterns = ["vi\\.mock.*supabase", "jest\\.mock.*database"]
 fn test_testing_invalid_required_imports_regex_rejected() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "allowed"
@@ -767,6 +839,8 @@ fn test_policy_section_defaults_when_absent() {
 fn test_policy_testing_full_config() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [policy.testing]
 mock_policy = "unit-only"
@@ -797,6 +871,8 @@ required_imports = ["from.*@workspace/database"]
 fn test_policy_security_config() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [policy.security]
 banned_env_vars = ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"]
@@ -815,6 +891,8 @@ max_file_size_mb = 100
 fn test_policy_security_invalid_glob_rejected() {
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [policy.security]
 banned_env_vars = ["SECRET"]
@@ -834,6 +912,8 @@ fn test_testing_fallback_to_policy_testing() {
     // When [testing] is used (deprecated), policy.testing should get the values
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "forbidden"
@@ -854,6 +934,8 @@ fn test_policy_testing_takes_precedence_over_testing() {
     // When both [testing] and [policy.testing] exist, policy.testing wins
     let toml = r#"
 version = 1
+[project]
+id = "test"
 
 [testing]
 mock_policy = "allowed"
