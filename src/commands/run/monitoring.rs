@@ -7,6 +7,7 @@ use std::time::Duration;
 use crate::manifest::Manifest;
 
 /// Background task to monitor workspace health during 'airis up'
+#[allow(dead_code)]
 pub fn spawn_monitoring(project_id: String) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
@@ -19,6 +20,7 @@ pub fn spawn_monitoring(project_id: String) {
     });
 }
 
+#[allow(dead_code)]
 fn check_health(_project_id: &str) -> Result<()> {
     let manifest_path = Path::new(crate::manifest::MANIFEST_FILE);
     if !manifest_path.exists() {
@@ -28,7 +30,8 @@ fn check_health(_project_id: &str) -> Result<()> {
 }
 
 /// Print a health summary for the user
-pub fn print_health_summary(manifest: &Manifest) -> Result<()> {
+#[allow(dead_code)]
+pub fn print_health_summary(_manifest: &Manifest) -> Result<()> {
     println!();
     println!("{}", "🛡️  Workspace Health:".bright_blue());
 
@@ -75,6 +78,7 @@ pub fn print_health_summary(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 fn is_docker_running() -> bool {
     Command::new("docker")
         .arg("info")

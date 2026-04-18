@@ -403,6 +403,7 @@ pub(super) fn display_service_urls(manifest: &Manifest) -> Result<()> {
 }
 
 /// Condense docker status string for compact display
+#[allow(dead_code)]
 pub(super) fn condense_status(status: &str) -> String {
     let s = status.trim();
 

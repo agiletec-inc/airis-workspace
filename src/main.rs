@@ -1,7 +1,6 @@
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use colored::Colorize;
-use miette::IntoDiagnostic;
 
 use airis_workspace::cli::{Cli, Commands, TestLevel, ClaudeCommands, GuardsCommands, HooksCommands, ShimCommands, DocsCommands, ManifestCommands, ValidateCommands, GenerateCommands, NetworkCommands, NewCommands, PolicyCommands, DepsCommands};
 use airis_workspace::commands;
@@ -66,7 +65,7 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
         },
         Commands::Guards { action } => match action {
-            GuardsCommands::Install { global, hooks } => {
+            GuardsCommands::Install { global, preset, hooks } => {
                 if hooks {
                     eprintln!(
                         "{}: `airis guards install --hooks` is deprecated. Use `airis claude setup` instead.",
@@ -74,7 +73,7 @@ fn dispatch(command: Commands) -> Result<()> {
                     );
                     commands::claude_setup::setup_global()?;
                 } else if global {
-                    commands::guards::install_global()?;
+                    commands::guards::install_global(preset)?;
                 } else {
                     commands::guards::install()?;
                 }
@@ -107,7 +106,9 @@ fn dispatch(command: Commands) -> Result<()> {
                 }
             }
             GuardsCommands::Verify => commands::guards::verify_global()?,
-            GuardsCommands::CheckAllow { cmd } => commands::guards::check_allow(&cmd)?,
+            GuardsCommands::CheckAllow { cmd } => {
+                commands::guards::check_allow(&cmd)?;
+            }
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
