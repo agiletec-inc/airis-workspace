@@ -398,8 +398,13 @@ pub enum DepsCommands {
 #[derive(Subcommand)]
 pub enum GuardsCommands {
     Install {
+        /// Install global guards (~/.airis/bin/) that block commands outside airis projects
         #[arg(long)]
         global: bool,
+        /// Guard preset (balanced, strict, permissive)
+        #[arg(long, value_enum)]
+        preset: Option<crate::manifest::GuardPreset>,
+        /// Deprecated: use `airis claude setup` instead
         #[arg(long, hide = true)]
         hooks: bool,
     },
