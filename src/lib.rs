@@ -1,4 +1,5 @@
 pub mod channel;
+pub mod cli;
 pub mod commands;
 pub mod conventions;
 pub mod dag;

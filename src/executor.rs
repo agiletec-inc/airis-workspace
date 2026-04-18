@@ -4,6 +4,7 @@
 //! Uses tokio for async execution with configurable worker pool.
 
 use anyhow::Result;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Semaphore, mpsc};
@@ -124,6 +125,17 @@ impl ParallelExecutor {
             }
         }
 
+        let multi = MultiProgress::new();
+        let main_pb = multi.add(ProgressBar::new(self.tasks.len() as u64));
+        main_pb.set_style(
+            ProgressStyle::with_template(
+                "{prefix:>12.cyan.bold} [{bar:40.cyan/blue}] {pos}/{len} {msg}",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        );
+        main_pb.set_prefix("Building");
+
         let semaphore = Arc::new(Semaphore::new(self.max_parallel));
         let (tx, mut rx) = mpsc::channel::<TaskResult>(self.tasks.len());
         let states = Arc::clone(&self.states);
@@ -133,15 +145,6 @@ impl ParallelExecutor {
         let mut results = Vec::new();
         let mut completed_count = 0;
         let total_tasks = self.tasks.len();
-
-        println!(
-            "{}",
-            format!(
-                "🚀 Starting parallel build ({} tasks, {} workers)",
-                total_tasks, self.max_parallel
-            )
-            .cyan()
-        );
 
         // Spawn initial ready tasks
         let ready_tasks: Vec<_> = {
@@ -156,17 +159,14 @@ impl ParallelExecutor {
         for task_id in ready_tasks {
             let task = match tasks.get(&task_id) {
                 Some(t) => t.clone(),
-                None => {
-                    // This should never happen as we just collected ready task IDs
-                    eprintln!("Internal error: task not found: {}", task_id);
-                    continue;
-                }
+                None => continue,
             };
             let semaphore = Arc::clone(&semaphore);
             let tx = tx.clone();
             let states = Arc::clone(&states);
             let task_fn = task_fn.clone();
             let captured_id = task.id.clone();
+            let multi_clone = multi.clone();
 
             tokio::spawn(async move {
                 let _permit = semaphore
@@ -180,6 +180,15 @@ impl ParallelExecutor {
                     states.insert(task.id.clone(), TaskState::Running);
                 }
 
+                let pb = multi_clone.add(ProgressBar::new_spinner());
+                pb.set_style(
+                    ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
+                        .unwrap()
+                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                );
+                pb.set_message(format!("Compiling {}", captured_id));
+                pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
                 let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
                     task_id: captured_id,
                     success: false,
@@ -187,6 +196,7 @@ impl ParallelExecutor {
                     error: Some(e.to_string()),
                 });
 
+                pb.finish_and_clear();
                 let _ = tx.send(result).await;
             });
         }
@@ -195,6 +205,7 @@ impl ParallelExecutor {
         while completed_count < total_tasks {
             if let Some(result) = rx.recv().await {
                 completed_count += 1;
+                main_pb.inc(1);
 
                 let task_id = result.task_id.clone();
                 let success = result.success;
@@ -212,28 +223,21 @@ impl ParallelExecutor {
                     }
                 }
 
-                // Print progress
+                // Print completion using PB log to avoid messing up bars
                 if success {
-                    println!(
-                        "{}",
-                        format!(
-                            "  ✅ [{}/{}] {} ({}ms)",
-                            completed_count, total_tasks, task_id, result.duration_ms
-                        )
-                        .green()
-                    );
+                    main_pb.println(format!(
+                        "{:>12} {} ({}ms)",
+                        "Finished".green().bold(),
+                        task_id,
+                        result.duration_ms
+                    ));
                 } else {
-                    println!(
-                        "{}",
-                        format!(
-                            "  ❌ [{}/{}] {} - {}",
-                            completed_count,
-                            total_tasks,
-                            task_id,
-                            result.error.as_deref().unwrap_or("unknown error")
-                        )
-                        .red()
-                    );
+                    main_pb.println(format!(
+                        "{:>12} {} - {}",
+                        "Failed".red().bold(),
+                        task_id,
+                        result.error.as_deref().unwrap_or("unknown error")
+                    ));
                 }
 
                 results.push(result);
@@ -258,20 +262,18 @@ impl ParallelExecutor {
                     // Send skip results so the loop can terminate
                     for skip_id in skipped {
                         completed_count += 1;
+                        main_pb.inc(1);
                         let skip_result = TaskResult {
                             task_id: skip_id.clone(),
                             success: false,
                             duration_ms: 0,
                             error: Some(format!("skipped: dependency '{}' failed", task_id)),
                         };
-                        println!(
-                            "{}",
-                            format!(
-                                "  ⏭️ [{}/{}] {} - skipped (dependency failed)",
-                                completed_count, total_tasks, skip_id
-                            )
-                            .yellow()
-                        );
+                        main_pb.println(format!(
+                            "{:>12} {} - skipped (dependency failed)",
+                            "Skipped".yellow().bold(),
+                            skip_id
+                        ));
                         results.push(skip_result);
                     }
                     continue;
@@ -283,27 +285,17 @@ impl ParallelExecutor {
                         let should_run = {
                             let states_guard = states.lock().await;
 
-                            // Check if all dependencies are completed
-                            let Some(dep_task) = tasks.get(dep_id) else {
-                                // This should never happen as dep_id comes from dependents map
-                                eprintln!(
-                                    "Internal error: dependent task not found during state check: {}",
-                                    dep_id
-                                );
-                                continue;
-                            };
+                            let Some(dep_task) = tasks.get(dep_id) else { continue; };
                             let all_deps_done = dep_task
                                 .dependencies
                                 .iter()
                                 .all(|d| matches!(states_guard.get(d), Some(TaskState::Completed)));
 
-                            // Only run if pending and all deps done
                             all_deps_done
                                 && matches!(states_guard.get(dep_id), Some(TaskState::Pending))
                         };
 
                         if should_run {
-                            // Mark as ready then spawn
                             {
                                 let mut states_guard = states.lock().await;
                                 states_guard.insert(dep_id.clone(), TaskState::Ready);
@@ -311,20 +303,14 @@ impl ParallelExecutor {
 
                             let task = match tasks.get(dep_id) {
                                 Some(t) => t.clone(),
-                                None => {
-                                    // This should never happen as dep_id comes from dependents map
-                                    eprintln!(
-                                        "Internal error: dependent task not found: {}",
-                                        dep_id
-                                    );
-                                    continue;
-                                }
+                                None => continue,
                             };
                             let semaphore = Arc::clone(&semaphore);
                             let tx = tx.clone();
                             let states = Arc::clone(&states);
                             let task_fn = task_fn.clone();
                             let captured_id = task.id.clone();
+                            let multi_clone = multi.clone();
 
                             tokio::spawn(async move {
                                 let _permit = semaphore
@@ -337,6 +323,15 @@ impl ParallelExecutor {
                                     states.insert(task.id.clone(), TaskState::Running);
                                 }
 
+                                let pb = multi_clone.add(ProgressBar::new_spinner());
+                                pb.set_style(
+                                    ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
+                                        .unwrap()
+                                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                                );
+                                pb.set_message(format!("Compiling {}", captured_id));
+                                pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
                                 let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
                                     task_id: captured_id,
                                     success: false,
@@ -344,6 +339,7 @@ impl ParallelExecutor {
                                     error: Some(e.to_string()),
                                 });
 
+                                pb.finish_and_clear();
                                 let _ = tx.send(result).await;
                             });
                         }
@@ -352,27 +348,31 @@ impl ParallelExecutor {
             }
         }
 
+        main_pb.finish_and_clear();
+
         // Summary
         let failed: Vec<_> = results.iter().filter(|r| !r.success).collect();
         let total_time: u64 = results.iter().map(|r| r.duration_ms).sum();
 
-        println!();
         if failed.is_empty() {
             println!(
                 "{}",
                 format!(
-                    "✅ All {} tasks completed successfully ({}ms total)",
-                    total_tasks, total_time
+                    "{:>12} All {} tasks in {}ms",
+                    "Success".green().bold(),
+                    total_tasks,
+                    total_time
                 )
-                .green()
-                .bold()
             );
         } else {
-            println!(
+            eprintln!(
                 "{}",
-                format!("❌ {} of {} tasks failed", failed.len(), total_tasks)
-                    .red()
-                    .bold()
+                format!(
+                    "{:>12} {} of {} tasks failed",
+                    "Error".red().bold(),
+                    failed.len(),
+                    total_tasks
+                )
             );
         }
 

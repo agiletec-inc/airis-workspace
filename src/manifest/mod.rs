@@ -1,14 +1,12 @@
 mod schema;
 // pub(crate) so tests submodule can reach validation::levenshtein_distance
 mod global_config;
-pub(crate) mod lock;
 pub(crate) mod validation;
 
 #[cfg(test)]
 mod tests;
 
 pub use global_config::*;
-pub use lock::*;
 pub use schema::*;
 
 use std::fs;
