@@ -9,9 +9,8 @@ pub(super) fn generate_native_hooks() -> Result<()> {
 
     fs::create_dir_all(hooks_dir).context("Failed to create .airis/hooks directory")?;
 
-    // Generate hook content dynamically instead of using templates
-    let pre_commit_content = "#!/bin/bash\n./.airis/hooks/pre-commit # airis-managed\n";
-    let pre_push_content = "#!/bin/bash\n./.airis/hooks/pre-push # airis-managed\n";
+    let pre_commit_content = crate::commands::hooks::pre_commit_script();
+    let pre_push_content = crate::commands::hooks::pre_push_script();
 
     let pre_commit_path = hooks_dir.join("pre-commit");
     let pre_push_path = hooks_dir.join("pre-push");
