@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "3.0.2"
+version = "3.0.3"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
