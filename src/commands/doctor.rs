@@ -293,7 +293,7 @@ where
 
         // Severity depends on ownership
         let severity = match ownership {
-            Ownership::Tool => Severity::Error, // Tool files must match
+            Ownership::Tool => Severity::Error,   // Tool files must match
             Ownership::User => Severity::Warning, // User files are their responsibility
         };
 
@@ -410,10 +410,12 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
         let name = entry.file_name().to_string_lossy();
         if artifact_names.contains(&name.as_ref()) {
             let path_str = path.to_string_lossy();
-            
+
             // Skip root-level matches for artifacts that might legitimately exist at root
             // (e.g., ./node_modules is the root volume mount)
-            if (path_str == "./node_modules" || path_str == "node_modules") && name == "node_modules" {
+            if (path_str == "./node_modules" || path_str == "node_modules")
+                && name == "node_modules"
+            {
                 continue;
             }
 

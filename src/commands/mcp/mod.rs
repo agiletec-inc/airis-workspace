@@ -4,8 +4,8 @@ use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 
-use crate::manifest::Manifest;
 use crate::commands::migrate::{MigrationPlan, MigrationTask};
+use crate::manifest::Manifest;
 
 /// MCP Request
 #[derive(Debug, Deserialize)]
@@ -175,7 +175,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
 fn handle_workspace_discover() -> Result<Value> {
     // Run full discovery using the actual discovery engine
     let discovered = crate::commands::discover::run()?;
-    
+
     Ok(json!({
         "content": [
             {
@@ -187,55 +187,51 @@ fn handle_workspace_discover() -> Result<Value> {
 }
 
 fn handle_manifest_validate(arguments: &Value) -> Result<Value> {
-    let content = arguments["manifest"].as_str().context("Missing manifest content")?;
-    
+    let content = arguments["manifest"]
+        .as_str()
+        .context("Missing manifest content")?;
+
     match Manifest::parse(content) {
-        Ok(manifest) => {
-            match manifest.validate() {
-                Ok(_) => {
-                    Ok(json!({
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "Manifest is valid."
-                            }
-                        ]
-                    }))
-                }
-                Err(e) => {
-                    Ok(json!({
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": format!("Validation failed:\n{}", e)
-                            }
-                        ],
-                        "isError": true
-                    }))
-                }
-            }
-        }
-        Err(e) => {
-            Ok(json!({
+        Ok(manifest) => match manifest.validate() {
+            Ok(_) => Ok(json!({
                 "content": [
                     {
                         "type": "text",
-                        "text": format!("Parsing failed:\n{}", e)
+                        "text": "Manifest is valid."
+                    }
+                ]
+            })),
+            Err(e) => Ok(json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": format!("Validation failed:\n{}", e)
                     }
                 ],
                 "isError": true
-            }))
-        }
+            })),
+        },
+        Err(e) => Ok(json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": format!("Parsing failed:\n{}", e)
+                }
+            ],
+            "isError": true
+        })),
     }
 }
 
 fn handle_manifest_apply(arguments: &Value) -> Result<Value> {
-    let content = arguments["manifest"].as_str().context("Missing manifest content")?;
+    let content = arguments["manifest"]
+        .as_str()
+        .context("Missing manifest content")?;
     let run_gen = arguments["run_gen"].as_bool().unwrap_or(true);
-    
+
     // 1. Write to disk
     std::fs::write("manifest.toml", content)?;
-    
+
     let mut response_text = "Manifest written to manifest.toml.".to_string();
 
     // 2. Optionally run gen
@@ -260,7 +256,7 @@ fn handle_manifest_apply(arguments: &Value) -> Result<Value> {
 
 fn handle_migration_execute(arguments: &Value) -> Result<Value> {
     let tasks: Vec<MigrationTask> = serde_json::from_value(arguments["tasks"].clone())?;
-    
+
     // Create a plan from tasks. Discovery results are empty here as we are executing
     // pre-defined tasks from the AI.
     let plan = MigrationPlan {
@@ -274,7 +270,7 @@ fn handle_migration_execute(arguments: &Value) -> Result<Value> {
     };
 
     let report = crate::commands::migrate::execute(&plan, false)?;
-    
+
     let mut text = format!("Migration completed with {} steps.", report.completed.len());
     if !report.errors.is_empty() {
         text.push_str(&format!("\nErrors:\n{}", report.errors.join("\n")));

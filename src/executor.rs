@@ -285,7 +285,9 @@ impl ParallelExecutor {
                         let should_run = {
                             let states_guard = states.lock().await;
 
-                            let Some(dep_task) = tasks.get(dep_id) else { continue; };
+                            let Some(dep_task) = tasks.get(dep_id) else {
+                                continue;
+                            };
                             let all_deps_done = dep_task
                                 .dependencies
                                 .iter()
@@ -327,7 +329,9 @@ impl ParallelExecutor {
                                 pb.set_style(
                                     ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
                                         .unwrap()
-                                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+                                        .tick_strings(&[
+                                            "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+                                        ]),
                                 );
                                 pb.set_message(format!("Compiling {}", captured_id));
                                 pb.enable_steady_tick(std::time::Duration::from_millis(80));

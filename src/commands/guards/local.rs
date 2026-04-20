@@ -106,15 +106,15 @@ pub fn check_allow(cmd: &str) -> Result<bool> {
     }
 
     let manifest = Manifest::load(manifest_path)?;
-    
+
     // Check local allow list
     if manifest.guards.allow.iter().any(|c| c == cmd) {
         return Ok(true);
     }
 
     // Check if the command is not even in the deny/wrap lists
-    let is_guarded = manifest.guards.deny.contains(&cmd.to_string()) || 
-                    manifest.guards.wrap.contains_key(cmd);
+    let is_guarded =
+        manifest.guards.deny.contains(&cmd.to_string()) || manifest.guards.wrap.contains_key(cmd);
 
     // Also check global config if not explicitly guarded locally
     if !is_guarded {
@@ -137,6 +137,8 @@ pub fn check_docker() -> Result<()> {
 }
 
 fn is_inside_docker() -> bool {
-    Path::new("/.dockerenv").exists() || 
-    fs::read_to_string("/proc/1/cgroup").map(|s| s.contains("docker")).unwrap_or(false)
+    Path::new("/.dockerenv").exists()
+        || fs::read_to_string("/proc/1/cgroup")
+            .map(|s| s.contains("docker"))
+            .unwrap_or(false)
 }

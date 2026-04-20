@@ -24,7 +24,12 @@ impl Manifest {
 
         // 0b. Workspace Validation
         let known_pms = ["pnpm", "npm", "yarn", "bun"];
-        let pm_base = self.workspace.package_manager.split('@').next().unwrap_or("");
+        let pm_base = self
+            .workspace
+            .package_manager
+            .split('@')
+            .next()
+            .unwrap_or("");
         if !self.workspace.package_manager.is_empty() && !known_pms.contains(&pm_base) {
             errors.push(format!(
                 "workspace.package_manager \"{}\" is unknown. Supported: pnpm, npm, yarn, bun",

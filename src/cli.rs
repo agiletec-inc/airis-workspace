@@ -288,9 +288,7 @@ pub enum Commands {
     },
 
     /// Restart Docker services
-    Restart {
-        service: Option<String>,
-    },
+    Restart { service: Option<String> },
 
     /// Docker network management
     Network {
@@ -424,7 +422,9 @@ pub enum GuardsCommands {
     },
     Verify,
     #[command(name = "check-allow")]
-    CheckAllow { cmd: String },
+    CheckAllow {
+        cmd: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -522,9 +522,15 @@ pub enum NewCommands {
         #[arg(short, long, default_value = "ts")]
         runtime: String,
     },
-    Edge { name: String },
+    Edge {
+        name: String,
+    },
     #[command(name = "supabase-trigger")]
-    SupabaseTrigger { name: String },
+    SupabaseTrigger {
+        name: String,
+    },
     #[command(name = "supabase-realtime")]
-    SupabaseRealtime { name: String },
+    SupabaseRealtime {
+        name: String,
+    },
 }

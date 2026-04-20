@@ -29,10 +29,7 @@ pub(super) fn generate_native_hooks() -> Result<()> {
             .with_context(|| "Failed to set .airis/hooks/pre-push permissions")?;
     }
 
-    println!(
-        "   {} Updated .airis/hooks/ implementation",
-        "🔒".green()
-    );
+    println!("   {} Updated .airis/hooks/ implementation", "🔒".green());
 
     Ok(())
 }

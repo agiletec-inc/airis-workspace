@@ -3,7 +3,7 @@
 //! All defaults are derived from framework + environment, never hardcoded
 //! at call sites. Manifest fields override these conventions.
 
-/// Framework-specific default values.
+/// Framework-specific default values and Docker volume conventions.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct FrameworkDefaults {
@@ -17,6 +17,11 @@ pub struct FrameworkDefaults {
     pub docker_env: &'static [(&'static str, &'static str)],
     /// Convention scripts for package.json (e.g., dev, build, start, lint, typecheck)
     pub default_scripts: &'static [(&'static str, &'static str)],
+    /// Build output directories that must be isolated in Docker (project-local named volumes)
+    pub isolated_dirs: &'static [&'static str],
+    /// Global caches that should be shared across projects (workspace-wide named volumes)
+    /// Format: [("volume_id", "mount_path")]
+    pub global_caches: &'static [(&'static str, &'static str)],
 }
 
 /// Lookup framework defaults. Pure lookup table, no IO.
@@ -37,6 +42,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("lint", "biome check ."),
                 ("typecheck", "tsc --noEmit"),
             ],
+            isolated_dirs: &[".next", ".turbo", "node_modules/.cache"],
+            global_caches: &[],
         },
         "react-vite" | "vite" => FrameworkDefaults {
             port: 5173,
@@ -51,6 +58,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("build", "vite build"),
                 ("typecheck", "tsc --noEmit"),
             ],
+            isolated_dirs: &["dist", ".turbo", "node_modules/.cache"],
+            global_caches: &[],
         },
         "hono" => FrameworkDefaults {
             port: 3000,
@@ -67,6 +76,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("lint", "biome check ."),
                 ("typecheck", "tsc --noEmit"),
             ],
+            isolated_dirs: &["dist", "node_modules/.cache"],
+            global_caches: &[],
         },
         "node" => FrameworkDefaults {
             port: 3000,
@@ -81,6 +92,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("dev", "tsup --watch"),
                 ("typecheck", "tsc --noEmit"),
             ],
+            isolated_dirs: &["dist", "node_modules/.cache"],
+            global_caches: &[],
         },
         "cloudflare-worker" => FrameworkDefaults {
             port: 8787,
@@ -95,6 +108,23 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("deploy", "wrangler deploy"),
                 ("deploy:staging", "wrangler deploy --env staging"),
             ],
+            isolated_dirs: &[".wrangler", "dist", ".turbo"],
+            global_caches: &[],
+        },
+        "pnpm" => FrameworkDefaults {
+            port: 0,
+            health_path: "",
+            entrypoint: "",
+            dev_script: "",
+            build_script: "",
+            start_script: "",
+            docker_env: &[
+                ("PNPM_HOME", "/root/.local/share/pnpm"),
+                ("PATH", "/root/.local/share/pnpm:$PATH"),
+            ],
+            default_scripts: &[],
+            isolated_dirs: &["node_modules"],
+            global_caches: &[("pnpm-store", "/root/.local/share/pnpm/store")],
         },
         "rust" => FrameworkDefaults {
             port: 3000,
@@ -108,19 +138,34 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("dev", "cargo watch -x run"),
                 ("build", "cargo build --release"),
             ],
+            isolated_dirs: &["target"],
+            global_caches: &[("cargo-registry", "/usr/local/cargo/registry")],
         },
         "python" => FrameworkDefaults {
             port: 8000,
             health_path: "/health",
             entrypoint: "main.py",
-            dev_script: "uvicorn main:app --reload",
+            dev_script: "python main.py",
             build_script: "echo 'no build step'",
-            start_script: "uvicorn main:app",
-            docker_env: &[],
-            default_scripts: &[
-                ("dev", "uvicorn main:app --reload"),
-                ("start", "uvicorn main:app"),
+            start_script: "python main.py",
+            docker_env: &[
+                ("PYTHONUNBUFFERED", "1"),
+                ("UV_CACHE_DIR", "/root/.cache/uv"),
             ],
+            default_scripts: &[
+                ("dev", "python main.py"),
+                ("test", "pytest"),
+                ("lint", "ruff check ."),
+                ("format", "ruff format ."),
+            ],
+            isolated_dirs: &[
+                ".venv",
+                "__pycache__",
+                ".ruff_cache",
+                ".mypy_cache",
+                ".pytest_cache",
+            ],
+            global_caches: &[("uv-cache", "/root/.cache/uv")],
         },
         // Unknown framework: sensible defaults
         _ => FrameworkDefaults {
@@ -132,6 +177,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             start_script: "node dist/index.js",
             docker_env: &[],
             default_scripts: &[],
+            isolated_dirs: &["dist", "build", "node_modules/.cache"],
+            global_caches: &[],
         },
     }
 }
