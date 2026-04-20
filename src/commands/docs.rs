@@ -141,9 +141,9 @@ pub fn list() -> Result<()> {
 fn ensure_manifest_exists(manifest_path: &Path) -> Result<()> {
     if !manifest_path.exists() {
         bail!(
-            "❌ {} not found. Run {} first.",
+            "❌ {} not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
             MANIFEST_FILE.bold(),
-            "airis init".bold()
+            "/airis:init".bold()
         );
     }
     Ok(())

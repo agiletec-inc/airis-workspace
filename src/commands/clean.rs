@@ -19,8 +19,9 @@ use crate::safe_fs::{SafeAction, SafeFS};
 /// * `dry_run` - If true, only show what would be deleted without deleting
 /// * `purge` - If true, also remove legacy/orphaned config files
 pub fn run(dry_run: bool, purge: bool) -> Result<()> {
-    let manifest = Manifest::load(MANIFEST_FILE)
-        .with_context(|| "Failed to load manifest.toml. Run 'airis init' first.")?;
+    let manifest = Manifest::load(MANIFEST_FILE).with_context(|| {
+        "Failed to load manifest.toml. Create one (see docs/manifest.md) or use /airis:init via Claude Code."
+    })?;
 
     let safe_fs = SafeFS::current(dry_run)?;
 

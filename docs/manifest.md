@@ -154,9 +154,9 @@ traefik = "traefik/docker-compose.yml"
 ```
 
 **Auto-Detection**:
-- `airis init` automatically detects existing docker-compose.yml files
+- The `workspace_init` MCP tool (invoked via `/airis:init` in Claude Code) detects existing docker-compose.yml files
 - Generates this section based on discovered locations
-- Safely moves files to optimal locations (workspace/, supabase/, traefik/)
+- `migration_execute` MCP tool moves files to optimal locations (workspace/, supabase/, traefik/)
 
 ---
 
@@ -308,7 +308,7 @@ features = ["docker-first-guard", "type-specific-commands"]
 
 ## Auto-Migration Workflow
 
-When you run `airis init` on an existing project:
+When Claude Code calls `workspace_init` on an existing project:
 
 1. **Discovery Phase**
    - Scans `apps/` and `libs/` directories
@@ -435,10 +435,10 @@ source = "1.1.0"
 ## Commands
 
 ### Initialize/Migrate Project
-```bash
-airis init              # Auto-detect and generate manifest.toml
-airis init --force      # Skip confirmation prompts
-```
+Run `/airis:init` inside Claude Code (or invoke the `workspace_init` MCP tool
+directly). The LLM scans the repository and proposes a `manifest.toml` that
+preserves comments and formatting — something a TOML re-serializer cannot do.
+There is no `airis init` CLI entry point.
 
 ### Resolve Dependencies
 ```bash

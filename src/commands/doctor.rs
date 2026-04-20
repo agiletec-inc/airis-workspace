@@ -41,7 +41,7 @@ pub fn run_truth(json_output: bool) -> Result<()> {
     if !manifest_path.exists() {
         anyhow::bail!(
             "manifest.toml not found.\n\n\
-             Hint: Run `airis init` to create one.\n\
+             Hint: Create one (see docs/manifest.md) or ask Claude Code via /airis:init.\n\
              This command requires an airis workspace."
         );
     }
@@ -92,7 +92,7 @@ pub fn run(fix: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
     if !manifest_path.exists() {
         println!("{}", "❌ manifest.toml not found".red());
-        println!("   Run `airis init` to create one.");
+        println!("   Create one (see docs/manifest.md) or ask Claude Code via /airis:init.");
         return Ok(());
     }
 

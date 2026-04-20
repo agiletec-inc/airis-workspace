@@ -33,7 +33,6 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
             "-f",
             "supabase/docker-compose.yml",
             "exec",
-            
             "db",
             "pg_isready",
             "-U",
@@ -86,7 +85,7 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
     println!("{}", "📝 Next steps:".bright_yellow());
     println!("  1. Check generated types in {}", output);
     println!("  2. Import types in your application");
-    println!("  3. Run `airis init` to update workspace configuration");
+    println!("  3. Run `airis gen` to update workspace configuration");
 
     Ok(())
 }

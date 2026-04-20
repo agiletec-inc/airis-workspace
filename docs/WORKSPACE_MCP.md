@@ -1,392 +1,135 @@
-# airis-workspace-mcp Design
+# airis-workspace MCP Server
 
-**Status**: Design Proposal
-**Author**: Claude + Kazuki
-**Date**: 2025-11-20
+**Status**: Implemented (as the `airis mcp` stdio subcommand)
+**Last updated**: 2026-04-20
 
 ---
 
 ## Vision
 
-**現在の問題:**
-- プラグインに実装ロジックが散在
-- 人間が CLI で叩く処理と LLM が実行する処理が分離
-- airis-agent が直接ファイル操作をしている（責務の混在）
+Expose workspace-management capabilities as MCP tools so that LLM agents (Claude
+Code, Cursor, any MCP-aware client) can drive repo scaffolding, manifest
+authoring, and verification with the same primitives humans use on the CLI —
+without a second language runtime or an intermediate Python wrapper.
 
-**解決策:**
-- **airis-workspace-mcp** を作る
-- CLI の本体ロジックを MCP ツールとして公開
-- LLM が `uvx` 経由で CLI を"仮想的に"叩けるようにする
+The stdio MCP server ships inside the Rust `airis` binary. There is **no
+separate `airis-workspace-mcp` package** and **no `airis-agent` Python service**
+in this design. Earlier drafts proposed both; both were dropped after the
+functionality they were reaching for was absorbed elsewhere.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────┐
-│  Human                    LLM (Claude)      │
-├─────────────────────────────────────────────┤
-│  $ airis init             call tool         │
-│  $ airis validate         "workspace_init"  │
-│  $ airis sync             "workspace_sync"  │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│      airis-workspace-mcp (薄いラッパー)      │
-├─────────────────────────────────────────────┤
-│  • MCP Server (Python or Rust)              │
-│  • subprocess.run(["airis", "init"])        │
-│  • または Rust ライブラリを直呼び出し        │
-└─────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────┐
-│     airis-workspace (Rust CLI/Library)      │
-├─────────────────────────────────────────────┤
-│  • 本体ロジック                              │
-│  • manifest.toml 解析                        │
-│  • テンプレート生成                          │
-│  • バリデーション                            │
-│  • guards チェック                           │
-└─────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  Human on CLI            LLM via MCP            │
+│  ───────────────────     ─────────────────────  │
+│  $ airis gen             call "workspace_gen"   │
+│  $ airis verify          call "workspace_verify"│
+│                          call "workspace_init"  │
+└─────────────────────────────────────────────────┘
+                    ↓               ↓
+┌─────────────────────────────────────────────────┐
+│  airis (single Rust binary)                     │
+│  ───────────────────────────────────────────    │
+│  • CLI entry (clap)                             │
+│  • `airis mcp` stdio JSON-RPC server            │
+│  • Shared handlers: discover, generate, doctor, │
+│    verify, validate, migrate                    │
+└─────────────────────────────────────────────────┘
 ```
+
+The MCP handler for side-effectful tools (`workspace_gen/verify/doctor/...`)
+spawns the current binary as a subprocess so the CLI's stdout noise cannot
+contaminate the stdio protocol on the MCP server's own stdout.
 
 ---
 
-## Responsibilities
+## Responsibility split
 
-### airis-workspace (Rust CLI)
-**責務:** モノレポ管理ロジックの本体
+| Concern | Owner |
+|--------|-------|
+| `manifest.toml` → deterministic files (package.json, pnpm-workspace.yaml, CI, compose.yaml) | Rust CLI (`airis gen`) |
+| Discovery of legacy repo layout + proposing a fresh `manifest.toml` | MCP tool `workspace_init` (invoked by LLM) |
+| Format-preserving edits to `manifest.toml` (catalog merges, comment retention) | LLM text-editing; there is no TOML re-serializer in the CLI path |
+| Command-guard enforcement, hook wiring | Rust CLI (`airis guards`, `airis claude setup`) |
+| Cross-server routing, confidence checks, repo-index, suggest | `airis-mcp-gateway` (separate repository; already integrates these) |
 
-- `airis init` - プロジェクト初期化
-- `airis validate` - 検証
-- `airis workspace sync` - 依存関係同期
-- `airis generate types` - 型定義生成
-- `airis bump-version` - バージョン管理
-
-### airis-workspace-mcp
-**責務:** CLI を MCP ツールとして公開する薄いラッパー
-
-**ツール一覧:**
-- `workspace_init` → `airis init --no-snapshot`
-- `workspace_validate_all` → `airis validate all`
-- `workspace_validate_manifest` → `airis validate manifest`
-- `workspace_validate_deps` → `airis validate deps`
-- `workspace_validate_arch` → `airis validate arch`
-- `workspace_sync` → `airis workspace sync`
-- `workspace_generate_types` → `airis generate types`
-- `workspace_bump_version` → `airis bump-version --auto`
-- `workspace_status` → `airis status`
-- `workspace_doctor` → `airis doctor`
-
-### airis-agent (MCP)
-**責務:** 思考・プランニング・オーケストレーション
-
-- リポジトリの状態解析
-- 「こういう変更が必要」と判断
-- **実行は airis-workspace-mcp のツールを呼ぶ**
-
-### プラグイン (airis-agent-plugin)
-**責務:** UX層、ボタンのラベルだけ
-
-- `/airis:init` - 初期化コマンド
-- `/airis:analyze` - 解析コマンド
-- `/airis:fix-workspace` - 修正コマンド
-
-**中身:**
-```markdown
-# /airis:init の実装例
-
-1. airis-agent MCP の `analyze_workspace` を呼ぶ
-2. 必要な変更を計画
-3. airis-workspace-mcp の `workspace_init` を呼ぶ
-4. 結果を報告
-```
+The `airis-mcp-gateway` handles "thinking-layer" meta-tools (`airis-confidence`,
+`airis-suggest`, `airis-repo-index`, `airis-exec`, `airis-find`). This server
+only handles workspace mutations and reads — it is deliberately single-purpose.
 
 ---
 
-## MCP Definition
+## Tools
+
+Returned by `tools/list` (see `src/commands/mcp/mod.rs`):
+
+| Tool | Purpose |
+|------|---------|
+| `workspace_init` | Scan the repo, propose a `manifest.toml` covering apps/libs/compose/catalog. Read-only. |
+| `workspace_discover` | Raw discovery facts as JSON (inputs used by `workspace_init`). Read-only. |
+| `workspace_cleanup` | List legacy compose files and orphan backups that should be removed. Read-only. |
+| `workspace_gen` | Regenerate workspace files from the current `manifest.toml`. Write. |
+| `workspace_validate_all` | Run manifest / ports / networks / env / deps validation. Read-only. |
+| `workspace_doctor` | Diagnose environment drift and suggest fixes. Read-only. |
+| `workspace_verify` | Run `[rule.verify]` commands inside the Docker workspace. Read-only. |
+| `workspace_status` | `docker compose ps` output. Read-only. |
+| `manifest_validate` | Validate a proposed manifest string without writing. Read-only. |
+| `manifest_apply` | Persist a manifest string and (optionally) run `airis gen`. Write. |
+| `migration_execute` | Run a batch of file migration steps proposed by `workspace_init`. Write. |
+
+---
+
+## Running the server
+
+```bash
+airis mcp
+```
+
+This reads JSON-RPC line-framed requests on stdin and writes responses on
+stdout. Logging should go to stderr.
+
+### Gateway registration
+
+Register this server from `airis-mcp-gateway/mcp-config.json`:
 
 ```json
 {
   "mcpServers": {
     "airis-workspace": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "git+https://github.com/agiletec-inc/airis-workspace-mcp",
-        "airis_workspace_mcp"
-      ],
-      "env": {
-        "AIRIS_WORKSPACE_ROOT": "${HOME}/github/airis-workspace"
-      }
+      "command": "airis",
+      "args": ["mcp"],
+      "detect": ["manifest.toml"]
     }
   }
 }
 ```
 
----
-
-## Implementation Options
-
-### Option A: Python MCP Server (推奨)
-
-**メリット:**
-- MCP SDK が充実
-- 開発速度が速い
-- subprocess で CLI を叩くだけなので実装が簡単
-
-**実装例:**
-```python
-from mcp.server import Server
-from mcp.types import Tool
-import subprocess
-import json
-
-server = Server("airis-workspace")
-
-@server.list_tools()
-async def list_tools():
-    return [
-        Tool(
-            name="workspace_init",
-            description="Initialize airis workspace from manifest.toml",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string", "description": "Workspace path"},
-                    "no_snapshot": {"type": "boolean", "default": True}
-                }
-            }
-        )
-    ]
-
-@server.call_tool()
-async def call_tool(name: str, arguments: dict):
-    if name == "workspace_init":
-        path = arguments.get("path", ".")
-        cmd = ["airis", "init"]
-        if arguments.get("no_snapshot"):
-            cmd.append("--no-snapshot")
-
-        result = subprocess.run(
-            cmd,
-            cwd=path,
-            capture_output=True,
-            text=True
-        )
-
-        return {
-            "content": [
-                {
-                    "type": "text",
-                    "text": result.stdout or result.stderr
-                }
-            ]
-        }
-```
-
-### Option B: Rust MCP Server
-
-**メリット:**
-- airis-workspace のライブラリを直接呼び出せる
-- 型安全
-- パフォーマンス
-
-**デメリット:**
-- MCP SDK がまだ experimental
-- 開発コストが高い
-
-**実装例:**
-```rust
-use mcp_server::{Server, Tool};
-use airis_workspace::commands;
-
-#[tokio::main]
-async fn main() {
-    let server = Server::new("airis-workspace");
-
-    server.add_tool(Tool {
-        name: "workspace_init".into(),
-        description: "Initialize workspace".into(),
-        input_schema: json!({
-            "type": "object",
-            "properties": {
-                "path": {"type": "string"}
-            }
-        }),
-        handler: |args| {
-            let path = args.get("path").unwrap();
-            commands::init::run(path)?;
-            Ok(json!({"status": "ok"}))
-        }
-    });
-
-    server.run().await;
-}
-```
+The gateway's Dynamic MCP mode keeps `airis-workspace` cold and starts it on
+demand when an agent calls `airis-exec airis-workspace:workspace_init` (or any
+other tool from this server).
 
 ---
 
-## Implementation Roadmap
+## Non-goals
 
-### Phase 1: MVP (Python MCP Server)
-
-**Goal:** 最小限の動作確認
-
-1. **airis-workspace-mcp リポジトリ作成**
-   ```bash
-   mkdir airis-workspace-mcp
-   cd airis-workspace-mcp
-   uv init
-   ```
-
-2. **最小限のツール実装**
-   - `workspace_init` だけ実装
-   - subprocess で `airis init` を叩く
-
-3. **ローカルでテスト**
-   ```bash
-   uvx --from . airis_workspace_mcp
-   ```
-
-4. **airis-agent から呼び出しテスト**
-   - airis-agent の tool call で workspace_init を呼ぶ
-   - 正しく実行されることを確認
-
-### Phase 2: 主要ツールの追加
-
-**Goal:** よく使うコマンドを網羅
-
-- `workspace_validate_all`
-- `workspace_status`
-- `workspace_doctor`
-
-### Phase 3: プラグインのリファクタリング
-
-**Goal:** ロジックを全部 MCP に移す
-
-1. **airis-agent-plugin から実装を削除**
-   - プロンプトだけ残す
-   - 中身は MCP ツール呼び出しに変更
-
-2. **動作確認**
-   - `/airis:init` が正しく動く
-   - 実装は airis-workspace-mcp に移っている
-
-### Phase 4: Rust 版の検討 (Optional)
-
-**Goal:** パフォーマンス最適化
-
-- ライブラリ呼び出しに切り替え
-- subprocess オーバーヘッド削減
+- **No Python wrapper.** Earlier drafts proposed `airis-workspace-mcp` as a
+  `uvx`-installed Python MCP server that shells out to `airis`. That extra hop
+  buys nothing — the Rust binary already speaks MCP directly.
+- **No `airis-agent` service.** The "think, then act" split it represented is
+  handled today by the gateway (confidence/suggest/repo-index) and the LLM
+  itself editing files. Keeping a third service would only re-introduce
+  responsibility overlap.
+- **No manifest re-serialization in Rust.** Comment and formatting preservation
+  under TOML re-serialization is a known lossy operation; leaving manifest
+  edits to the LLM's text editor avoids it entirely.
 
 ---
 
-## Benefits
+## See also
 
-### 1. 責務の明確化
-
-```
-思考・判断     → airis-agent (MCP)
-実際の作業     → airis-workspace-mcp
-本体ロジック   → airis-workspace (Rust CLI)
-UX            → プラグイン
-```
-
-### 2. 実装の一元化
-
-- CLI と MCP で同じロジックを使う
-- バグ修正が一箇所で済む
-- 機能追加も一箇所
-
-### 3. 人間と LLM で同じツールを使う
-
-```bash
-# 人間
-$ airis init
-
-# LLM
-call tool "workspace_init"
-```
-
-**同じ結果、同じロジック**
-
-### 4. プラグインの軽量化
-
-- ロジックがない = メンテナンス不要
-- プロンプトだけ = 理解しやすい
-- MCP に寄せる = 再利用性が高い
-
----
-
-## Migration Strategy
-
-### Before (現状)
-
-```
-プラグイン (/airis:init)
-  ├─ ロジック実装 (直接ファイル操作)
-  ├─ エラーハンドリング
-  └─ 結果の整形
-
-airis-agent
-  ├─ 思考
-  └─ 直接ファイル操作 (責務混在)
-```
-
-### After (目標)
-
-```
-プラグイン (/airis:init)
-  └─ プロンプトのみ: "airis-workspace-mcp の workspace_init を呼べ"
-
-airis-agent (MCP)
-  ├─ 思考・プランニング
-  └─ tool call "workspace_init"
-
-airis-workspace-mcp (MCP)
-  └─ subprocess.run(["airis", "init"])
-
-airis-workspace (Rust CLI)
-  └─ 本体ロジック
-```
-
----
-
-## Next Steps
-
-1. **Phase 1 の実装開始**
-   - `airis-workspace-mcp` リポジトリ作成
-   - `workspace_init` ツールだけ実装
-   - ローカルでテスト
-
-2. **airis-agent との統合**
-   - airis-agent から workspace_init を呼ぶ
-   - 動作確認
-
-3. **グローバル設定に追加**
-   ```json
-   {
-     "mcpServers": {
-       "airis-workspace": {
-         "command": "uvx",
-         "args": ["--from", "git+https://github.com/agiletec-inc/airis-workspace-mcp", "airis_workspace_mcp"]
-       }
-     }
-   }
-   ```
-
-4. **残りのツールを順次追加**
-
----
-
-## Conclusion
-
-**airis-workspace-mcp** を作ることで：
-
-✅ 責務が明確になる
-✅ 実装が一元化される
-✅ 人間と LLM が同じツールを使える
-✅ プラグインがシンプルになる
-
-**設計と実装が綺麗に揃う** 🚀
+- `docs/airis-init-architecture.md` — how the (now removed) `airis init` CLI
+  flow was replaced by the `workspace_init` MCP tool.
+- `src/commands/mcp/mod.rs` — implementation of this server.

@@ -218,8 +218,8 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         }
 
         bail!(
-            "❌ manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 

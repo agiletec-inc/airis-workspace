@@ -18,8 +18,9 @@ use crate::manifest::{MANIFEST_FILE, Manifest};
 
 /// Install shims in ./bin directory
 pub fn install() -> Result<()> {
-    let manifest = Manifest::load(MANIFEST_FILE)
-        .context("Failed to load manifest.toml. Run 'airis init' first.")?;
+    let manifest = Manifest::load(MANIFEST_FILE).context(
+        "Failed to load manifest.toml. Create one (see docs/manifest.md) or use /airis:init via Claude Code.",
+    )?;
 
     let bin_dir = Path::new("bin");
     fs::create_dir_all(bin_dir).context("Failed to create bin directory")?;

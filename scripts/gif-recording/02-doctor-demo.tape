@@ -16,7 +16,7 @@ Set TypingSpeed 50ms
 
 # Setup: Create a workspace first
 Hide
-Type "cd /tmp && rm -rf airis-doctor-demo && mkdir airis-doctor-demo && cd airis-doctor-demo && airis init > /dev/null 2>&1"
+Type "cd /tmp && rm -rf airis-doctor-demo && mkdir airis-doctor-demo && cd airis-doctor-demo && cp $HOME/.airis/fixtures/manifest.toml . && airis gen > /dev/null 2>&1"
 Enter
 Sleep 500ms
 Show

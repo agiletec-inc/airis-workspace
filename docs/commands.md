@@ -25,7 +25,10 @@ Guide for using the `airis` CLI to safely work within Docker workspaces across y
 ## Setup & Startup
 
 ```bash
-airis init                    # Auto-discover existing projects + create manifest.toml
+# manifest.toml bootstrap:
+#   A) Claude Code: run /airis:init (invokes the workspace_init MCP tool)
+#   B) Write manifest.toml by hand — see docs/manifest.md
+airis gen                     # Generate downstream files from manifest.toml
 airis up                      # Docker-First: Sync configs, install deps, and start services
 airis down                    # Stop all services
 airis shell                   # Enter workspace container shell (/app)
@@ -128,8 +131,8 @@ Centralize dependency versions across all apps. Versions are resolved from the n
 ## Usage Example
 
 ```bash
-# 1. Initial setup
-airis init --write
+# 1. Initial setup: run /airis:init in Claude Code, or hand-write manifest.toml
+airis gen
 
 # 2. Start Docker stack
 airis up

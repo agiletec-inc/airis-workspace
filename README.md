@@ -78,7 +78,10 @@ airis completion zsh > ~/.zsh/completion/_airis
 
 ```bash
 mkdir my-monorepo && cd my-monorepo
-airis init --write     # Auto-discovers frameworks and creates manifest.toml
+# Option A: Let Claude Code scaffold manifest.toml via the workspace_init MCP tool
+#           (use the /airis:init slash command inside Claude Code)
+# Option B: Author manifest.toml by hand — see docs/manifest.md
+airis gen              # Generate package.json, pnpm-workspace.yaml, CI workflows
 airis up               # Sync config, install deps inside Docker, and start services
 ```
 

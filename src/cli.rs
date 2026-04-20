@@ -18,11 +18,15 @@ Doppler, Vercel, Railway — all your choice. airis handles the Docker layer tha
 those tools leave to you.")]
 #[command(after_help = "\
 QUICK REFERENCE:
-  airis init --write        Analyze project and create manifest.toml
+  airis gen                 Regenerate workspace files from manifest.toml
   airis up                  Docker-First: Sync config, install deps, and start dev server
   airis down                Stop all services
   airis shell               Enter workspace container shell
   airis doctor              Diagnose and fix workspace issues
+
+BOOTSTRAPPING:
+  Create manifest.toml (see docs/manifest.md) or ask Claude Code via /airis:init
+  (MCP tool workspace_init). Then run `airis gen && airis up`.
 
 CONFIG: All commands are defined in manifest.toml [commands] section.
   airis run <task>          Execute any command (e.g., test, lint, build)
@@ -53,13 +57,6 @@ pub enum TestLevel {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize workspace by discovering projects and creating manifest.toml.
-    Init {
-        /// Actually write generated files
-        #[arg(long)]
-        write: bool,
-    },
-
     /// Query MANIFEST.toml data (used by justfile)
     Manifest {
         #[command(subcommand)]

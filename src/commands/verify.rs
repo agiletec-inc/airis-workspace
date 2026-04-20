@@ -46,7 +46,11 @@ pub fn run() -> Result<()> {
         for cmd in &verify_rule.commands {
             // If it's a 'cargo' or 'just' command, we might be able to run it on host as fallback
             if !can_exec {
-                println!("{} Skipping runtime check (container offline): {}", "⏭️".yellow(), cmd.dimmed());
+                println!(
+                    "{} Skipping runtime check (container offline): {}",
+                    "⏭️".yellow(),
+                    cmd.dimmed()
+                );
                 continue;
             }
             if !run_verify_command(&container_name, cmd)? {
@@ -83,7 +87,11 @@ pub fn run() -> Result<()> {
             let app_path = app.path.as_deref().unwrap_or(".");
             for cmd in commands {
                 if !can_exec {
-                    println!("   {} Skipping check (container offline): {}", "⏭️".yellow(), cmd.dimmed());
+                    println!(
+                        "   {} Skipping check (container offline): {}",
+                        "⏭️".yellow(),
+                        cmd.dimmed()
+                    );
                     continue;
                 }
                 // Execute in the app's directory
@@ -93,7 +101,6 @@ pub fn run() -> Result<()> {
                 }
             }
         }
-
     }
 
     println!();

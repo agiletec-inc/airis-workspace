@@ -120,7 +120,7 @@ fn run_json(action: ValidateAction) -> Result<()> {
         ValidateAction::Manifest => vec![(
             "manifest",
             Box::new(|| validate_manifest_impl(true)) as Box<dyn Fn() -> Result<()>>,
-            "Run `airis init` to regenerate manifest.toml",
+            "Regenerate via /airis:init (Claude Code) or edit manifest.toml manually",
         )],
         ValidateAction::Ports => vec![(
             "ports",
@@ -146,7 +146,7 @@ fn run_json(action: ValidateAction) -> Result<()> {
             (
                 "manifest",
                 Box::new(|| validate_manifest_impl(true)) as Box<dyn Fn() -> Result<()>>,
-                "Run `airis init` to regenerate",
+                "Regenerate via /airis:init (Claude Code) or edit manifest.toml manually",
             ),
             (
                 "ports",
