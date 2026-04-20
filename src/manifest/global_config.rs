@@ -126,6 +126,19 @@ fn default_claude_source() -> String {
     "~/.airis/claude".to_string()
 }
 
+/// Strategy for backing up files before modification
+#[derive(Debug, Deserialize, Serialize, Clone, Default, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackupStrategy {
+    /// Never backup, just overwrite (hard mode)
+    #[default]
+    None,
+    /// Backup to .airis/backups/ (legacy mode)
+    Backup,
+    /// Check if git is clean before overwriting, fail/warn if dirty
+    GitCheck,
+}
+
 /// Global configuration stored in ~/.airis/global-config.toml
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct GlobalConfig {
@@ -135,6 +148,9 @@ pub struct GlobalConfig {
     pub guards: GlobalGuardsSection,
     #[serde(default)]
     pub claude: GlobalClaudeSection,
+    /// Strategy for backups during 'airis gen'
+    #[serde(default)]
+    pub backup_strategy: BackupStrategy,
 }
 
 impl Default for GlobalConfig {
@@ -143,6 +159,7 @@ impl Default for GlobalConfig {
             version: 1,
             guards: GlobalGuardsSection::default(),
             claude: GlobalClaudeSection::default(),
+            backup_strategy: BackupStrategy::default(),
         }
     }
 }
