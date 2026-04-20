@@ -79,12 +79,11 @@ pub(super) fn resolve_package_data(
             match crate::import_scanner::scan_imports(&full_path, workspace_scope) {
                 Ok(scanned) => {
                     for pkg in &scanned.external {
-                        if !final_deps.contains_key(pkg) {
-                            if resolved_catalog.contains_key(pkg) {
-                                final_deps.insert(pkg.clone(), "catalog:".to_string());
-                            } else if matches_wildcard_catalog(pkg, &wildcard_patterns) {
-                                final_deps.insert(pkg.clone(), "catalog:".to_string());
-                            }
+                        if !final_deps.contains_key(pkg)
+                            && (resolved_catalog.contains_key(pkg)
+                                || matches_wildcard_catalog(pkg, &wildcard_patterns))
+                        {
+                            final_deps.insert(pkg.clone(), "catalog:".to_string());
                         }
                     }
                     // Workspace deps

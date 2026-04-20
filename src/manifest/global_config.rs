@@ -22,8 +22,10 @@ pub enum GuardLevel {
 /// Predefined guard presets
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum GuardPreset {
     /// Package managers guarded, Docker untouched. Recommended for most.
+    #[default]
     Balanced,
     /// Everything guarded strictly. Best for maximum AI protection.
     Strict,
@@ -31,14 +33,8 @@ pub enum GuardPreset {
     Permissive,
 }
 
-impl Default for GuardPreset {
-    fn default() -> Self {
-        GuardPreset::Balanced
-    }
-}
-
 /// Global guards configuration
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct GlobalGuardsSection {
     /// Selected preset for guard behavior
     #[serde(default)]
@@ -47,15 +43,6 @@ pub struct GlobalGuardsSection {
     /// Individual command overrides (command_name -> level)
     #[serde(default)]
     pub overrides: HashMap<String, GuardLevel>,
-}
-
-impl Default for GlobalGuardsSection {
-    fn default() -> Self {
-        GlobalGuardsSection {
-            preset: GuardPreset::default(),
-            overrides: HashMap::new(),
-        }
-    }
 }
 
 impl GlobalGuardsSection {

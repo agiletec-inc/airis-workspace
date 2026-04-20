@@ -43,12 +43,11 @@ fn check_and_cache_latest() -> Result<()> {
     fs::create_dir_all(&cache_dir)?;
 
     // Check interval: 12 hours
-    if let Ok(metadata) = fs::metadata(&cache_path) {
-        if let Ok(modified) = metadata.modified() {
-            if modified.elapsed().map(|e| e.as_secs()).unwrap_or(0) < 43200 {
-                return Ok(());
-            }
-        }
+    if let Ok(metadata) = fs::metadata(&cache_path)
+        && let Ok(modified) = metadata.modified()
+        && modified.elapsed().map(|e| e.as_secs()).unwrap_or(0) < 43200
+    {
+        return Ok(());
     }
 
     let latest = fetch_latest_version()?;
@@ -73,20 +72,19 @@ pub fn print_notification() {
         _ => return,
     };
 
-    if let Ok(content) = fs::read_to_string(cache_path) {
-        if let Ok(cache) = serde_json::from_str::<serde_json::Value>(&content) {
-            if cache["has_update"].as_bool().unwrap_or(false) {
-                let latest = cache["latest"].as_str().unwrap_or("unknown");
-                println!();
-                println!(
-                    "{}  {} v{} is available! Run {} to update.",
-                    "✨".yellow(),
-                    "airis".bold(),
-                    latest.green(),
-                    "airis upgrade".cyan()
-                );
-            }
-        }
+    if let Ok(content) = fs::read_to_string(cache_path)
+        && let Ok(cache) = serde_json::from_str::<serde_json::Value>(&content)
+        && cache["has_update"].as_bool().unwrap_or(false)
+    {
+        let latest = cache["latest"].as_str().unwrap_or("unknown");
+        println!();
+        println!(
+            "{}  {} v{} is available! Run {} to update.",
+            "✨".yellow(),
+            "airis".bold(),
+            latest.green(),
+            "airis upgrade".cyan()
+        );
     }
 }
 

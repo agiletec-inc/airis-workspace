@@ -88,33 +88,13 @@ impl MigrationReport {
     }
 }
 
-/// Create a migration plan from discovery results
+/// Create a migration plan from discovery results.
+///
+/// Since 4.0.1 the plan only emits `GenerateManifest`. Legacy compose files
+/// stay at the repo root (or get cleaned via `airis clean --purge`), and
+/// `airis gen` materializes `compose.yaml` afterwards.
 pub fn plan(discovery: DiscoveryResult) -> Result<MigrationPlan> {
-    let mut tasks = Vec::new();
-
-    // Check if workspace/ directory needs to be created (Legacy check, maybe skip?)
-    // (Workspace dir is still used for other things, but not for the main compose file)
-
-    // Plan moves for root docker-compose.yml (Legacy: we used to move them to workspace/)
-    // NOW: We keep them at root (or purge them later) and let airis gen create compose.yaml
-    /*
-    for compose in &discovery.compose_files {
-        if compose.location == ComposeLocation::Root {
-            let target = "workspace/docker-compose.yml";
-            // Only plan the move if target doesn't already exist
-            if !Path::new(target).exists() {
-                tasks.push(MigrationTask::MoveFile {
-                    from: compose.path.clone(),
-                    to: target.to_string(),
-                });
-            }
-        }
-    }
-    */
-
-    // Always generate manifest.toml (this is the main goal)
-    tasks.push(MigrationTask::GenerateManifest);
-
+    let tasks = vec![MigrationTask::GenerateManifest];
     Ok(MigrationPlan { tasks, discovery })
 }
 

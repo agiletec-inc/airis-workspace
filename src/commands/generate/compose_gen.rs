@@ -144,21 +144,21 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
             }
 
             // 2. Override/Extend with user-defined Stack definition
-            if let Some(ref stack_name) = app.use_stack {
-                if let Some(stack_def) = manifest.stack.get(stack_name) {
-                    for dir in &stack_def.artifacts {
-                        let volume_name = format!(
-                            "{}-{}-{}",
-                            project_name,
-                            path.replace('/', "-"),
-                            dir.replace('.', "").replace('/', "-")
-                        );
-                        volumes.insert(volume_name.clone(), ComposeVolume::default());
-                        app_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
-                    }
-                    if stack_def.gpu {
-                        use_gpu = true;
-                    }
+            if let Some(ref stack_name) = app.use_stack
+                && let Some(stack_def) = manifest.stack.get(stack_name)
+            {
+                for dir in &stack_def.artifacts {
+                    let volume_name = format!(
+                        "{}-{}-{}",
+                        project_name,
+                        path.replace('/', "-"),
+                        dir.replace('.', "").replace('/', "-")
+                    );
+                    volumes.insert(volume_name.clone(), ComposeVolume::default());
+                    app_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
+                }
+                if stack_def.gpu {
+                    use_gpu = true;
                 }
             }
 
@@ -220,10 +220,10 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
 
     // Standardize on compose.yaml (Docker Compose V2) at the project root
     let target_path = Path::new("compose.yaml");
-    if let Some(parent) = target_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = target_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
     }
 
     write_with_backup(target_path, &full_content)?;

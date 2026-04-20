@@ -61,23 +61,23 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
 
     let config = crate::manifest::GlobalConfig::load().unwrap_or_default();
     match config.backup_strategy {
-        crate::manifest::BackupStrategy::None => return Ok(()),
+        crate::manifest::BackupStrategy::None => Ok(()),
         crate::manifest::BackupStrategy::GitCheck => {
             // Check if file has uncommitted changes
             let status = std::process::Command::new("git")
                 .args(["status", "--porcelain", &path.to_string_lossy()])
                 .output();
 
-            if let Ok(output) = status {
-                if !output.stdout.is_empty() {
-                    println!(
-                        "   {} {} has uncommitted changes. Overwriting anyway.",
-                        "⚠️".yellow(),
-                        path.display()
-                    );
-                }
+            if let Ok(output) = status
+                && !output.stdout.is_empty()
+            {
+                println!(
+                    "   {} {} has uncommitted changes. Overwriting anyway.",
+                    "⚠️".yellow(),
+                    path.display()
+                );
             }
-            return Ok(());
+            Ok(())
         }
         crate::manifest::BackupStrategy::Backup => {
             let backup_dir = Path::new(".airis/backups");

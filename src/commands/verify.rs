@@ -73,13 +73,12 @@ pub fn run() -> Result<()> {
         }
 
         // Add from user-defined stack (overrides/extends)
-        if let Some(ref stack_name) = app.use_stack {
-            if let Some(stack_def) = manifest.stack.get(stack_name) {
-                if !stack_def.verify.is_empty() {
-                    // If stack defines verify, it takes precedence over conventions
-                    commands = stack_def.verify.clone();
-                }
-            }
+        if let Some(ref stack_name) = app.use_stack
+            && let Some(stack_def) = manifest.stack.get(stack_name)
+            && !stack_def.verify.is_empty()
+        {
+            // If stack defines verify, it takes precedence over conventions
+            commands = stack_def.verify.clone();
         }
 
         if !commands.is_empty() {

@@ -77,10 +77,10 @@ pub fn run(dry_run: bool, purge: bool) -> Result<()> {
         let mut managed_files = vec!["manifest.toml".to_string()];
 
         // Protect the specific compose file defined in orchestration.dev
-        if let Some(dev) = &manifest.orchestration.dev {
-            if let Some(workspace) = &dev.workspace {
-                managed_files.push(workspace.clone());
-            }
+        if let Some(dev) = &manifest.orchestration.dev
+            && let Some(workspace) = &dev.workspace
+        {
+            managed_files.push(workspace.clone());
         }
 
         // Also protect root compose if detected by find_compose_file

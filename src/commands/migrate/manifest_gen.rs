@@ -142,7 +142,7 @@ pub(super) fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<S
     if workspace_compose.is_some() || supabase_compose.is_some() || traefik_compose.is_some() {
         lines.push("[orchestration.dev]".to_string());
 
-        if let Some(_) = workspace_compose {
+        if workspace_compose.is_some() {
             // Always normalize to compose.yaml at root
             lines.push("workspace = \"compose.yaml\"".to_string());
         }
