@@ -71,13 +71,22 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
         "tools/list" => Some(json!({
             "tools": [
                 {
-                    "name": "workspace_discover",
-                    "description": "Scan and analyze the current workspace to detect apps, libraries, docker-compose files, and package catalogs. This is the first step for initializing or migrating a workspace.",
+                    "name": "workspace_init",
+                    "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). Use this to 'fix' or 'upgrade' an existing workspace.",
                     "input_schema": {
                         "type": "object",
                         "properties": {}
                     }
                 },
+                {
+                    "name": "workspace_discover",
+                    "description": "Scan the workspace to detect current structural facts. Useful for gathering context before proposing manual manifest changes.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+
                 {
                     "name": "manifest_validate",
                     "description": "Validate a proposed manifest.toml content without writing it to disk.",
@@ -145,6 +154,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
             let arguments = &params["arguments"];
 
             let tool_result = match name {
+                "workspace_init" => handle_workspace_init()?,
                 "workspace_discover" => handle_workspace_discover()?,
                 "manifest_validate" => handle_manifest_validate(arguments)?,
                 "manifest_apply" => handle_manifest_apply(arguments)?,
@@ -170,6 +180,32 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
         error: None,
         id: request.id,
     })
+}
+
+fn handle_workspace_init() -> Result<Value> {
+    // 1. Scan repo for facts
+    let discovery = crate::commands::discover::run()?;
+
+    // 2. Propose a manifest.toml based on those facts
+    // This logic lives in the discover module or a new generator
+    let proposed_manifest = crate::commands::discover::propose_manifest(&discovery)?;
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": "Proposed manifest.toml based on repository scan:\n\n"
+            },
+            {
+                "type": "text",
+                "text": proposed_manifest
+            },
+            {
+                "type": "text",
+                "text": "\n\nReview this manifest and use 'manifest_apply' to save it and standardize on compose.yaml (V2)."
+            }
+        ]
+    }))
 }
 
 fn handle_workspace_discover() -> Result<Value> {
