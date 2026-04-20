@@ -59,14 +59,37 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let backup_dir = Path::new(".airis/backups");
-    fs::create_dir_all(backup_dir)?;
+    let config = crate::manifest::GlobalConfig::load().unwrap_or_default();
+    match config.backup_strategy {
+        crate::manifest::BackupStrategy::None => return Ok(()),
+        crate::manifest::BackupStrategy::GitCheck => {
+            // Check if file has uncommitted changes
+            let status = std::process::Command::new("git")
+                .args(["status", "--porcelain", &path.to_string_lossy()])
+                .output();
 
-    let path_str = path.to_string_lossy().replace('/', "_");
-    let backup_path = backup_dir.join(format!("{}.latest", path_str));
+            if let Ok(output) = status {
+                if !output.stdout.is_empty() {
+                    println!(
+                        "   {} {} has uncommitted changes. Overwriting anyway.",
+                        "⚠️".yellow(),
+                        path.display()
+                    );
+                }
+            }
+            return Ok(());
+        }
+        crate::manifest::BackupStrategy::Backup => {
+            let backup_dir = Path::new(".airis/backups");
+            fs::create_dir_all(backup_dir)?;
 
-    fs::copy(path, &backup_path)?;
-    Ok(())
+            let path_str = path.to_string_lossy().replace('/', "_");
+            let backup_path = backup_dir.join(format!("{}.latest", path_str));
+
+            fs::copy(path, &backup_path)?;
+            Ok(())
+        }
+    }
 }
 
 pub(super) fn write_with_backup(path: &Path, content: &str) -> Result<()> {

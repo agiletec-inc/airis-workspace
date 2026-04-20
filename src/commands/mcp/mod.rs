@@ -79,6 +79,14 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                     }
                 },
                 {
+                    "name": "workspace_cleanup",
+                    "description": "Scan the workspace for legacy artifacts, orphaned backups, and unneeded temporary files. Use this to maintain environment hygiene after migrations or structural changes. It returns a list of files that should be cleaned up.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
                     "name": "workspace_discover",
                     "description": "Scan the workspace to detect current structural facts. Useful for gathering context before proposing manual manifest changes.",
                     "input_schema": {
@@ -155,6 +163,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
 
             let tool_result = match name {
                 "workspace_init" => handle_workspace_init()?,
+                "workspace_cleanup" => handle_workspace_cleanup()?,
                 "workspace_discover" => handle_workspace_discover()?,
                 "manifest_validate" => handle_manifest_validate(arguments)?,
                 "manifest_apply" => handle_manifest_apply(arguments)?,
@@ -203,6 +212,74 @@ fn handle_workspace_init() -> Result<Value> {
             {
                 "type": "text",
                 "text": "\n\nReview this manifest and use 'manifest_apply' to save it and standardize on compose.yaml (V2)."
+            }
+        ]
+    }))
+}
+
+fn handle_workspace_cleanup() -> Result<Value> {
+    use glob::glob;
+
+    let mut legacy_files = Vec::new();
+
+    // 1. Old compose patterns
+    let patterns = [
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.override.yml",
+        "compose.override.yml",
+        "compose.override.yaml",
+        "workspace/docker-compose.yml",
+        "workspace/docker-compose.yaml",
+        "workspace/compose.yml",
+        "workspace/compose.yaml",
+        "**/docker-compose.yml",
+    ];
+
+    for pattern in patterns {
+        if let Ok(paths) = glob(pattern) {
+            for entry in paths.flatten() {
+                let path_str = entry.to_string_lossy().to_string();
+                // Safety: Skip currently managed root compose
+                if path_str != "compose.yaml" && path_str != "compose.yml" {
+                    legacy_files.push(path_str);
+                }
+            }
+        }
+    }
+
+    // 2. Orphaned backups
+    if let Ok(paths) = glob(".airis/backups/*") {
+        for entry in paths.flatten() {
+            legacy_files.push(entry.to_string_lossy().to_string());
+        }
+    }
+
+    legacy_files.sort();
+    legacy_files.dedup();
+
+    if legacy_files.is_empty() {
+        return Ok(json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": "Workspace is already clean. No legacy artifacts found."
+                }
+            ]
+        }));
+    }
+
+    let list = legacy_files.join("\n");
+    let response = format!(
+        "The following legacy artifacts and unneeded files were found:\n\n{}\n\nYou can use 'migration_execute' to remove these files, or run 'airis clean --purge --force' from the shell.",
+        list
+    );
+
+    Ok(json!({
+        "content": [
+            {
+                "type": "text",
+                "text": response
             }
         ]
     }))
