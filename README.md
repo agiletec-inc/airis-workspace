@@ -47,22 +47,20 @@ airis enforces Docker-first hygiene structurally. Adopting `manifest.toml` as yo
 `manifest.toml` is your **Single Source of Truth**. Every workspace configuration is derived from it:
 - `package.json` (Root & Apps)
 - `pnpm-workspace.yaml`
-- `compose.yml`
+- `compose.yml` (With automatic artifact isolation)
 - `tsconfig.json`
 - CI/CD workflows
 
-No "hybrid" states. No manual sync. If it's not in the manifest, it's not in the environment.
+### 2. True Docker-First Isolation
+airis understands the "hygiene" of your stack. It automatically isolates build artifacts (`node_modules`, `.next`, `target`, `.venv`) in **named volumes**, preventing host-filesystem pollution and ensuring maximum performance on macOS by leveraging Docker-native filesystems.
 
-### 2. AI-Safe Execution
-Airis implements **Command Guards** that intercept dangerous or host-polluting commands (`npm`, `pnpm`, `pip`) and routes them through Docker. It also provides an **MCP Server** that lets AI agents:
-- `workspace_discover`: Analyze repo structure and frameworks.
-- `manifest_apply`: Propose and apply environment changes safely.
-- `migration_execute`: Handle physical file reorganization.
+### 3. AI-Safe Execution & Quality Gates
+Airis implements **Command Guards** that intercept dangerous or host-polluting commands and routes them through Docker. It now includes a mandatory **Verification Gate** (`airis verify`) that enforces quality checks inside Docker before any task is considered complete by AI agents.
 
-### 3. Modern Developer Experience
+### 4. Modern Developer Experience
+- **Stack-Driven Development**: Declare `stack = ["nextjs"]` and airis handles the rest—volumes, verify commands, and environments.
 - **Indicatif Progress**: Beautiful parallel task execution with spinners and progress bars.
 - **Miette Diagnostics**: Rich, colorful error reporting that points to the exact line in your manifest.
-- **Shell Autocompletion**: Tab-completion support for Bash, Zsh, Fish, and PowerShell.
 
 ---
 
