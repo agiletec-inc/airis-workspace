@@ -27,37 +27,91 @@ struct Asset {
     browser_download_url: String,
 }
 
-/// Run upgrade check only
-pub fn run_check() -> Result<()> {
-    println!("{}", "🔍 Checking for updates...".bright_blue());
-    println!();
+use std::time::{SystemTime, UNIX_EPOCH};
 
-    let current = env!("CARGO_PKG_VERSION");
-    let latest = fetch_latest_version()?;
+/// Start a background update check (no output)
+pub fn spawn_check() {
+    std::thread::spawn(|| {
+        let _ = check_and_cache_latest();
+    });
+}
 
-    println!("Current version: {}", current.cyan());
-    println!("Latest version:  {}", latest.cyan());
-    println!();
+/// Check for updates and cache result in ~/.airis/update_cache.json
+fn check_and_cache_latest() -> Result<()> {
+    let cache_dir = dirs::home_dir().context("No home dir")?.join(".airis");
+    let cache_path = cache_dir.join("update_cache.json");
+    fs::create_dir_all(&cache_dir)?;
 
-    if version_gt(&latest, current) {
-        println!(
-            "{}",
-            format!("✨ New version available: {} → {}", current, latest)
-                .green()
-                .bold()
-        );
-        println!();
-        println!("To upgrade, run:");
-        println!("  {}", "airis upgrade".cyan());
-    } else {
-        println!("{}", "✅ Already up to date!".green());
+    // Check interval: 12 hours
+    if let Ok(metadata) = fs::metadata(&cache_path) {
+        if let Ok(modified) = metadata.modified() {
+            if modified.elapsed().map(|e| e.as_secs()).unwrap_or(0) < 43200 {
+                return Ok(());
+            }
+        }
     }
 
+    let latest = fetch_latest_version()?;
+    let current = env!("CARGO_PKG_VERSION");
+
+    let has_update = version_gt(&latest, current);
+
+    let json = serde_json::json!({
+        "latest": latest,
+        "has_update": has_update,
+        "checked_at": SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs()
+    });
+
+    fs::write(&cache_path, serde_json::to_string(&json)?)?;
     Ok(())
+}
+
+/// Print update notification if available
+pub fn print_notification() {
+    let cache_path = match dirs::home_dir().map(|d| d.join(".airis/update_cache.json")) {
+        Some(p) if p.exists() => p,
+        _ => return,
+    };
+
+    if let Ok(content) = fs::read_to_string(cache_path) {
+        if let Ok(cache) = serde_json::from_str::<serde_json::Value>(&content) {
+            if cache["has_update"].as_bool().unwrap_or(false) {
+                let latest = cache["latest"].as_str().unwrap_or("unknown");
+                println!();
+                println!(
+                    "{}  {} v{} is available! Run {} to update.",
+                    "✨".yellow(),
+                    "airis".bold(),
+                    latest.green(),
+                    "airis upgrade".cyan()
+                );
+            }
+        }
+    }
 }
 
 /// Run upgrade to specific version or latest
 pub fn run(target_version: Option<String>) -> Result<()> {
+    // Smart upgrade: Detect if we are in the project root and it's a dev build
+    if Path::new("Cargo.toml").exists() && env!("CARGO_PKG_NAME") == "airis-workspace" {
+        println!(
+            "{}",
+            "🛠️  Project root detected. Syncing via cargo...".yellow()
+        );
+        let status = Command::new("cargo")
+            .args(["install", "--path", ".", "--force"])
+            .status()
+            .context("Failed to run cargo install")?;
+
+        if status.success() {
+            println!(
+                "{}",
+                "✅ Successfully synced and updated airis via cargo!".green()
+            );
+            return Ok(());
+        }
+    }
+
     println!("{}", "🚀 Upgrading airis...".bright_blue());
     println!();
 

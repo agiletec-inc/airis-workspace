@@ -91,7 +91,7 @@ pub fn propose_manifest(discovery: &DiscoveryResult) -> Result<String> {
 
     // Convert existing Compose files into services or global rules
     manifest.orchestration.dev = Some(crate::manifest::OrchestrationDev {
-        workspace: Some("workspace/compose.yaml".into()),
+        workspace: Some("compose.yaml".into()),
         supabase: None,
         traefik: None,
         restart: None,

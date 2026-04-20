@@ -227,9 +227,15 @@ pub enum Commands {
 
     /// Clean build artifacts
     Clean {
-        /// Preview only
-        #[arg(long)]
+        /// Preview only (default)
+        #[arg(long, default_value_t = true)]
         dry_run: bool,
+        /// Remove orphaned or legacy config files (e.g., docker-compose.yml)
+        #[arg(long)]
+        purge: bool,
+        /// Actually execute deletions
+        #[arg(long)]
+        force: bool,
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,

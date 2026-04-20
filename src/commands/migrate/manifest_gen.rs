@@ -142,14 +142,9 @@ pub(super) fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<S
     if workspace_compose.is_some() || supabase_compose.is_some() || traefik_compose.is_some() {
         lines.push("[orchestration.dev]".to_string());
 
-        if let Some(compose) = workspace_compose {
-            // If it was at root, it will be moved to workspace/
-            let path = if compose.location == ComposeLocation::Root {
-                "workspace/docker-compose.yml".to_string()
-            } else {
-                compose.path.clone()
-            };
-            lines.push(format!("workspace = \"{}\"", path));
+        if let Some(_) = workspace_compose {
+            // Always normalize to compose.yaml at root
+            lines.push("workspace = \"compose.yaml\"".to_string());
         }
 
         if let Some(compose) = supabase_compose {
