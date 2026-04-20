@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -68,31 +68,37 @@ impl GlobalGuardsSection {
 
         // 2. Apply preset logic
         match self.preset {
-            GuardPreset::Balanced => {
-                match cmd {
-                    "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" => GuardLevel::Enforce,
-                    "docker" | "docker-compose" => GuardLevel::Off,
-                    _ => GuardLevel::Off,
+            GuardPreset::Balanced => match cmd {
+                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" => {
+                    GuardLevel::Enforce
                 }
-            }
+                "docker" | "docker-compose" => GuardLevel::Off,
+                _ => GuardLevel::Off,
+            },
             GuardPreset::Strict => GuardLevel::Enforce,
-            GuardPreset::Permissive => {
-                match cmd {
-                    "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "docker" | "docker-compose" => GuardLevel::Warn,
-                    _ => GuardLevel::Off,
-                }
-            }
+            GuardPreset::Permissive => match cmd {
+                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "docker"
+                | "docker-compose" => GuardLevel::Warn,
+                _ => GuardLevel::Off,
+            },
         }
     }
 
     /// List all commands that should have a wrapper script based on the preset
     pub fn active_commands(&self) -> Vec<String> {
         let base_commands = vec![
-            "npm", "pnpm", "yarn", "bun", "npx",
-            "pip", "pip3", "poetry",
-            "docker", "docker-compose",
+            "npm",
+            "pnpm",
+            "yarn",
+            "bun",
+            "npx",
+            "pip",
+            "pip3",
+            "poetry",
+            "docker",
+            "docker-compose",
         ];
-        
+
         base_commands
             .into_iter()
             .filter(|cmd| self.get_level(cmd) != GuardLevel::Off)

@@ -9,13 +9,17 @@ use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
+mod agent_hooks_gen;
 mod catalog;
+mod compose_gen;
 mod hooks_gen;
 mod package_gen;
 mod registry;
 mod tsconfig_gen;
 
+use agent_hooks_gen::generate_agent_hooks;
 use catalog::{resolve_catalog_versions, resolve_package_data};
+use compose_gen::generate_workspace_compose;
 use hooks_gen::generate_native_hooks;
 use package_gen::{generate_package_json, generate_pnpm_workspace};
 use registry::{load_generation_registry, save_generation_registry};
@@ -99,6 +103,10 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
             generated_paths.push("pnpm-workspace.yaml".into());
         }
 
+        // Generate Docker Compose with artifact isolation
+        generate_workspace_compose(manifest)?;
+        generated_paths.push("workspace/docker-compose.yml".into());
+
         let workspace_root = env::current_dir()?;
         let workspace_scope = manifest.workspace.scope.as_deref().unwrap_or("@workspace");
         let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
@@ -113,7 +121,9 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
         if !workspace_patterns.is_empty() {
             let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
             for disc in &discovered {
-                if explicit_names.contains(&disc.name) { continue; }
+                if explicit_names.contains(&disc.name) {
+                    continue;
+                }
                 let mut auto_app = crate::manifest::ProjectDefinition {
                     path: Some(disc.path.clone()),
                     framework: Some(disc.framework.to_string()),
@@ -170,11 +180,16 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
 
         generate_native_hooks()?;
         generated_paths.extend(["hooks/pre-commit".into(), "hooks/pre-push".into()]);
+
+        generate_agent_hooks(manifest)?;
     }
 
     crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
     save_generation_registry(registry_path, &generated_paths)?;
 
-    println!("\n{} Generation complete. Run `pnpm install` to resolve versions.", "✅".green());
+    println!(
+        "\n{} Generation complete. Run `pnpm install` to resolve versions.",
+        "✅".green()
+    );
     Ok(())
 }

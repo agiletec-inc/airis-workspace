@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Command, CommandFactory};
-use clap_complete::{generate, Shell};
+use clap_complete::{Shell, generate};
 use std::io;
 
 pub fn run(shell: Shell) -> Result<()> {
@@ -10,5 +10,10 @@ pub fn run(shell: Shell) -> Result<()> {
 }
 
 fn print_completions<G: clap_complete::Generator>(generator: G, cmd: &mut Command) {
-    generate(generator, cmd, cmd.get_name().to_string(), &mut io::stdout());
+    generate(
+        generator,
+        cmd,
+        cmd.get_name().to_string(),
+        &mut io::stdout(),
+    );
 }

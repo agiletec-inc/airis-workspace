@@ -367,6 +367,7 @@ impl Manifest {
             rule,
             packages,
             guards,
+            stack: IndexMap::new(),
             app: vec![],
             orchestration: OrchestrationSection::default(),
             commands: {

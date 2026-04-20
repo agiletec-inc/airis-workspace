@@ -1,8 +1,8 @@
-use std::fs;
+use super::scripts::{install_global_guard, is_global_guard};
+use crate::manifest::{GlobalConfig, GuardPreset};
 use anyhow::{Context, Result};
 use colored::Colorize;
-use crate::manifest::{GlobalConfig, GuardPreset};
-use super::scripts::{install_global_guard, is_global_guard};
+use std::fs;
 
 /// Install global guards based on preset
 pub fn install_global(preset: Option<GuardPreset>) -> Result<()> {
@@ -24,15 +24,24 @@ pub fn install_global(preset: Option<GuardPreset>) -> Result<()> {
         let level = config.guards.get_level(cmd);
         install_global_guard(&bin_dir, cmd, level)?;
         installed_count += 1;
-        println!("   {} {} ({:?})", "✓".green(), cmd.dimmed(), config.guards.get_level(cmd));
+        println!(
+            "   {} {} ({:?})",
+            "✓".green(),
+            cmd.dimmed(),
+            config.guards.get_level(cmd)
+        );
     }
 
     // PATH check and setup
     setup_shell_path()?;
 
-    println!("\n{} {} global guard(s) installed (Preset: {:?})", 
-        "✅".green(), installed_count, config.guards.preset);
-    
+    println!(
+        "\n{} {} global guard(s) installed (Preset: {:?})",
+        "✅".green(),
+        installed_count,
+        config.guards.preset
+    );
+
     Ok(())
 }
 
@@ -43,10 +52,14 @@ fn setup_shell_path() -> Result<()> {
     for rc_file in &[".zshrc", ".bashrc"] {
         let home = dirs::home_dir().context("No home dir")?;
         let rc_path = home.join(rc_file);
-        if !rc_path.exists() { continue; }
+        if !rc_path.exists() {
+            continue;
+        }
 
         let content = fs::read_to_string(&rc_path)?;
-        if content.contains(".airis/bin") { continue; }
+        if content.contains(".airis/bin") {
+            continue;
+        }
 
         use std::io::Write;
         let mut file = fs::OpenOptions::new().append(true).open(&rc_path)?;
@@ -56,7 +69,11 @@ fn setup_shell_path() -> Result<()> {
     }
 
     if path_added {
-        println!("\n{} Reload your shell: {}", "🔧".yellow(), "source ~/.zshrc".cyan());
+        println!(
+            "\n{} Reload your shell: {}",
+            "🔧".yellow(),
+            "source ~/.zshrc".cyan()
+        );
     }
     Ok(())
 }
@@ -77,7 +94,11 @@ pub fn status_global() -> Result<()> {
     println!("{}", "Installed guards:".bright_yellow());
     let commands = config.guards.active_commands();
     for cmd in &commands {
-        let status = if bin_dir.join(cmd).exists() { "✓".green() } else { "✗".red() };
+        let status = if bin_dir.join(cmd).exists() {
+            "✓".green()
+        } else {
+            "✗".red()
+        };
         println!("   {} {} ({:?})", status, cmd, config.guards.get_level(cmd));
     }
     Ok(())
@@ -85,7 +106,9 @@ pub fn status_global() -> Result<()> {
 
 pub fn uninstall_global() -> Result<()> {
     let bin_dir = GlobalConfig::bin_dir()?;
-    if !bin_dir.exists() { return Ok(()); }
+    if !bin_dir.exists() {
+        return Ok(());
+    }
 
     println!("{}", "🗑️  Uninstalling global guards...".bright_blue());
     let mut removed = 0;

@@ -27,11 +27,13 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.json" => Ownership::Tool,
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
+        "compose.yml" => Ownership::Tool,
+        "docker-compose.yml" => Ownership::Tool,
+        "workspace/compose.yml" => Ownership::Tool,
+        "workspace/docker-compose.yml" => Ownership::Tool,
 
         // User-owned: never touch
         "Dockerfile" => Ownership::User,
-        "compose.yml" => Ownership::User,
-        "docker-compose.yml" => Ownership::User,
         ".env.example" => Ownership::User,
         "manifest.toml" => Ownership::User,
         "pnpm-lock.yaml" => Ownership::User,
@@ -107,7 +109,7 @@ mod tests {
             Ownership::Tool
         );
         assert_eq!(get_ownership(Path::new("airis.lock")), Ownership::Tool);
-        
+
         // App package.json files are now tool-owned
         assert_eq!(
             get_ownership(Path::new("apps/dashboard/package.json")),

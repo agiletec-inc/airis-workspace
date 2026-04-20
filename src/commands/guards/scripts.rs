@@ -117,7 +117,9 @@ pub(super) fn make_executable(_path: &Path) -> Result<()> {
 }
 
 pub(super) fn is_global_guard(path: &Path) -> Result<bool> {
-    if !path.exists() { return Ok(false); }
+    if !path.exists() {
+        return Ok(false);
+    }
     let file = fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     for line in reader.lines().take(5).flatten() {
@@ -129,7 +131,9 @@ pub(super) fn is_global_guard(path: &Path) -> Result<bool> {
 }
 
 pub(super) fn is_airis_guard(path: &Path) -> Result<bool> {
-    if !path.exists() { return Ok(false); }
+    if !path.exists() {
+        return Ok(false);
+    }
     let file = fs::File::open(path)?;
     let reader = std::io::BufReader::new(file);
     for line in reader.lines().take(5).flatten() {

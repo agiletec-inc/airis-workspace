@@ -94,6 +94,10 @@ pub struct Manifest {
     #[serde(default)]
     pub typescript: TypescriptSection,
 
+    /// User-defined technology stacks (artifacts, verify commands, images)
+    #[serde(default)]
+    pub stack: IndexMap<String, StackDefinition>,
+
     /// Reusable dependency groups (e.g., shadcn radix-ui components)
     #[serde(default)]
     pub dep_group: IndexMap<String, IndexMap<String, String>>,
@@ -939,8 +943,26 @@ pub struct K8sResources {
     pub limits: Option<ResourceSpec>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct StackDefinition {
+    /// Docker image (e.g., "node:22-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Artifact directories to isolate in named volumes
+    #[serde(default)]
+    pub artifacts: Vec<String>,
+    /// Quality check commands for airis verify
+    #[serde(default)]
+    pub verify: Vec<String>,
+    /// Whether this stack needs NVIDIA GPU access
+    #[serde(default)]
+    pub gpu: bool,
+    /// Default scripts to inject into package.json
+    #[serde(default)]
+    pub scripts: IndexMap<String, String>,
+}
+
 /// Project definition for package.json management.
-/// In hybrid mode, airis manages only name/version/private/type.
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
     pub name: String,
@@ -948,6 +970,9 @@ pub struct ProjectDefinition {
     pub kind: Option<String>, // "app" | "lib" | "service"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Reference to a [stack.*] definition
+    #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
+    pub use_stack: Option<String>,
     /// Package name scope (e.g., "@agiletec"). Overrides default @workspace scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -988,7 +1013,13 @@ pub struct ProjectDefinition {
     #[serde(default)]
     pub files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub framework: Option<String>, // "react-vite" | "nextjs" | "node" | "rust"
+    pub framework: Option<String>, // "react-vite" | "nextjs" | "node" | "rust" | "python"
+    /// Python version (e.g., "3.12")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python: Option<String>,
+    /// CUDA version (e.g., "12.4")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda: Option<String>,
     /// Runtime configuration for Docker builds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner: Option<RuntimeConfig>,

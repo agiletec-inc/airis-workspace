@@ -2,7 +2,11 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use colored::Colorize;
 
-use airis_workspace::cli::{Cli, Commands, TestLevel, ClaudeCommands, GuardsCommands, HooksCommands, ShimCommands, DocsCommands, ManifestCommands, ValidateCommands, GenerateCommands, NetworkCommands, NewCommands, PolicyCommands, DepsCommands};
+use airis_workspace::cli::{
+    ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
+    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, ShimCommands,
+    TestLevel, ValidateCommands,
+};
 use airis_workspace::commands;
 
 /// Get version string with dev suffix for non-release builds
@@ -43,9 +47,7 @@ fn main() -> miette::Result<()> {
 fn dispatch(command: Commands) -> Result<()> {
     // (Existing dispatch logic... no changes needed here yet as it returns anyhow::Result)
     match command {
-        Commands::Init {
-            write,
-        } => {
+        Commands::Init { write } => {
             commands::init::run(false, false, write, false)?;
         }
         Commands::Manifest { action } => {
@@ -65,7 +67,11 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
         },
         Commands::Guards { action } => match action {
-            GuardsCommands::Install { global, preset, hooks } => {
+            GuardsCommands::Install {
+                global,
+                preset,
+                hooks,
+            } => {
                 if hooks {
                     eprintln!(
                         "{}: `airis guards install --hooks` is deprecated. Use `airis claude setup` instead.",
