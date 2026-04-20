@@ -28,8 +28,10 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
         "compose.yml" => Ownership::Tool,
+        "compose.yaml" => Ownership::Tool,
         "docker-compose.yml" => Ownership::Tool,
         "workspace/compose.yml" => Ownership::Tool,
+        "workspace/compose.yaml" => Ownership::Tool,
         "workspace/docker-compose.yml" => Ownership::Tool,
 
         // User-owned: never touch

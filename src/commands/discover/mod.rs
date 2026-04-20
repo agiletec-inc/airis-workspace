@@ -26,6 +26,7 @@ pub use types::{
 // Re-export public functions
 pub use scanning::discover_from_workspaces;
 
+use crate::manifest::Manifest;
 use anyhow::Result;
 use colored::Colorize;
 
@@ -50,4 +51,53 @@ pub fn run() -> Result<DiscoveryResult> {
     display::print_discovery_result(&result);
 
     Ok(result)
+}
+
+/// Generate a recommended manifest.toml based on discovery facts
+pub fn propose_manifest(discovery: &DiscoveryResult) -> Result<String> {
+    // Project identity (fallback to directory name)
+    let current_dir = std::env::current_dir()?;
+    let dir_name = current_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "my-workspace".to_string());
+
+    let mut manifest = Manifest::default_with_project(&dir_name);
+
+    // Standardize apps
+    for detected in &discovery.apps {
+        let mut app = crate::manifest::ProjectDefinition::default();
+        app.name = detected.name.clone();
+        app.path = Some(detected.path.clone());
+        app.use_stack = match detected.framework {
+            Framework::NextJs => Some("nextjs".into()),
+            Framework::Vite => Some("vite".into()),
+            Framework::Hono => Some("hono".into()),
+            Framework::Rust => Some("rust".into()),
+            Framework::Python => Some("python".into()),
+            _ => Some("node".into()),
+        };
+        manifest.app.push(app);
+    }
+
+    // Standardize libs
+    for detected in &discovery.libs {
+        let mut lib = crate::manifest::ProjectDefinition::default();
+        lib.name = detected.name.clone();
+        lib.path = Some(detected.path.clone());
+        lib.kind = Some("lib".into());
+        manifest.app.push(lib); // manifest.toml v2 uses app list for both apps and libs
+    }
+
+    // Convert existing Compose files into services or global rules
+    manifest.orchestration.dev = Some(crate::manifest::OrchestrationDev {
+        workspace: Some("workspace/compose.yaml".into()),
+        supabase: None,
+        traefik: None,
+        restart: None,
+    });
+
+    // Generate the TOML string
+    let toml_str = toml::to_string_pretty(&manifest)?;
+    Ok(toml_str)
 }
