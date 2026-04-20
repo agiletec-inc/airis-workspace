@@ -193,7 +193,7 @@ pub enum Commands {
         /// Runtime channel
         #[arg(long)]
         channel: Option<String>,
-        /// Build for multiple targets
+        /// Build for multiple targets (comma-separated, e.g. node,edge,bun,deno)
         #[arg(long, value_delimiter = ',')]
         targets: Option<Vec<String>>,
         /// Number of parallel workers
@@ -211,7 +211,7 @@ pub enum Commands {
         /// No cache
         #[arg(long)]
         no_cache: bool,
-        /// Remote cache URL
+        /// Remote cache URL (e.g. s3://bucket/key or oci://registry/repo)
         #[arg(long)]
         remote_cache: Option<String>,
         /// Build production image
@@ -238,11 +238,11 @@ pub enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Generate deployment bundle
+    /// Generate deployment bundle (image.tar + artifact.tar.gz + bundle.json)
     Bundle {
         /// Target project path
         project: String,
-        /// Output directory
+        /// Output directory (defaults to .airis/bundles/<project>/)
         #[arg(short, long)]
         output: Option<std::path::PathBuf>,
         /// Generate Kubernetes manifests
