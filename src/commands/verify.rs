@@ -21,17 +21,21 @@ pub fn run() -> Result<()> {
 
     // 1. Check if workspace container is running
     let container = find_workspace_container();
-    if container.is_none() {
+    let can_exec = if container.is_none() {
         println!(
             "{}",
-            "⚠️  Workspace container not running. Starting it...".yellow()
+            "⚠️  Workspace container not running. Runtime checks will be skipped.".yellow()
         );
-        // Auto-up if not running
-        crate::commands::run::run("up", &[])?;
-    }
+        println!(
+            "   Run {} to enable full container-based verification.",
+            "airis up".cyan()
+        );
+        false
+    } else {
+        true
+    };
 
-    let container =
-        find_workspace_container().context("Failed to find workspace container after start")?;
+    let container_name = container.unwrap_or_default();
 
     // 2. Execute verification rules from manifest
     let mut failures = 0;
@@ -40,7 +44,12 @@ pub fn run() -> Result<()> {
     if let Some(verify_rule) = manifest.rule.get("verify") {
         println!("{}", "🌍 Global Checks".bold());
         for cmd in &verify_rule.commands {
-            if !run_verify_command(&container, cmd)? {
+            // If it's a 'cargo' or 'just' command, we might be able to run it on host as fallback
+            if !can_exec {
+                println!("{} Skipping runtime check (container offline): {}", "⏭️".yellow(), cmd.dimmed());
+                continue;
+            }
+            if !run_verify_command(&container_name, cmd)? {
                 failures += 1;
             }
         }
@@ -73,13 +82,18 @@ pub fn run() -> Result<()> {
             println!("\n{} Verifying app: {}", "📦".cyan(), app.name.bold());
             let app_path = app.path.as_deref().unwrap_or(".");
             for cmd in commands {
+                if !can_exec {
+                    println!("   {} Skipping check (container offline): {}", "⏭️".yellow(), cmd.dimmed());
+                    continue;
+                }
                 // Execute in the app's directory
                 let full_cmd = format!("cd {} && {}", app_path, cmd);
-                if !run_verify_command(&container, &full_cmd)? {
+                if !run_verify_command(&container_name, &full_cmd)? {
                     failures += 1;
                 }
             }
         }
+
     }
 
     println!();

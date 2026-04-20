@@ -33,7 +33,7 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
             "-f",
             "supabase/docker-compose.yml",
             "exec",
-            "-T",
+            
             "db",
             "pg_isready",
             "-U",

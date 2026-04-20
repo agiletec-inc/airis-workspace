@@ -50,7 +50,7 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
             .args([
                 "compose",
                 "exec",
-                "-T",
+                
                 svc,
                 "pnpm",
                 "install",
@@ -80,7 +80,7 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
                         "run",
                         "--rm",
                         "--no-deps",
-                        "-T",
+                        
                         svc,
                         "pnpm",
                         "install",
