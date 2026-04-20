@@ -4,183 +4,41 @@ mode = "docker-first"
 [project]
 id = "airis-workspace"
 binary_name = "airis"
-# version is managed by git tags only - Cargo.toml is synced via airis init
 description = "Docker-first monorepo workspace manager for rapid prototyping"
-authors = ["Agile Technology <hello@agiletec.jp>"]
-license = "MIT"
-homepage = "https://github.com/agiletec-inc/airis-workspace"
-repository = "https://github.com/agiletec-inc/airis-workspace"
-keywords = [
-    "monorepo",
-    "docker",
-    "workspace",
-    "cli",
-    "prototyping",
-]
-categories = [
-    "command-line-utilities",
-    "development-tools",
-]
 rust_edition = "2024"
 
 [workspace]
 name = "airis-workspace"
-package_manager = "pnpm@10.22.0"
-service = "workspace"
+package_manager = "pnpm@10"
 image = "node:22-alpine"
-workdir = "/app"
-volumes = ["workspace-node-modules:/app/node_modules"]
 
-[catalog]
+[stack.rust]
+artifacts = ["target"]
+verify = ["cargo clippy -- -D warnings", "cargo fmt --check", "cargo test"]
 
-[workspaces]
-apps = []
-libs = []
-
-[dev]
-apps = []
-autostart = []
-
-# REMOVED: [apps.*], [libs.*] - pnpm workspace auto-detects from apps/*, libs/*
-# Use MCP /airis:init for scaffolding new apps/libs
-
-[docker]
-baseImage = "node:24-bookworm"
-workdir = "/app"
-
-[docker.workspace]
-service = "workspace"
-volumes = ["node_modules"]
-
-[just]
-output = "justfile"
-features = [
-    "docker-first-guard",
-    "type-specific-commands",
-]
-
-[service.postgres]
-image = "postgres:16-alpine"
-port = 5432
-volumes = []
-
-[service.postgres.env]
-
-[service.redis]
-image = "redis:7-alpine"
-port = 6379
-volumes = []
-
-[service.redis.env]
-
-[rule.verify]
-commands = [
-    "just lint",
-    "just test-all",
-]
-
-[rule.ci]
-commands = [
-    "just lint",
-    "just test-all",
-    "just typecheck",
-]
-
-[packages]
-workspaces = [
-    "apps/*",
-    "libs/*",
-    "packages/*",
-]
-app = []
-
-[packages.catalog]
-react = "latest"
-next = "latest"
-typescript = "latest"
-tailwindcss = "latest"
-hono = "latest"
-drizzle-orm = "latest"
-zod = "latest"
-vitest = "latest"
-playwright = "latest"
-eslint = "latest"
-prettier = "latest"
-
-[packages.catalog.react-dom]
-follow = "react"
-
-[packages.catalog.react-is]
-follow = "react"
-
-[packages.root.dependencies]
-
-[packages.root.devDependencies]
-
-[packages.root.optionalDependencies]
-
-[packages.root.scripts]
-dev = "echo 'Run: just dev-<app-name>'"
-build = "echo 'Run: just build-<app-name>'"
-lint = "echo 'Run: just lint'"
-test = "echo 'Run: just test'"
-
-[packages.root.engines]
-
-[packages.root.pnpm]
-onlyBuiltDependencies = []
-
-[packages.root.pnpm.overrides]
-
-[packages.root.pnpm.peerDependencyRules]
-ignoreMissing = []
-
-[packages.root.pnpm.peerDependencyRules.allowedVersions]
-
-[packages.root.pnpm.allowedScripts]
-
-[guards]
-deny = [
-    "npm",
-    "yarn",
-    "pnpm",
-    "bun",
-]
-forbid = [
-    "npm",
-    "yarn",
-    "pnpm",
-    "docker",
-    "docker-compose",
-]
-danger = [
-    "rm -rf /",
-    "chmod -R 777",
-    "chown -R",
-]
-
-[guards.wrap]
-
-[guards.deny_with_message]
-
-# REMOVED: [[app]] - use MCP /airis:init for scaffolding
+[[app]]
+name = "airis"
+path = "."
+use = "rust"
 
 [orchestration.dev]
-workspace = "workspace/docker-compose.yml"
-supabase = [
-    "supabase/docker-compose.yml",
-    "supabase/docker-compose.override.yml",
-]
-traefik = "traefik/docker-compose.yml"
+workspace = "compose.yaml"
 
 [commands]
-# This is a Rust project — commands run on host via cargo, not in Docker
+up = "docker compose up -d"
+down = "docker compose down"
 build = "cargo build --release"
 test = "cargo test"
 lint = "cargo clippy -- -D warnings"
 format = "cargo fmt --check"
+verify = "airis verify"
 
-[remap]
+[rule.verify]
+commands = ["cargo check"]
+
+[guards]
+deny = ["npm", "yarn", "bun"]
+wrap = { pnpm = "docker compose exec workspace pnpm" }
 
 [versioning]
 strategy = "conventional-commits"
@@ -188,7 +46,6 @@ source = "VERSION"
 sync_targets = ["Cargo.toml", "package.json", "npm/*/package.json"]
 
 [docs]
-mode = "backup"
 sources = [
     "docs/ai/PROJECT_RULES.md",
     "docs/ai/WORKFLOW.md",
@@ -196,14 +53,3 @@ sources = [
     "docs/ai/STACK.md",
 ]
 vendors = ["codex", "claude", "gemini"]
-skills_source = "docs/ai/playbooks"
-hooks_policy = "docs/ai/hooks/HOOKS_POLICY.md"
-
-[ci]
-enabled = true
-auto_version = true
-
-[ci.auto_merge]
-enabled = true
-from = "stg"
-to = "main"

@@ -4,7 +4,14 @@ use std::process::{Command, Stdio};
 /// Parse Traefik dynamic config to get routers
 pub(super) fn parse_traefik_routers(traefik_dir: &str) -> Vec<(String, String, String)> {
     // Returns: (router_name, host, path_prefix)
-    let routers_file = format!("{}/dynamic/routers.yml", traefik_dir);
+    let yaml_path = format!("{}/dynamic/routers.yaml", traefik_dir);
+    let yml_path = format!("{}/dynamic/routers.yml", traefik_dir);
+
+    let routers_file = if std::path::Path::new(&yaml_path).exists() {
+        yaml_path
+    } else {
+        yml_path
+    };
 
     let content = match std::fs::read_to_string(&routers_file) {
         Ok(c) => c,

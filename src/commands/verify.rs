@@ -108,9 +108,8 @@ fn run_verify_command(container: &str, cmd: &str) -> Result<bool> {
     println!("{} Running: {}", "→".dimmed(), cmd.cyan());
 
     // Execute inside Docker using `docker exec`
-    // We use -T to avoid TTY issues in CI/Agents
     let status = Command::new("docker")
-        .args(["exec", "-T", container, "sh", "-c", cmd])
+        .args(["exec", container, "sh", "-c", cmd])
         .status()
         .with_context(|| format!("Failed to execute verification command: {}", cmd))?;
 

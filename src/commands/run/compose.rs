@@ -332,13 +332,13 @@ pub(super) fn orchestrated_up(
             "   {} Waiting for Supabase DB to be healthy...",
             "⏳".dimmed()
         );
-        let compose_file = supabase_files
-            .first()
-            .map(|s| s.as_str())
-            .unwrap_or("supabase/compose.yml");
+        let mut supabase_path = "supabase/compose.yaml".to_string();
+        if !std::path::Path::new(&supabase_path).exists() {
+            supabase_path = "supabase/compose.yml".to_string();
+        }
         let health_check = format!(
             "docker compose -f {} exec -T db pg_isready -U postgres -h localhost",
-            compose_file
+            supabase_path
         );
         let mut retries = DB_HEALTH_RETRIES;
         while retries > 0 {

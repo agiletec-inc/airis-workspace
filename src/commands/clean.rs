@@ -60,6 +60,8 @@ pub fn run(dry_run: bool, purge: bool) -> Result<()> {
             "docker-compose.yml",
             "docker-compose.yaml",
             "docker-compose.override.yml",
+            "docker-compose.override.yaml",
+            "compose.yml",
             "compose.override.yml",
             "compose.override.yaml",
             "workspace/compose.yaml",
@@ -71,11 +73,23 @@ pub fn run(dry_run: bool, purge: bool) -> Result<()> {
         ];
 
         // Files that are currently managed and should NOT be deleted
-        let managed_files = vec![
-            "manifest.toml".to_string(),
-            "compose.yaml".to_string(),
-            "compose.yml".to_string(),
-        ];
+        let mut managed_files = vec!["manifest.toml".to_string()];
+
+        // Protect the specific compose file defined in orchestration.dev
+        if let Some(dev) = &manifest.orchestration.dev {
+            if let Some(workspace) = &dev.workspace {
+                managed_files.push(workspace.clone());
+            }
+        }
+
+        // Also protect root compose if detected by find_compose_file
+        if let Some(root_compose) = crate::commands::run::compose::find_compose_file() {
+            managed_files.push(root_compose.to_string());
+        }
+
+        // De-duplicate managed files
+        managed_files.sort();
+        managed_files.dedup();
 
         for pattern in legacy_patterns {
             if let Ok(paths) = glob(pattern) {
