@@ -139,10 +139,10 @@ WORKDIR="${{WORKDIR//\{{match\}}/$MATCH}}"
 # Check if service is running
 if ! docker compose -f "$COMPOSE" ps --status running "$SERVICE" 2>/dev/null | grep -q "$SERVICE"; then
     # Service not running, use 'run' instead of 'exec'
-    exec docker compose -f "$COMPOSE" run --rm -T -w "$WORKDIR" "$SERVICE" "$CMD" "${{ARGS[@]}}"
+    exec docker compose -f "$COMPOSE" run --rm -w "$WORKDIR" "$SERVICE" "$CMD" "${{ARGS[@]}}"
 else
     # Service running, use 'exec'
-    exec docker compose -f "$COMPOSE" exec -T -w "$WORKDIR" "$SERVICE" "$CMD" "${{ARGS[@]}}"
+    exec docker compose -f "$COMPOSE" exec -w "$WORKDIR" "$SERVICE" "$CMD" "${{ARGS[@]}}"
 fi
 "##,
         compose = compose,

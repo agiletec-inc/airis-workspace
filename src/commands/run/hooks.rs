@@ -71,7 +71,7 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
 
         if let Some(svc) = svc {
             let status = Command::new("docker")
-                .args(["compose", "exec", "-T", svc, "sh", "-c", cmd])
+                .args(["compose", "exec",  svc, "sh", "-c", cmd])
                 .status();
 
             match status {
@@ -87,7 +87,7 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
                             "run",
                             "--rm",
                             "--no-deps",
-                            "-T",
+                            
                             svc,
                             "sh",
                             "-c",
