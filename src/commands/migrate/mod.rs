@@ -20,7 +20,7 @@ use anyhow::Result;
 use colored::Colorize;
 use std::path::Path;
 
-use super::discover::{ComposeLocation, DiscoveryResult};
+use super::discover::DiscoveryResult;
 use operations::{execute_create_directory, execute_generate_manifest, execute_move_file};
 
 use serde::{Deserialize, Serialize};
@@ -92,21 +92,12 @@ impl MigrationReport {
 pub fn plan(discovery: DiscoveryResult) -> Result<MigrationPlan> {
     let mut tasks = Vec::new();
 
-    // Check if workspace/ directory needs to be created
-    let workspace_dir = Path::new("workspace");
-    let need_workspace_dir = !workspace_dir.exists()
-        && discovery
-            .compose_files
-            .iter()
-            .any(|c| c.location == ComposeLocation::Root);
+    // Check if workspace/ directory needs to be created (Legacy check, maybe skip?)
+    // (Workspace dir is still used for other things, but not for the main compose file)
 
-    if need_workspace_dir {
-        tasks.push(MigrationTask::CreateDirectory {
-            path: "workspace".to_string(),
-        });
-    }
-
-    // Plan moves for root docker-compose.yml
+    // Plan moves for root docker-compose.yml (Legacy: we used to move them to workspace/)
+    // NOW: We keep them at root (or purge them later) and let airis gen create compose.yaml
+    /*
     for compose in &discovery.compose_files {
         if compose.location == ComposeLocation::Root {
             let target = "workspace/docker-compose.yml";
@@ -119,6 +110,7 @@ pub fn plan(discovery: DiscoveryResult) -> Result<MigrationPlan> {
             }
         }
     }
+    */
 
     // Always generate manifest.toml (this is the main goal)
     tasks.push(MigrationTask::GenerateManifest);

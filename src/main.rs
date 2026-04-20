@@ -22,7 +22,23 @@ fn get_version() -> String {
     }
 }
 
-fn main() -> miette::Result<()> {
+fn main() {
+    // 1. Start background update check
+    commands::upgrade::spawn_check();
+
+    // 2. Run CLI
+    let result = run_main();
+
+    // 3. Print update notification
+    commands::upgrade::print_notification();
+
+    if let Err(e) = result {
+        eprintln!("{}: {:?}", "Error".red().bold(), e);
+        std::process::exit(1);
+    }
+}
+
+fn run_main() -> Result<()> {
     // Setup miette for fancy errors
     miette::set_panic_hook();
 
@@ -40,7 +56,7 @@ fn main() -> miette::Result<()> {
         std::process::exit(0);
     });
 
-    dispatch(command).map_err(|e| miette::miette!("{}", e))
+    dispatch(command)
 }
 
 /// Dispatch a parsed CLI command to the appropriate handler.
@@ -237,8 +253,14 @@ fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::Clean {
             dry_run,
+            purge,
+            force,
             extra_args: _,
-        } => commands::clean::run(dry_run)?,
+        } => {
+            // dry_run is true by default, force overrides it
+            let actual_dry_run = if force { false } else { dry_run };
+            commands::clean::run(actual_dry_run, purge)?;
+        }
         Commands::Bundle {
             project,
             output,
@@ -358,11 +380,14 @@ fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::Upgrade { check, version } => {
             if check {
-                commands::upgrade::run_check()?;
+                // Background check already happened, this just triggers immediate check/report
+                commands::upgrade::spawn_check();
+                println!("Check complete. If an update is found, it will be shown below.");
             } else {
-                commands::upgrade::run(version)?
+                commands::upgrade::run(version)?;
             }
         }
+
         Commands::Completion { shell } => {
             commands::completion::run(shell)?;
         }

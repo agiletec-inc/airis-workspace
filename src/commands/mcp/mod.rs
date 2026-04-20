@@ -72,7 +72,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
             "tools": [
                 {
                     "name": "workspace_init",
-                    "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). Use this to 'fix' or 'upgrade' an existing workspace.",
+                    "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). After applying the proposed manifest with 'manifest_apply', it is highly recommended to run 'airis clean --purge --force' via shell to remove the legacy configuration files and complete the consolidation.",
                     "input_schema": {
                         "type": "object",
                         "properties": {}

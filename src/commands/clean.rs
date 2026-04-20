@@ -17,7 +17,8 @@ use crate::safe_fs::{SafeAction, SafeFS};
 ///
 /// # Arguments
 /// * `dry_run` - If true, only show what would be deleted without deleting
-pub fn run(dry_run: bool) -> Result<()> {
+/// * `purge` - If true, also remove legacy/orphaned config files
+pub fn run(dry_run: bool, purge: bool) -> Result<()> {
     let manifest = Manifest::load(MANIFEST_FILE)
         .with_context(|| "Failed to load manifest.toml. Run 'airis init' first.")?;
 
@@ -29,16 +30,17 @@ pub fn run(dry_run: bool) -> Result<()> {
             "🔍 Dry-run mode: showing what would be cleaned...".bright_blue()
         );
     } else {
-        println!("{}", "🧹 Cleaning host build artifacts...".bright_blue());
+        println!("{}", "🧹 Cleaning workspace...".bright_blue());
     }
     println!();
 
-    let clean = &manifest.workspace.clean;
     let mut cleaned = 0;
     let mut skipped = 0;
     let mut errors = 0;
 
-    // Clean root directories specified in manifest
+    // 1. Build Artifacts Clean (Standard)
+    println!("{}", "📦 Build Artifacts".bold());
+    let clean = &manifest.workspace.clean;
     for dir in &clean.dirs {
         match safe_fs.clean_artifact(dir) {
             Ok(result) => {
@@ -51,7 +53,69 @@ pub fn run(dry_run: bool) -> Result<()> {
         }
     }
 
-    // Clean recursive patterns (e.g., node_modules in subdirectories)
+    // 2. Legacy / Purge Clean (Optional)
+    if purge {
+        println!("\n{}", "💀 Legacy Config Purge".bold());
+        let legacy_patterns = [
+            "docker-compose.yml",
+            "docker-compose.yaml",
+            "docker-compose.override.yml",
+            "compose.override.yml",
+            "compose.override.yaml",
+            "workspace/compose.yaml",
+            "workspace/compose.yml",
+            "workspace/docker-compose.yml",
+            "workspace/docker-compose.yaml",
+            "**/docker-compose.yml",
+            "**/docker-compose.yaml",
+        ];
+
+        // Files that are currently managed and should NOT be deleted
+        let managed_files = vec![
+            "manifest.toml".to_string(),
+            "compose.yaml".to_string(),
+            "compose.yml".to_string(),
+        ];
+
+        for pattern in legacy_patterns {
+            if let Ok(paths) = glob(pattern) {
+                for entry in paths.flatten() {
+                    let path_str = entry.to_string_lossy().to_string();
+
+                    // Safety: Skip managed files or protected dirs
+                    if managed_files.contains(&path_str)
+                        || path_str.starts_with(".git/")
+                        || path_str.starts_with(".airis/")
+                    {
+                        continue;
+                    }
+
+                    if dry_run {
+                        println!(
+                            "   {} {} (legacy — would delete)",
+                            "→".bright_blue(),
+                            path_str
+                        );
+                        cleaned += 1;
+                    } else {
+                        match std::fs::remove_file(&entry) {
+                            Ok(()) => {
+                                println!("   {} {} (legacy — deleted)", "✓".green(), path_str);
+                                cleaned += 1;
+                            }
+                            Err(e) => {
+                                println!("   {} {} — {}", "✗".red(), path_str, e);
+                                errors += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Recursive Artifacts
+    println!("\n{}", "📂 Recursive Artifacts".bold());
     for pattern in &clean.recursive {
         // Validate pattern is safe
         if pattern.contains("..") || pattern.starts_with('/') {

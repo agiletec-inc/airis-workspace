@@ -105,7 +105,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
 
         // Generate Docker Compose with artifact isolation
         generate_workspace_compose(manifest)?;
-        generated_paths.push("workspace/compose.yaml".into());
+        generated_paths.push("compose.yaml".into());
 
         let workspace_root = env::current_dir()?;
         let workspace_scope = manifest.workspace.scope.as_deref().unwrap_or("@workspace");
