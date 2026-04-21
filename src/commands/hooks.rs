@@ -79,7 +79,7 @@ fn install_hook(git_hooks_dir: &Path, name: &str, content: &str) -> Result<()> {
             for line in existing.lines() {
                 if line == BEGIN_MARKER {
                     skip = true;
-                    new_content.push_str(&wrapper_block.trim_start());
+                    new_content.push_str(wrapper_block.trim_start());
                 } else if line == END_MARKER {
                     skip = false;
                     continue;
@@ -230,17 +230,17 @@ fn install_claude_hooks() -> Result<()> {
     let content = fs::read_to_string(&settings_path)?;
     let mut settings: Value = serde_json::from_str(&content)?;
 
-    if let Some(hooks) = settings.get_mut("hooks") {
-        if let Some(stop_arr) = hooks.get_mut("Stop").and_then(|v| v.as_array_mut()) {
-            remove_airis_entries(stop_arr);
-            stop_arr.push(json!({
-                "matcher": "",
-                "hooks": [{
-                    "type": "command",
-                    "command": "airis verify # airis-managed"
-                }]
-            }));
-        }
+    if let Some(hooks) = settings.get_mut("hooks")
+        && let Some(stop_arr) = hooks.get_mut("Stop").and_then(|v| v.as_array_mut())
+    {
+        remove_airis_entries(stop_arr);
+        stop_arr.push(json!({
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": "airis verify # airis-managed"
+            }]
+        }));
     }
 
     fs::write(

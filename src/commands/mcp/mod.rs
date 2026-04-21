@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
 use std::path::Path;
+use std::process::Command;
 
 use crate::commands::migrate::{MigrationPlan, MigrationTask};
 use crate::manifest::Manifest;
@@ -153,6 +154,52 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                         },
                         "required": ["tasks"]
                     }
+                },
+                {
+                    "name": "workspace_gen",
+                    "description": "Regenerate workspace files (package.json, pnpm-workspace.yaml, compose.yaml, CI workflows) from manifest.toml. Run after manifest_apply or manifest.toml edits to propagate changes. Equivalent to the 'airis gen' CLI command.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "dry_run": {
+                                "type": "boolean",
+                                "description": "Preview diffs without writing files",
+                                "default": false
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_validate_all",
+                    "description": "Run all workspace validation checks (manifest syntax, ports, Traefik networks, env vars, dependency architecture). Use to confirm manifest consistency after changes.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_doctor",
+                    "description": "Diagnose workspace health and configuration drift. Read-only; returns actionable hints. Use when the user reports unexpected behavior before editing anything.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_verify",
+                    "description": "Execute verification rules defined in manifest.toml [rule.verify] and app-specific stack rules inside the Docker workspace. Call after manifest changes, dependency updates, or when asked to confirm environment health.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_status",
+                    "description": "Show running Docker services (equivalent to 'docker compose ps'). Use to confirm which containers are up before further actions.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
                 }
             ]
         })),
@@ -168,6 +215,11 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 "manifest_validate" => handle_manifest_validate(arguments)?,
                 "manifest_apply" => handle_manifest_apply(arguments)?,
                 "migration_execute" => handle_migration_execute(arguments)?,
+                "workspace_gen" => handle_workspace_gen(arguments)?,
+                "workspace_validate_all" => handle_workspace_validate_all()?,
+                "workspace_doctor" => handle_workspace_doctor()?,
+                "workspace_verify" => handle_workspace_verify()?,
+                "workspace_status" => handle_workspace_status()?,
                 _ => json!({
                     "content": [
                         {
@@ -397,5 +449,83 @@ fn handle_migration_execute(arguments: &Value) -> Result<Value> {
             }
         ],
         "isError": !report.errors.is_empty()
+    }))
+}
+
+/// Run the current airis binary as a subprocess so stdout from CLI handlers
+/// is captured and cannot corrupt the stdio MCP protocol on our own stdout.
+fn run_airis_subprocess(args: &[&str]) -> Result<Value> {
+    let bin = std::env::current_exe().context("Failed to resolve airis binary path")?;
+    let output = Command::new(&bin)
+        .args(args)
+        .output()
+        .with_context(|| format!("Failed to execute '{} {}'", bin.display(), args.join(" ")))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let success = output.status.success();
+
+    let text = match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => format!(
+            "airis {} exited with status {}",
+            args.join(" "),
+            output.status
+        ),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (false, false) => format!("{stdout}\n--- stderr ---\n{stderr}"),
+    };
+
+    Ok(json!({
+        "content": [
+            { "type": "text", "text": text }
+        ],
+        "isError": !success
+    }))
+}
+
+fn handle_workspace_gen(arguments: &Value) -> Result<Value> {
+    let dry_run = arguments["dry_run"].as_bool().unwrap_or(false);
+    let mut args: Vec<&str> = vec!["gen"];
+    if dry_run {
+        args.push("--dry-run");
+    }
+    run_airis_subprocess(&args)
+}
+
+fn handle_workspace_validate_all() -> Result<Value> {
+    run_airis_subprocess(&["validate", "all"])
+}
+
+fn handle_workspace_doctor() -> Result<Value> {
+    run_airis_subprocess(&["doctor"])
+}
+
+fn handle_workspace_verify() -> Result<Value> {
+    run_airis_subprocess(&["verify"])
+}
+
+fn handle_workspace_status() -> Result<Value> {
+    let output = Command::new("docker")
+        .args(["compose", "ps"])
+        .output()
+        .context("Failed to run 'docker compose ps'")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let success = output.status.success();
+
+    let text = match (stdout.is_empty(), stderr.is_empty()) {
+        (true, true) => format!("docker compose ps exited with status {}", output.status),
+        (false, true) => stdout,
+        (true, false) => stderr,
+        (false, false) => format!("{stdout}\n--- stderr ---\n{stderr}"),
+    };
+
+    Ok(json!({
+        "content": [
+            { "type": "text", "text": text }
+        ],
+        "isError": !success
     }))
 }

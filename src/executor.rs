@@ -360,23 +360,17 @@ impl ParallelExecutor {
 
         if failed.is_empty() {
             println!(
-                "{}",
-                format!(
-                    "{:>12} All {} tasks in {}ms",
-                    "Success".green().bold(),
-                    total_tasks,
-                    total_time
-                )
+                "{:>12} All {} tasks in {}ms",
+                "Success".green().bold(),
+                total_tasks,
+                total_time
             );
         } else {
             eprintln!(
-                "{}",
-                format!(
-                    "{:>12} {} of {} tasks failed",
-                    "Error".red().bold(),
-                    failed.len(),
-                    total_tasks
-                )
+                "{:>12} {} of {} tasks failed",
+                "Error".red().bold(),
+                failed.len(),
+                total_tasks
             );
         }
 

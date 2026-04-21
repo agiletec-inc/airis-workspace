@@ -63,9 +63,6 @@ fn run_main() -> Result<()> {
 fn dispatch(command: Commands) -> Result<()> {
     // (Existing dispatch logic... no changes needed here yet as it returns anyhow::Result)
     match command {
-        Commands::Init { write } => {
-            commands::init::run(false, false, write, false)?;
-        }
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
 

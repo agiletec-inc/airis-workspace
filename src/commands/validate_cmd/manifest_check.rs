@@ -21,7 +21,9 @@ pub fn validate_manifest_impl(quiet: bool) -> Result<()> {
 
     let manifest_path = Path::new(MANIFEST_FILE);
     if !manifest_path.exists() {
-        bail!("manifest.toml not found. Run `airis init` to create one.");
+        bail!(
+            "manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via /airis:init."
+        );
     }
 
     // 1. Syntax validation (parse TOML)

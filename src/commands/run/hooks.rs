@@ -71,7 +71,7 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
 
         if let Some(svc) = svc {
             let status = Command::new("docker")
-                .args(["compose", "exec",  svc, "sh", "-c", cmd])
+                .args(["compose", "exec", svc, "sh", "-c", cmd])
                 .status();
 
             match status {
@@ -82,17 +82,7 @@ fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
                         "↻".yellow()
                     );
                     let status = Command::new("docker")
-                        .args([
-                            "compose",
-                            "run",
-                            "--rm",
-                            "--no-deps",
-                            
-                            svc,
-                            "sh",
-                            "-c",
-                            cmd,
-                        ])
+                        .args(["compose", "run", "--rm", "--no-deps", svc, "sh", "-c", cmd])
                         .status()
                         .context("Failed to execute docker compose run")?;
                     return Ok(status.success());

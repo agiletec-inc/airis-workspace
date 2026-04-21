@@ -358,9 +358,7 @@ pub(super) fn display_service_urls(manifest: &Manifest) -> Result<()> {
             Vec::new()
         };
 
-        for (router_name, host, path) in
-            docker_routers.into_iter().chain(static_routers.into_iter())
-        {
+        for (router_name, host, path) in docker_routers.into_iter().chain(static_routers) {
             let url = format!(
                 "http://{}:{}{}",
                 host,

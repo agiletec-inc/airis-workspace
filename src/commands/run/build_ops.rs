@@ -110,8 +110,8 @@ pub fn run_build_quick(app: &str) -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "❌ manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 
@@ -176,8 +176,8 @@ pub fn run_test_coverage(min_coverage: u8) -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "❌ manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 

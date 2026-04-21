@@ -27,14 +27,16 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.json" => Ownership::Tool,
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
-        "compose.yml" => Ownership::Tool,
-        "compose.yaml" => Ownership::Tool,
-        "docker-compose.yml" => Ownership::Tool,
-        "workspace/compose.yml" => Ownership::Tool,
-        "workspace/compose.yaml" => Ownership::Tool,
-        "workspace/docker-compose.yml" => Ownership::Tool,
 
         // User-owned: never touch
+        // compose.yaml / Dockerfile / .env.example moved to User in 4.0.1 —
+        // compose schema diverged too far from any one-size template.
+        "compose.yml" => Ownership::User,
+        "compose.yaml" => Ownership::User,
+        "docker-compose.yml" => Ownership::User,
+        "workspace/compose.yml" => Ownership::User,
+        "workspace/compose.yaml" => Ownership::User,
+        "workspace/docker-compose.yml" => Ownership::User,
         "Dockerfile" => Ownership::User,
         ".env.example" => Ownership::User,
         "manifest.toml" => Ownership::User,
@@ -111,6 +113,7 @@ mod tests {
             Ownership::Tool
         );
         assert_eq!(get_ownership(Path::new("airis.lock")), Ownership::Tool);
+        // compose.yml / docker-compose.yml are NO LONGER Tool-owned (changed in 4.0.1)
 
         // App package.json files are now tool-owned
         assert_eq!(

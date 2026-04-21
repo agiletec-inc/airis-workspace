@@ -76,7 +76,7 @@ pub fn run(format: DiffFormat) -> Result<()> {
     if !manifest_path.exists() {
         anyhow::bail!(
             "manifest.toml not found.\n\n\
-             Hint: Run `airis init` to create one.\n\
+             Hint: Create one (see docs/manifest.md) or ask Claude Code via /airis:init.\n\
              This command requires an airis workspace."
         );
     }

@@ -66,27 +66,31 @@ pub fn propose_manifest(discovery: &DiscoveryResult) -> Result<String> {
 
     // Standardize apps
     for detected in &discovery.apps {
-        let mut app = crate::manifest::ProjectDefinition::default();
-        app.name = detected.name.clone();
-        app.path = Some(detected.path.clone());
-        app.use_stack = match detected.framework {
-            Framework::NextJs => Some("nextjs".into()),
-            Framework::Vite => Some("vite".into()),
-            Framework::Hono => Some("hono".into()),
-            Framework::Rust => Some("rust".into()),
-            Framework::Python => Some("python".into()),
-            _ => Some("node".into()),
+        let app = crate::manifest::ProjectDefinition {
+            name: detected.name.clone(),
+            path: Some(detected.path.clone()),
+            use_stack: match detected.framework {
+                Framework::NextJs => Some("nextjs".into()),
+                Framework::Vite => Some("vite".into()),
+                Framework::Hono => Some("hono".into()),
+                Framework::Rust => Some("rust".into()),
+                Framework::Python => Some("python".into()),
+                _ => Some("node".into()),
+            },
+            ..Default::default()
         };
         manifest.app.push(app);
     }
 
-    // Standardize libs
+    // Standardize libs (manifest.toml v2 uses the app list for both apps and libs)
     for detected in &discovery.libs {
-        let mut lib = crate::manifest::ProjectDefinition::default();
-        lib.name = detected.name.clone();
-        lib.path = Some(detected.path.clone());
-        lib.kind = Some("lib".into());
-        manifest.app.push(lib); // manifest.toml v2 uses app list for both apps and libs
+        let lib = crate::manifest::ProjectDefinition {
+            name: detected.name.clone(),
+            path: Some(detected.path.clone()),
+            kind: Some("lib".into()),
+            ..Default::default()
+        };
+        manifest.app.push(lib);
     }
 
     // Convert existing Compose files into services or global rules

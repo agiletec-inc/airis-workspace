@@ -26,35 +26,13 @@ brew install ffmpeg gifsicle
 
 ## Recording Scripts
 
-### 1. `airis init` Demo (01-init-demo.tape)
+### 1. `airis gen` Demo (TODO)
 
-**Purpose**: Show the core value - generating all config files from manifest.toml
+**Purpose**: Show the core value — regenerating all workspace files from
+`manifest.toml` in one deterministic pass.
 
-**VHS Recording**:
-```bash
-cd scripts/gif-recording
-vhs 01-init-demo.tape
-# Output: airis-init-demo.gif
-```
-
-**Manual Recording Steps** (if VHS fails):
-```bash
-# 1. Open terminal, start recording with asciinema or QuickTime
-# 2. Run these commands:
-
-cd /tmp && rm -rf airis-demo && mkdir airis-demo && cd airis-demo
-ls -la
-# Show: empty directory
-
-airis init
-# Shows: npm resolution, file generation
-
-ls -la
-# Shows: all generated files
-
-tree -a -I 'node_modules|.git'
-# Shows: complete structure
-```
+**Setup**: Author a small `manifest.toml` by hand (or via `/airis:init` in
+Claude Code), then record `airis gen` producing the full workspace layout.
 
 ---
 
@@ -118,12 +96,12 @@ agg demo.cast demo.gif --theme mocha
 After recording, place GIFs in:
 ```
 assets/
-├── airis-init-demo.gif
+├── airis-gen-demo.gif
 ├── airis-doctor-demo.gif
 └── airis-runtime-demo.gif
 ```
 
 Then reference in README:
 ```markdown
-![airis init demo](assets/airis-init-demo.gif)
+![airis gen demo](assets/airis-gen-demo.gif)
 ```

@@ -19,8 +19,9 @@ use crate::safe_fs::{SafeAction, SafeFS};
 /// * `dry_run` - If true, only show what would be deleted without deleting
 /// * `purge` - If true, also remove legacy/orphaned config files
 pub fn run(dry_run: bool, purge: bool) -> Result<()> {
-    let manifest = Manifest::load(MANIFEST_FILE)
-        .with_context(|| "Failed to load manifest.toml. Run 'airis init' first.")?;
+    let manifest = Manifest::load(MANIFEST_FILE).with_context(|| {
+        "Failed to load manifest.toml. Create one (see docs/manifest.md) or use /airis:init via Claude Code."
+    })?;
 
     let safe_fs = SafeFS::current(dry_run)?;
 
@@ -76,10 +77,10 @@ pub fn run(dry_run: bool, purge: bool) -> Result<()> {
         let mut managed_files = vec!["manifest.toml".to_string()];
 
         // Protect the specific compose file defined in orchestration.dev
-        if let Some(dev) = &manifest.orchestration.dev {
-            if let Some(workspace) = &dev.workspace {
-                managed_files.push(workspace.clone());
-            }
+        if let Some(dev) = &manifest.orchestration.dev
+            && let Some(workspace) = &dev.workspace
+        {
+            managed_files.push(workspace.clone());
         }
 
         // Also protect root compose if detected by find_compose_file

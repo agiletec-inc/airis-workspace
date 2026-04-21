@@ -52,19 +52,19 @@ pub fn extract_catalog_from_path(base_path: &Path) -> Result<IndexMap<String, St
 
     // Also check pnpm-workspace.yaml for existing catalog
     let pnpm_workspace_path = base_path.join("pnpm-workspace.yaml");
-    if pnpm_workspace_path.exists() {
-        if let Ok(content) = fs::read_to_string(&pnpm_workspace_path) {
-            #[derive(serde::Deserialize)]
-            struct PnpmWorkspace {
-                catalog: Option<IndexMap<String, String>>,
-            }
+    if pnpm_workspace_path.exists()
+        && let Ok(content) = fs::read_to_string(&pnpm_workspace_path)
+    {
+        #[derive(serde::Deserialize)]
+        struct PnpmWorkspace {
+            catalog: Option<IndexMap<String, String>>,
+        }
 
-            if let Ok(workspace) = serde_yml::from_str::<PnpmWorkspace>(&content) {
-                if let Some(existing_catalog) = workspace.catalog {
-                    for (pkg, version) in existing_catalog {
-                        catalog.insert(pkg, version);
-                    }
-                }
+        if let Ok(workspace) = serde_yml::from_str::<PnpmWorkspace>(&content)
+            && let Some(existing_catalog) = workspace.catalog
+        {
+            for (pkg, version) in existing_catalog {
+                catalog.insert(pkg, version);
             }
         }
     }
