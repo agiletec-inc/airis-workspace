@@ -56,39 +56,52 @@ pub(super) fn install_global_guard(bin_dir: &Path, cmd: &str, level: GuardLevel)
 
 LEVEL="{level}"
 
-# Helper: find the real command
+# Helper: find the real command on the host (excluding airis bin)
 find_real_cmd() {{
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
 }}
 
+# Helper: find airis context (has manifest.toml or compose.yaml)
+find_airis_context() {{
+    local dir="$PWD"
+    while [[ "$dir" != "/" ]]; do
+        if [[ -f "$dir/manifest.toml" ]] || [[ -f "$dir/compose.yaml" ]] || [[ -f "$dir/compose.yml" ]] || [[ -f "$dir/docker-compose.yaml" ]] || [[ -f "$dir/docker-compose.yml" ]]; then
+            echo "$dir"
+            return 0
+        fi
+        dir="$(dirname "$dir")"
+    done
+    return 1
+}}
+
 REAL_CMD=$(find_real_cmd {cmd})
 
-# 1. Inside Docker/CI: always allow
+# 1. Inside Docker/CI: always allow host command
 if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/null || [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ "${{CI:-}}" == "true" ]]; then
     if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 fi
 
-# 2. Check repo-level opt-out
-if command -v airis &>/dev/null && airis guards check-allow {cmd} 2>/dev/null; then
-    if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+# 2. Airis Context detection & Smart Proxy
+if find_airis_context >/dev/null; then
+    # We are in an airis project or docker-first directory. Execute through airis (Docker-First).
+    if command -v airis &>/dev/null; then
+        exec airis exec {cmd} "$@"
+    else
+        echo "⚠️  Airis context detected but 'airis' command not found."
+    fi
 fi
 
-# 3. Apply Policy
+# 3. Not in airis workspace or airis missing: Apply Policy
 case "$LEVEL" in
     warn)
         echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis run' or 'airis shell'."
         if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
         ;;
     enforce)
-        echo "❌ '{cmd}' is blocked on this machine (Docker-First)."
-        echo ""
-        echo "Use airis commands instead:"
-        echo "  airis up / airis run / airis shell"
-        echo ""
-        echo "To allow this command in this repo, add to manifest.toml:"
-        echo "  [guards]"
-        echo "  allow = [\"{cmd}\"]"
-        exit 1
+        # Only enforce if we are actually in a project that *could* be using airis 
+        # but doesn't have a manifest, or if the user wants strict host-wide blocking.
+        # For now, we allow it if no manifest is found (Standard behavior).
+        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
         ;;
     *)
         if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
@@ -130,7 +143,7 @@ pub(super) fn is_global_guard(path: &Path) -> Result<bool> {
     Ok(false)
 }
 
-pub(super) fn is_airis_guard(path: &Path) -> Result<bool> {
+pub(crate) fn is_airis_guard(path: &Path) -> Result<bool> {
     if !path.exists() {
         return Ok(false);
     }
@@ -142,16 +155,4 @@ pub(super) fn is_airis_guard(path: &Path) -> Result<bool> {
         }
     }
     Ok(false)
-}
-
-pub(super) fn install_deny_guard(dir: &Path, cmd: &str, _msg: Option<&String>) -> Result<()> {
-    install_global_guard(dir, cmd, GuardLevel::Enforce)
-}
-
-pub(super) fn install_wrap_guard(dir: &Path, cmd: &str, wrapper: &str) -> Result<()> {
-    validate_guard_cmd(cmd)?;
-    let script_path = dir.join(cmd);
-    let content = format!("#!/usr/bin/env bash\nexec {} \"$@\"\n", wrapper);
-    fs::write(&script_path, content)?;
-    make_executable(&script_path)
 }

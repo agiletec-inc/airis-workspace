@@ -24,80 +24,43 @@ Airis Manifest is a declarative configuration format for Docker-first monorepo w
 
 ```toml
 version = 1                 # Manifest format version
-name = "my-monorepo"        # Project name
-mode = "docker-first"       # Workflow mode
 ```
 
-**Mode Options**:
-- `docker-first`: Default. All commands run in Docker (except Rust with `runtime: local`)
-- `hybrid`: (Future) Allow selective host execution
-- `strict`: (Future) Enforce Docker for all operations
+Airis uses **Convention over Configuration**. It automatically discovers projects in `apps/*` and `libs/*`. `manifest.toml` is used for **exceptions and intent**.
 
 ---
 
-### Catalog Section
+### Catalog Section (Optional)
 
-Define version policies for dependencies. Avoid hardcoded version numbers.
+Define version policies for shared dependencies. Airis resolves these to `pnpm.catalog` in the root `package.json`.
 
 ```toml
-[catalog.react]
-policy = "latest"           # Always use latest version
-
-[catalog.next]
-policy = "lts"              # Use LTS version
-
-[catalog.typescript]
-policy = "^5.0.0"           # Use semver range
-```
-
-**Policy Types**:
-- `"latest"`: Always use the latest version from npm registry
-- `"lts"`: Use the latest LTS (long-term support) version
-- `"^X.Y.Z"`: Use semver range (e.g., `^5.0.0` matches `5.x.x`)
-- `"~X.Y.Z"`: Use patch range (e.g., `~5.1.0` matches `5.1.x`)
-
-**Resolution**:
-- Run `airis gen` to resolve policies to actual versions
-- Writes resolved versions to `package.json` `pnpm.catalog` section
-- Lock files maintain reproducibility
-
----
-
-### Workspaces Section
-
-Define apps and libraries in your monorepo.
-
-```toml
-[workspaces]
-apps = ["corporate-site", "dashboard", "api"]
-libs = ["ui", "auth", "db"]
+[catalog]
+react = "latest"
+next = "lts"
+typescript = "^5.0.0"
 ```
 
 ---
 
-### Apps Section
+### Apps & Libs Section (Optional)
 
-Configure individual applications.
+Configure individual applications or libraries. Only needed for **overrides** (e.g., custom ports, environment variables).
 
 ```toml
 [apps.corporate-site]
-path = "apps/corporate-site"
-type = "nextjs"
 port = 3000
+framework = "nextjs"
 
-[apps.dashboard]
-path = "apps/dashboard"
-type = "nextjs"
-port = 3100
-
-[apps.api]
-path = "apps/api"
-type = "node"
-port = 9000
+[libs.ui]
+deps = { "lucide-react" = "latest" }
 ```
 
-**App Types**:
-- `"nextjs"`: Next.js application
+**Key Fields**:
+- `path`: (Auto-inferred) Custom path to project
+- `framework`: (Auto-detected) nextjs | vite | hono | node | rust
+- `port`: Port to expose in Docker Compose
+- `deps`: Explicit dependency overrides (preserved in package.json)
 - `"node"`: Node.js application
 - `"rust"`: Rust application (supports `runtime: local` for GPU)
 - `"python"`: Python application

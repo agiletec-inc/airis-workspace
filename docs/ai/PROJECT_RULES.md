@@ -1,10 +1,22 @@
 # Project Rules
 
-## Source Of Truth
+## Architectural Boundaries
 
-- `manifest.toml` is the machine-readable source of truth for workspace structure, Docker-first orchestration, command guards, and generated files.
-- Generated files must stay derivable from `manifest.toml`; do not treat generated output as the place to change behavior.
-- AI-facing guidance lives in `docs/ai/`. Do not copy large instruction blocks into vendor-specific adapter files.
+Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygiene Enforcer**. It is not a build orchestrator (like Nx/Turborepo) or a package manager replacement. Its primary value is ensuring a host-hygienic Docker development environment through automated orchestration.
+
+## Design Principles
+
+- **Principle 1: Convention first, manifest second, inference last.**
+  The existence and basic properties of projects are derived from repository structure (e.g., `apps/*`, `libs/*`). `manifest.toml` is used for overrides.
+- **Principle 2: Manifest declares intent and exceptions, not everything.**
+  The manifest should be "thin". Avoid redundant declarations. Use it to specify frameworks, custom ports, or explicit dependencies that cannot be inferred.
+- **Principle 3: Generated files are outputs, not the primary source of truth.**
+  `package.json` (partial), `compose.yaml`, and `tsconfig.json` are artifacts generated to maintain environmental integrity. 
+- **Principle 4: Discovery and scanning never overwrite explicit intent.**
+  Import scanning and automatic detection are advisory mechanisms. They may suggest missing dependencies or configurations but must never overwrite explicit definitions in `manifest.toml` or manual edits in `package.json` (for dependencies/scripts).
+
+## Source Of Truth
+...
 
 ## Non-Negotiables
 

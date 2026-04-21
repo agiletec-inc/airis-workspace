@@ -5,15 +5,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Workspace mode (docker-first, strict)
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum Mode {
-    #[default]
-    DockerFirst,
-    Strict,
-}
-
 fn default_version() -> u32 {
     1
 }
@@ -26,8 +17,6 @@ pub(crate) fn schema_default_version() -> u32 {
 pub struct Manifest {
     #[serde(default = "default_version")]
     pub version: u32,
-    #[serde(default)]
-    pub mode: Mode,
     /// Project metadata (SoT for Cargo.toml, Homebrew, etc.)
     #[serde(default)]
     pub project: MetaSection,
@@ -357,18 +346,32 @@ fn default_apps_pattern() -> String {
     "apps/*/compose.yml".to_string()
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct AppConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub app_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub scripts: IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub deps: IndexMap<String, String>,
+    #[serde(rename = "devDeps", default, skip_serializing_if = "IndexMap::is_empty")]
+    pub dev_deps: IndexMap<String, String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct LibConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub scripts: IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub deps: IndexMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]

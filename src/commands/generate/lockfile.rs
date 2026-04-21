@@ -22,8 +22,6 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
     println!();
     println!("{}", "🔒 Syncing pnpm-lock.yaml...".bright_blue());
 
-    let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
-
     // Find a service to use
     let docker_service = manifest
         .docker
@@ -33,93 +31,77 @@ pub(super) fn sync_lockfile(manifest: &Manifest) -> Result<()> {
         .filter(|s| !s.is_empty())
         .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
 
-    let status = if is_docker_first {
-        let svc = match docker_service {
-            Some(s) => s,
-            None => {
-                println!(
-                    "   {} no service found for lockfile sync (run `docker compose exec <service> pnpm install --lockfile-only`)",
-                    "⚠".yellow()
-                );
-                return Ok(());
-            }
-        };
-
-        // Try exec first (fast, uses running container)
-        let exec_status = Command::new("docker")
-            .args([
-                "compose",
-                "exec",
-                
-                svc,
-                "pnpm",
-                "install",
-                "--lockfile-only",
-            ])
-            .status();
-
-        match exec_status {
-            Ok(s) if s.success() => Ok(s),
-            _ => {
-                // Container not running — try with secret provider if configured
-                let provider = manifest
-                    .secrets
-                    .as_ref()
-                    .and_then(|s| crate::secrets::create_provider(s).ok());
-
-                if let Some(ref provider) = provider
-                    && provider.is_available()
-                {
-                    println!(
-                        "   {} container not running, trying with {}...",
-                        "↻".yellow(),
-                        provider.name()
-                    );
-                    let base_args = [
-                        "compose",
-                        "run",
-                        "--rm",
-                        "--no-deps",
-                        
-                        svc,
-                        "pnpm",
-                        "install",
-                        "--lockfile-only",
-                    ];
-                    let (program, wrapped_args) = provider.wrap_command("docker", &base_args);
-                    let provider_status = Command::new(&program).args(&wrapped_args).status();
-
-                    match provider_status {
-                        Ok(s) if s.success() => return report_status(Ok(s)),
-                        _ => {} // fall through to docker run
-                    }
-                }
-
-                // Last resort — use lightweight docker run with base image
-                println!("   {} using docker run fallback...", "↻".yellow());
-                let pm = &manifest.workspace.package_manager;
-                let image = &manifest.workspace.image;
-                Command::new("docker")
-                    .args([
-                        "run",
-                        "--rm",
-                        "-v",
-                        &format!("{}:/app", std::env::current_dir()?.display()),
-                        "-w",
-                        "/app",
-                        image,
-                        "sh",
-                        "-c",
-                        &format!("npm install -g {} && pnpm install --lockfile-only", pm),
-                    ])
-                    .status()
-            }
+    let svc = match docker_service {
+        Some(s) => s,
+        None => {
+            println!(
+                "   {} no service found for lockfile sync (run `docker compose exec <service> pnpm install --lockfile-only`)",
+                "⚠".yellow()
+            );
+            return Ok(());
         }
-    } else {
-        // Non-docker mode: run directly on host
-        Command::new("pnpm")
-            .args(["install", "--lockfile-only"])
-            .status()
+    };
+
+    // Try exec first (fast, uses running container)
+    let exec_status = Command::new("docker")
+        .args(["compose", "exec", svc, "pnpm", "install", "--lockfile-only"])
+        .status();
+
+    let status = match exec_status {
+        Ok(s) if s.success() => Ok(s),
+        _ => {
+            // Container not running — try with secret provider if configured
+            let provider = manifest
+                .secrets
+                .as_ref()
+                .and_then(|s| crate::secrets::create_provider(s).ok());
+
+            if let Some(ref provider) = provider
+                && provider.is_available()
+            {
+                println!(
+                    "   {} container not running, trying with {}...",
+                    "↻".yellow(),
+                    provider.name()
+                );
+                let base_args = [
+                    "compose",
+                    "run",
+                    "--rm",
+                    "--no-deps",
+                    svc,
+                    "pnpm",
+                    "install",
+                    "--lockfile-only",
+                ];
+                let (program, wrapped_args) = provider.wrap_command("docker", &base_args);
+                let provider_status = Command::new(&program).args(&wrapped_args).status();
+
+                match provider_status {
+                    Ok(s) if s.success() => return report_status(Ok(s)),
+                    _ => {} // fall through to docker run
+                }
+            }
+
+            // Last resort — use lightweight docker run with base image
+            println!("   {} using docker run fallback...", "↻".yellow());
+            let pm = &manifest.workspace.package_manager;
+            let image = &manifest.workspace.image;
+            Command::new("docker")
+                .args([
+                    "run",
+                    "--rm",
+                    "-v",
+                    &format!("{}:/app", std::env::current_dir()?.display()),
+                    "-w",
+                    "/app",
+                    image,
+                    "sh",
+                    "-c",
+                    &format!("npm install -g {} && pnpm install --lockfile-only", pm),
+                ])
+                .status()
+        }
     };
 
     report_status(status)

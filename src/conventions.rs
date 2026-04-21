@@ -42,7 +42,15 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("lint", "biome check ."),
                 ("typecheck", "tsc --noEmit"),
             ],
-            isolated_dirs: &[".next", ".turbo", "node_modules/.cache"],
+            isolated_dirs: &[
+                ".next",
+                ".turbo",
+                "node_modules",
+                "dist",
+                "build",
+                ".swc",
+                ".cache",
+            ],
             global_caches: &[],
         },
         "react-vite" | "vite" => FrameworkDefaults {
@@ -58,7 +66,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("build", "vite build"),
                 ("typecheck", "tsc --noEmit"),
             ],
-            isolated_dirs: &["dist", ".turbo", "node_modules/.cache"],
+            isolated_dirs: &["dist", "node_modules", ".turbo", ".cache"],
             global_caches: &[],
         },
         "hono" => FrameworkDefaults {
@@ -76,7 +84,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("lint", "biome check ."),
                 ("typecheck", "tsc --noEmit"),
             ],
-            isolated_dirs: &["dist", "node_modules/.cache"],
+            isolated_dirs: &["dist", "node_modules", "build", ".turbo"],
             global_caches: &[],
         },
         "node" => FrameworkDefaults {
@@ -92,7 +100,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("dev", "tsup --watch"),
                 ("typecheck", "tsc --noEmit"),
             ],
-            isolated_dirs: &["dist", "node_modules/.cache"],
+            isolated_dirs: &["dist", "node_modules", "build", "out", ".turbo", ".cache"],
             global_caches: &[],
         },
         "cloudflare-worker" => FrameworkDefaults {
@@ -108,7 +116,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("deploy", "wrangler deploy"),
                 ("deploy:staging", "wrangler deploy --env staging"),
             ],
-            isolated_dirs: &[".wrangler", "dist", ".turbo"],
+            isolated_dirs: &[".wrangler", "dist", "node_modules", ".turbo"],
             global_caches: &[],
         },
         "pnpm" => FrameworkDefaults {
@@ -123,7 +131,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("PATH", "/root/.local/share/pnpm:$PATH"),
             ],
             default_scripts: &[],
-            isolated_dirs: &["node_modules"],
+            isolated_dirs: &["node_modules", ".pnpm-store"],
             global_caches: &[("pnpm-store", "/root/.local/share/pnpm/store")],
         },
         "rust" => FrameworkDefaults {
@@ -138,7 +146,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("dev", "cargo watch -x run"),
                 ("build", "cargo build --release"),
             ],
-            isolated_dirs: &["target"],
+            isolated_dirs: &["target", "node_modules"],
             global_caches: &[("cargo-registry", "/usr/local/cargo/registry")],
         },
         "python" => FrameworkDefaults {
@@ -160,6 +168,7 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             ],
             isolated_dirs: &[
                 ".venv",
+                "node_modules",
                 "__pycache__",
                 ".ruff_cache",
                 ".mypy_cache",
@@ -177,7 +186,16 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
             start_script: "node dist/index.js",
             docker_env: &[],
             default_scripts: &[],
-            isolated_dirs: &["dist", "build", "node_modules/.cache"],
+            isolated_dirs: &[
+                "dist",
+                "build",
+                "out",
+                "node_modules",
+                ".turbo",
+                ".cache",
+                "target",
+                ".venv",
+            ],
             global_caches: &[],
         },
     }

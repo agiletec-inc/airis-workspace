@@ -92,14 +92,11 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
 
     // Workspace-wide global volumes
     let mut workspace_volumes = vec![
-        ".:/app".to_string(), // Source bind mount
+        ".:/app".to_string(), // Source bind mount (for human/AI editing)
     ];
 
-    // Identify global stacks to apply based on manifest
-    let mut global_stacks = Vec::new();
-    if manifest.has_workspace() && manifest.workspace.package_manager.starts_with("pnpm") {
-        global_stacks.push("pnpm");
-    }
+    // Identify global stacks to apply based on manifest (pnpm, cargo, etc.)
+    let global_stacks = ["pnpm", "rust", "python"];
 
     // Apply global stack conventions (Caches and Env)
     for stack_name in global_stacks {
@@ -121,19 +118,18 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
             let mut app_volumes = vec![format!("{}:/app/{}", ".", path)];
             let mut use_gpu = app.cuda.is_some();
 
-            // 1. Get conventions from framework (Legacy/Simple)
+            // 1. Get conventions from framework
             let framework = app.framework.as_deref().unwrap_or("node");
             let defaults = crate::conventions::framework_defaults(framework);
 
-            // Add project-local isolation volumes (App-specific prefix)
+            // Add project-local isolation volumes (Anonymous volumes to hide host junk)
             for dir in defaults.isolated_dirs {
-                let dir_id = dir.replace('.', "").replace('/', "-");
-                let volume_name = format!("{}-{}-{}", project_name, app.name, dir_id);
-                volumes.insert(volume_name.clone(), ComposeVolume::default());
-                app_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
+                // By providing only the container path, Docker creates an anonymous volume
+                // that masks the host's directory at this location.
+                app_volumes.push(format!("/app/{}/{}", path, dir));
             }
 
-            // Add app-specific global caches (Workspace-wide prefix)
+            // Also add global caches for this specific service
             for (cache_id, mount_path) in defaults.global_caches {
                 let volume_name = format!("{}-{}", project_name, cache_id);
                 volumes.insert(volume_name.clone(), ComposeVolume::default());

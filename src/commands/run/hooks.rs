@@ -56,41 +56,44 @@ pub(super) fn hash_file(path: &Path) -> Result<String> {
     Ok(blake3::hash(&content).to_hex()[..64].to_string())
 }
 
-/// Execute a hook command respecting Docker-first mode.
+/// Execute a hook command.
 fn execute_hook_command(cmd: &str, manifest: &Manifest) -> Result<bool> {
-    let is_docker_first = matches!(manifest.mode, crate::manifest::Mode::DockerFirst);
+    let svc = manifest
+        .docker
+        .workspace
+        .as_ref()
+        .map(|w| w.service.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
 
-    if is_docker_first {
-        let svc = manifest
-            .docker
-            .workspace
-            .as_ref()
-            .map(|w| w.service.as_str())
-            .filter(|s| !s.is_empty())
-            .or_else(|| manifest.service.keys().next().map(|s| s.as_str()));
+    if let Some(svc) = svc {
+        // Try exec first (fast, uses running container)
+        let status = Command::new("docker")
+            .args(["compose", "exec", svc, "sh", "-c", cmd])
+            .status();
 
-        if let Some(svc) = svc {
-            let status = Command::new("docker")
-                .args(["compose", "exec", svc, "sh", "-c", cmd])
-                .status();
+        match status {
+            Ok(s) if s.success() => return Ok(true),
+            _ => {
+                // Container not running — start temporary container
+                println!(
+                    "  {} container not running, starting temporary container...",
+                    "↻".yellow()
+                );
+                let status = Command::new("docker")
+                    .args(["compose", "run", "--rm", "--no-deps", svc, "sh", "-c", cmd])
+                    .status();
 
-            match status {
-                Ok(s) if s.success() => return Ok(true),
-                _ => {
-                    println!(
-                        "  {} container not running, starting temporary container...",
-                        "↻".yellow()
-                    );
-                    let status = Command::new("docker")
-                        .args(["compose", "run", "--rm", "--no-deps", svc, "sh", "-c", cmd])
-                        .status()
-                        .context("Failed to execute docker compose run")?;
-                    return Ok(status.success());
+                if let Ok(s) = status
+                    && s.success()
+                {
+                    return Ok(true);
                 }
             }
         }
     }
 
+    // Fallback to host execution
     let status = Command::new("sh")
         .args(["-c", cmd])
         .status()

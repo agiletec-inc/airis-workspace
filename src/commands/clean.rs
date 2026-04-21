@@ -6,22 +6,89 @@
 //! - Never deletes user data without explicit confirmation
 //! - Provides clear feedback on what was/would be deleted
 
-use anyhow::{Context, Result};
+use std::path::Path;
+
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 use glob::glob;
 
 use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::safe_fs::{SafeAction, SafeFS};
 
+/// Project-root markers used to decide whether the current directory is a
+/// reasonable place to run a destructive cleanup.
+///
+/// The set is intentionally broad (Node, Rust, Python, Go) because `airis
+/// clean` may legitimately run in any of those repos. If none are present we
+/// abort to avoid wiping `node_modules` / `dist` from arbitrary directories
+/// where the user wandered into.
+const PROJECT_ROOT_MARKERS: &[&str] = &[
+    "manifest.toml",
+    "package.json",
+    "Cargo.toml",
+    "pyproject.toml",
+    "go.mod",
+];
+
+fn is_project_root(dir: &Path) -> bool {
+    PROJECT_ROOT_MARKERS
+        .iter()
+        .any(|name| dir.join(name).exists())
+}
+
+/// Construct an empty Manifest entirely from `#[serde(default)]` fields.
+///
+/// Used when `manifest.toml` is absent so `airis clean` can still operate on
+/// the canonical build-artifact list without requiring users to run
+/// `airis init` first. We deliberately bypass `Manifest::parse` because its
+/// `validate()` step (e.g. `project.id required`) is meant for user-authored
+/// manifests; an in-memory default never reaches disk and only feeds the
+/// canonical `clean.dirs` / `clean.recursive` lists here.
+fn default_manifest() -> Manifest {
+    toml::from_str("")
+        .expect("empty manifest must deserialize via serde defaults — schema bug")
+}
+
 /// Run the clean command
 ///
 /// # Arguments
 /// * `dry_run` - If true, only show what would be deleted without deleting
 /// * `purge` - If true, also remove legacy/orphaned config files
-pub fn run(dry_run: bool, purge: bool) -> Result<()> {
-    let manifest = Manifest::load(MANIFEST_FILE).with_context(|| {
-        "Failed to load manifest.toml. Create one (see docs/manifest.md) or use /airis:init via Claude Code."
-    })?;
+/// * `allow_anywhere` - Skip the project-root safety check
+pub fn run(dry_run: bool, purge: bool, allow_anywhere: bool) -> Result<()> {
+    if !allow_anywhere {
+        let cwd = std::env::current_dir()?;
+        if !is_project_root(&cwd) {
+            return Err(anyhow!(
+                "Not a project root: none of {} found in {}.\n\
+                 Run from a project directory, or pass --allow-anywhere to override.",
+                PROJECT_ROOT_MARKERS.join(", "),
+                cwd.display()
+            ));
+        }
+    }
+
+    let manifest_path = Path::new(MANIFEST_FILE);
+    let manifest_present = manifest_path.exists();
+
+    if purge && !manifest_present {
+        return Err(anyhow!(
+            "--purge requires manifest.toml so user-managed compose files \
+             (orchestration.dev) can be protected from deletion. \
+             Run `airis init` first, or omit --purge to clean only build artifacts."
+        ));
+    }
+
+    let manifest = if manifest_present {
+        Manifest::load(manifest_path)?
+    } else {
+        println!(
+            "{}",
+            "⚠️  manifest.toml not found — using default clean rules. Run `airis init` to customize."
+                .yellow()
+        );
+        default_manifest()
+    };
 
     let safe_fs = SafeFS::current(dry_run)?;
 
@@ -357,5 +424,42 @@ mod tests {
         assert!(!is_protected_path(Path::new("node_modules")));
         assert!(!is_protected_path(Path::new(".next")));
         assert!(!is_protected_path(Path::new("dist")));
+    }
+
+    use super::{PROJECT_ROOT_MARKERS, default_manifest, is_project_root};
+    use tempfile::tempdir;
+
+    #[test]
+    fn project_root_detected_for_each_marker() {
+        for marker in PROJECT_ROOT_MARKERS {
+            let dir = tempdir().expect("tempdir");
+            std::fs::write(dir.path().join(marker), "").expect("write marker");
+            assert!(
+                is_project_root(dir.path()),
+                "{marker} should be recognized as a project-root marker",
+            );
+        }
+    }
+
+    #[test]
+    fn project_root_rejected_when_no_marker_present() {
+        let dir = tempdir().expect("tempdir");
+        // A stray build-artifact alone must not be treated as a project root.
+        std::fs::create_dir(dir.path().join("node_modules")).expect("mkdir");
+        assert!(!is_project_root(dir.path()));
+    }
+
+    #[test]
+    fn default_manifest_provides_canonical_clean_lists() {
+        let manifest = default_manifest();
+        let clean = &manifest.workspace.clean;
+        assert!(
+            clean.dirs.iter().any(|d| d == "dist"),
+            "default clean.dirs should include 'dist'",
+        );
+        assert!(
+            clean.recursive.iter().any(|d| d == "node_modules"),
+            "default clean.recursive should include 'node_modules'",
+        );
     }
 }

@@ -13,6 +13,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use colored::Colorize;
 use indexmap::IndexMap;
 
 pub const MANIFEST_FILE: &str = "manifest.toml";
@@ -23,6 +24,30 @@ impl Manifest {
             .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
 
         Self::parse(&content)
+    }
+
+    /// Load and parse manifest WITHOUT strict validation (loose mode).
+    pub fn load_loose<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let content = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read {:?}", path.as_ref()))?;
+
+        Self::parse_loose(&content)
+    }
+
+    /// Parse manifest from TOML string and perform post-processing WITHOUT strict validation.
+    pub fn parse_loose(content: &str) -> Result<Self> {
+        let mut manifest: Manifest =
+            toml::from_str(content).with_context(|| "Failed to parse manifest.toml")?;
+
+        manifest.migrate_testing_to_policy();
+
+        if let Err(e) = manifest.validate() {
+            eprintln!("\n{} {}", "⚠️  Manifest Validation Warning:".yellow().bold(), e);
+            eprintln!("   Attempting to continue despite validation errors...\n");
+        }
+
+        manifest.resolve_conventions();
+        Ok(manifest)
     }
 
     /// Parse manifest from TOML string and perform post-processing (migration, validation, resolution)
@@ -64,12 +89,133 @@ impl Manifest {
         }
     }
 
-    /// Apply convention-based defaults to all [[app]] entries.
+    /// Apply convention-based defaults and discover projects from disk.
+    ///
+    /// Implements 'Thin Manifest + Strong Convention' philosophy:
+    /// 1. Discover projects matching convention patterns (apps/*, libs/*, products/*).
+    /// 2. Merge explicit overrides from [apps.xxx] and [libs.xxx] table formats.
+    /// 3. Merge explicit entries from [[app]] list.
     fn resolve_conventions(&mut self) {
         let workspace = self.workspace.clone();
-        for app in &mut self.app {
-            app.resolve(&workspace);
+        let mut normalized = IndexMap::new();
+
+        // Step 1: Discover from disk (Repo Convention)
+        let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let patterns = if !self.packages.workspaces.is_empty() {
+            self.packages.workspaces.clone()
+        } else {
+            vec![
+                "apps/*".to_string(),
+                "libs/*".to_string(),
+                "products/*".to_string(),
+            ]
+        };
+
+        if let Ok(discovered) = crate::commands::discover::discover_from_workspaces(&patterns, &root)
+        {
+            for disc in discovered {
+                let kind = if disc.path.starts_with("libs/") {
+                    "lib"
+                } else {
+                    "app"
+                };
+                let mut project = ProjectDefinition {
+                    name: disc.name.clone(),
+                    path: Some(disc.path.clone()),
+                    framework: Some(disc.framework.to_string()),
+                    kind: Some(kind.to_string()),
+                    ..Default::default()
+                };
+                project.resolve(&workspace);
+                normalized.insert(project.name.clone(), project);
+            }
         }
+
+        // Step 2: Merge Map-based overrides ([apps.xxx], [libs.xxx])
+        for (name, config) in &self.apps {
+            let entry = normalized.entry(name.clone()).or_insert_with(|| {
+                let mut p = ProjectDefinition {
+                    name: name.clone(),
+                    kind: Some("app".to_string()),
+                    ..Default::default()
+                };
+                p.resolve(&workspace);
+                p
+            });
+
+            if let Some(ref path) = config.path {
+                entry.path = Some(path.clone());
+            }
+            if let Some(ref fw) = config.framework.clone().or_else(|| config.app_type.clone()) {
+                entry.framework = Some(fw.clone());
+            }
+            if !config.deps.is_empty() {
+                entry.deps.extend(config.deps.clone());
+            }
+            if !config.dev_deps.is_empty() {
+                entry.dev_deps.extend(config.dev_deps.clone());
+            }
+            if !config.scripts.is_empty() {
+                entry.scripts.extend(config.scripts.clone());
+            }
+            entry.resolve(&workspace);
+        }
+
+        for (name, config) in &self.libs {
+            let entry = normalized.entry(name.clone()).or_insert_with(|| {
+                let mut p = ProjectDefinition {
+                    name: name.clone(),
+                    kind: Some("lib".to_string()),
+                    ..Default::default()
+                };
+                p.resolve(&workspace);
+                p
+            });
+
+            if let Some(ref path) = config.path {
+                entry.path = Some(path.clone());
+            }
+            if let Some(ref fw) = config.framework {
+                entry.framework = Some(fw.clone());
+            }
+            if !config.deps.is_empty() {
+                entry.deps.extend(config.deps.clone());
+            }
+            if !config.scripts.is_empty() {
+                entry.scripts.extend(config.scripts.clone());
+            }
+            entry.resolve(&workspace);
+        }
+
+        // Step 3: Merge Vector-based entries ([[app]])
+        for explicit in &self.app {
+            let entry = normalized.entry(explicit.name.clone()).or_insert_with(|| {
+                let mut p = explicit.clone();
+                p.resolve(&workspace);
+                p
+            });
+
+            // Merge fields from explicit into entry
+            if explicit.path.is_some() {
+                entry.path = explicit.path.clone();
+            }
+            if explicit.framework.is_some() {
+                entry.framework = explicit.framework.clone();
+            }
+            if !explicit.deps.is_empty() {
+                entry.deps.extend(explicit.deps.clone());
+            }
+            if !explicit.dev_deps.is_empty() {
+                entry.dev_deps.extend(explicit.dev_deps.clone());
+            }
+            if !explicit.scripts.is_empty() {
+                entry.scripts.extend(explicit.scripts.clone());
+            }
+            entry.resolve(&workspace);
+        }
+
+        // Final result: the normalized vector used by the rest of the tool
+        self.app = normalized.into_values().collect();
     }
 
     /// Returns true if this manifest defines a Node.js workspace.
@@ -281,27 +427,45 @@ impl Manifest {
             },
             app: vec![],
         };
+// Guards for Docker-first enforcement
+let guards = GuardsSection {
+    deny: vec![
+        "npm".to_string(),
+        "yarn".to_string(),
+        "pnpm".to_string(),
+        "bun".to_string(),
+        "npx".to_string(),
+        "pip".to_string(),
+        "pip3".to_string(),
+        "uv".to_string(),
+        "poetry".to_string(),
+        "cargo".to_string(),
+    ],
+    allow: vec![],
+    wrap: {
+        let mut wrap = IndexMap::new();
+        wrap.insert(
+            "pnpm".to_string(),
+            "docker compose exec workspace pnpm".to_string(),
+        );
+        wrap.insert(
+            "npm".to_string(),
+            "docker compose exec workspace npm".to_string(),
+        );
+        wrap
+    },
+    deny_with_message: IndexMap::new(),
+    forbid: vec![
+        "npm".to_string(),
+        "yarn".to_string(),
+        "pnpm".to_string(),
+        "bun".to_string(),
+        "docker".to_string(),
+        "docker-compose".to_string(),
+    ],
+    danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
+};
 
-        // Guards for Docker-first enforcement
-        let guards = GuardsSection {
-            deny: vec![
-                "npm".to_string(),
-                "yarn".to_string(),
-                "pnpm".to_string(),
-                "bun".to_string(),
-            ],
-            allow: vec![],
-            wrap: IndexMap::new(),
-            deny_with_message: IndexMap::new(),
-            forbid: vec![
-                "npm".to_string(),
-                "yarn".to_string(),
-                "pnpm".to_string(),
-                "docker".to_string(),
-                "docker-compose".to_string(),
-            ],
-            danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
-        };
 
         // Remap common commands to airis
         let mut remap = IndexMap::new();
@@ -315,7 +479,6 @@ impl Manifest {
 
         Manifest {
             version: 1,
-            mode: Mode::DockerFirst,
             project: MetaSection {
                 id: name.to_string(),
                 binary_name: String::new(),

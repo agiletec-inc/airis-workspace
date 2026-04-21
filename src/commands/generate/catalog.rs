@@ -25,6 +25,7 @@ pub(super) fn resolve_catalog_versions(
 ///
 /// Combines: convention scripts + preset + dep_group + import scan → final deps/scripts
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 pub(super) fn resolve_package_data(
     app: &ProjectDefinition,
     workspace_root: &Path,
@@ -33,6 +34,7 @@ pub(super) fn resolve_package_data(
     catalog_raw: &IndexMap<String, CatalogEntry>,
     presets: &IndexMap<String, crate::manifest::PresetSection>,
     dep_groups: &IndexMap<String, IndexMap<String, String>>,
+    all_projects: &[String], // List of all valid project names in workspace
 ) -> Result<crate::generators::package_json::ResolvedPackageData> {
     let mut final_deps = IndexMap::new();
     let mut final_dev_deps = IndexMap::new();
@@ -93,7 +95,11 @@ pub(super) fn resolve_package_data(
                         format!("{}/{}", workspace_scope, app.name)
                     };
                     for pkg in &scanned.workspace {
-                        if pkg != &self_pkg_name && !final_deps.contains_key(pkg) {
+                        // FIX: Only add as workspace:* if the project actually exists in the workspace
+                        if pkg != &self_pkg_name
+                            && !final_deps.contains_key(pkg)
+                            && all_projects.contains(pkg)
+                        {
                             final_deps.insert(pkg.clone(), "workspace:*".to_string());
                         }
                     }
@@ -124,6 +130,7 @@ pub(super) fn resolve_package_data(
 }
 
 /// Check if a package name matches any wildcard pattern in the catalog.
+#[allow(dead_code)]
 pub(super) fn matches_wildcard_catalog(package: &str, wildcards: &[(&str, &CatalogEntry)]) -> bool {
     for (pattern, _) in wildcards {
         if wildcard_matches(pattern, package) {
@@ -134,6 +141,7 @@ pub(super) fn matches_wildcard_catalog(package: &str, wildcards: &[(&str, &Catal
 }
 
 /// Simple wildcard matching: `*` matches any sequence of characters at the end.
+#[allow(dead_code)]
 pub(super) fn wildcard_matches(pattern: &str, name: &str) -> bool {
     if let Some(prefix) = pattern.strip_suffix('*') {
         name.starts_with(prefix)
