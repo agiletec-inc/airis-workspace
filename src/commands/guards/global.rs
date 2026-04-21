@@ -107,6 +107,7 @@ pub fn status_global() -> Result<()> {
 pub fn uninstall_global() -> Result<()> {
     let bin_dir = GlobalConfig::bin_dir()?;
     if !bin_dir.exists() {
+        println!("{}", "ℹ️  No global guards found to uninstall.".yellow());
         return Ok(());
     }
 
@@ -119,7 +120,45 @@ pub fn uninstall_global() -> Result<()> {
             removed += 1;
         }
     }
-    println!("✅ Removed {} guards", removed);
+
+    // Try to remove the bin directory if empty
+    if fs::read_dir(&bin_dir)?.next().is_none() {
+        fs::remove_dir(&bin_dir)?;
+    }
+
+    // Clean up PATH from shell config files
+    let mut path_removed = false;
+    for rc_file in &[".zshrc", ".bashrc"] {
+        let home = dirs::home_dir().context("No home dir")?;
+        let rc_path = home.join(rc_file);
+        if !rc_path.exists() {
+            continue;
+        }
+
+        let content = fs::read_to_string(&rc_path)?;
+        if content.contains(".airis/bin") {
+            let lines: Vec<&str> = content
+                .lines()
+                .filter(|line| !line.contains(".airis/bin") && !line.contains("# airis guards"))
+                .collect();
+            
+            let new_content = lines.join("\n") + "\n";
+            fs::write(&rc_path, new_content)?;
+            println!("   {} Removed PATH from ~/{}", "✓".green(), rc_file.cyan());
+            path_removed = true;
+        }
+    }
+
+    println!("{} Removed {} guards and cleaned up PATH", "✅".green(), removed);
+
+    if path_removed {
+        println!(
+            "\n{} Your shell config has been updated. Reload your shell: {}",
+            "🔧".yellow(),
+            "source ~/.zshrc".cyan()
+        );
+    }
+
     Ok(())
 }
 

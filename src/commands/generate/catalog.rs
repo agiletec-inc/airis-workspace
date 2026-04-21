@@ -33,6 +33,7 @@ pub(super) fn resolve_package_data(
     catalog_raw: &IndexMap<String, CatalogEntry>,
     presets: &IndexMap<String, crate::manifest::PresetSection>,
     dep_groups: &IndexMap<String, IndexMap<String, String>>,
+    all_projects: &[String], // List of all valid project names in workspace
 ) -> Result<crate::generators::package_json::ResolvedPackageData> {
     let mut final_deps = IndexMap::new();
     let mut final_dev_deps = IndexMap::new();
@@ -93,7 +94,11 @@ pub(super) fn resolve_package_data(
                         format!("{}/{}", workspace_scope, app.name)
                     };
                     for pkg in &scanned.workspace {
-                        if pkg != &self_pkg_name && !final_deps.contains_key(pkg) {
+                        // FIX: Only add as workspace:* if the project actually exists in the workspace
+                        if pkg != &self_pkg_name
+                            && !final_deps.contains_key(pkg)
+                            && all_projects.contains(pkg)
+                        {
                             final_deps.insert(pkg.clone(), "workspace:*".to_string());
                         }
                     }

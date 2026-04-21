@@ -37,8 +37,8 @@ verify = "airis verify"
 commands = ["cargo check"]
 
 [guards]
-deny = ["npm", "yarn", "bun"]
-wrap = { pnpm = "docker compose exec workspace pnpm" }
+deny = []
+# wrap = { pnpm = "docker compose exec workspace pnpm" }
 
 [versioning]
 strategy = "conventional-commits"

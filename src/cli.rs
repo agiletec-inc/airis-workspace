@@ -2,41 +2,36 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "airis")]
-#[command(about = "The Docker-first monorepo manager for the vibe coding era")]
+#[command(about = "The Docker-first environment orchestrator for the vibe coding era")]
 #[command(long_about = "\
-The Docker-first monorepo manager for the vibe coding era.
+The Docker-first environment orchestrator for the vibe coding era.
 
 One manifest file. Every config generated. Your AI pair-programmer stays inside \
 the container where it belongs.
 
-airis generates compose.yml, package.json, pnpm-workspace.yaml, tsconfig, and \
-CI/CD workflows from a single manifest.toml. Command guards keep AI agents from \
-running package managers on the host or picking the wrong tool.
+airis generates compose.yaml, tsconfig, and environment-ready package.json files \
+from a single manifest.toml and repository conventions. It automates named \
+volumes to keep build artifacts off your host and ensures your Docker \
+environment is always ready to run.
 
 DESIGN: airis extends your existing stack — it doesn't replace it. Turborepo, NX, \
 Doppler, Vercel, Railway — all your choice. airis handles the Docker layer that \
 those tools leave to you.")]
 #[command(after_help = "\
 QUICK REFERENCE:
-  airis gen                 Regenerate workspace files from manifest.toml
-  airis up                  Docker-First: Sync config, install deps, and start dev server
+  airis gen                 Sync workspace configs based on conventions & manifest
+  airis up                  One-shot boot: sync config, install deps, and start Docker
   airis down                Stop all services
   airis shell               Enter workspace container shell
   airis doctor              Diagnose and fix workspace issues
 
 BOOTSTRAPPING:
-  Create manifest.toml (see docs/manifest.md) or ask Claude Code via /airis:init
-  (MCP tool workspace_init). Then run `airis gen && airis up`.
+  Create a thin manifest.toml or ask AI via /airis:init (MCP tool workspace_init).
+  Then run `airis up`.
 
-CONFIG: All commands are defined in manifest.toml [commands] section.
-  airis run <task>          Execute any command (e.g., test, lint, build)
-  airis up/down/shell/...   Surgical shortcuts for common Docker-first workflows
-
-MANIFEST SECTIONS:
-  [commands]    Command definitions (what 'airis run <task>' executes)
-  [guards]      Host command blocking (deny, wrap, forbid)
-  [remap]       Auto-translate blocked commands to safe alternatives
-  [packages]    Dependency catalog and workspace config")]
+CONVENTIONS:
+  airis automatically discovers projects in apps/* and libs/*. Use manifest.toml
+  only for overrides (ports, env, explicit dependencies, etc.).")]
 pub struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
@@ -227,12 +222,18 @@ pub enum Commands {
         /// Preview only (default)
         #[arg(long, default_value_t = true)]
         dry_run: bool,
-        /// Remove orphaned or legacy config files (e.g., docker-compose.yml)
+        /// Remove orphaned or legacy config files (e.g., docker-compose.yml).
+        /// Requires manifest.toml so user-managed compose files can be protected.
         #[arg(long)]
         purge: bool,
         /// Actually execute deletions
         #[arg(long)]
         force: bool,
+        /// Skip the project-root safety check (run even without
+        /// manifest.toml / package.json / Cargo.toml / pyproject.toml / go.mod
+        /// in the current directory)
+        #[arg(long)]
+        allow_anywhere: bool,
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,

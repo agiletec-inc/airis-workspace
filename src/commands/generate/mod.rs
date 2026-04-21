@@ -4,7 +4,6 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
-use crate::commands::discover::discover_from_workspaces;
 use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
@@ -132,47 +131,16 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
 
         let workspace_root = env::current_dir()?;
         let workspace_scope = manifest.workspace.scope.as_deref().unwrap_or("@workspace");
-        let workspace_patterns = if !manifest.packages.workspaces.is_empty() {
-            &manifest.packages.workspaces
-        } else {
-            &manifest.workspace.workspaces
-        };
 
-        let explicit_names: std::collections::HashSet<String> =
-            manifest.app.iter().map(|a| a.name.clone()).collect();
-
-        if !workspace_patterns.is_empty() {
-            let discovered = discover_from_workspaces(workspace_patterns, &workspace_root)?;
-            for disc in &discovered {
-                if explicit_names.contains(&disc.name) {
-                    continue;
-                }
-                let mut auto_app = crate::manifest::ProjectDefinition {
-                    path: Some(disc.path.clone()),
-                    framework: Some(disc.framework.to_string()),
-                    ..Default::default()
-                };
-                auto_app.resolve(&manifest.workspace);
-
-                let resolved_data = resolve_package_data(
-                    &auto_app,
-                    &workspace_root,
-                    workspace_scope,
-                    &mut resolved_catalog,
-                    &manifest.packages.catalog,
-                    &manifest.preset,
-                    &manifest.dep_group,
-                )?;
-                crate::generators::package_json::generate_full_package_json(
-                    &auto_app,
-                    &workspace_root,
-                    &resolved_catalog,
-                    &resolved_data,
-                )?;
-                if let Some(ref path) = auto_app.path {
-                    generated_paths.push(format!("{}/package.json", path));
-                }
-            }
+        // Collect all project names for workspace dependency validation
+        let mut all_project_names: Vec<String> = Vec::new();
+        for app in &manifest.app {
+            let pkg_name = if let Some(ref scope) = app.scope {
+                format!("@{}/{}", scope.trim_start_matches('@'), app.name)
+            } else {
+                format!("{}/{}", workspace_scope, app.name)
+            };
+            all_project_names.push(pkg_name);
         }
 
         for app in &manifest.app {
@@ -184,6 +152,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
                 &manifest.packages.catalog,
                 &manifest.preset,
                 &manifest.dep_group,
+                &all_project_names,
             )?;
             crate::generators::package_json::generate_full_package_json(
                 app,

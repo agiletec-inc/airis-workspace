@@ -252,11 +252,12 @@ fn dispatch(command: Commands) -> Result<()> {
             dry_run,
             purge,
             force,
+            allow_anywhere,
             extra_args: _,
         } => {
             // dry_run is true by default, force overrides it
             let actual_dry_run = if force { false } else { dry_run };
-            commands::clean::run(actual_dry_run, purge)?;
+            commands::clean::run(actual_dry_run, purge, allow_anywhere)?;
         }
         Commands::Bundle {
             project,
