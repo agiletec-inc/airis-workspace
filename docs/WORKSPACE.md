@@ -1,21 +1,29 @@
-# WORKSPACE
+# WORKSPACE Philosophy
 
-`workspace.yaml` は airis-workspace が自動生成するメタデータであり、モノレポの物理構造 (packages / docker image 名 / volume / path) を記述するファイル。人間が直接編集したり dev ロジックを書く場ではない。
+Airis workspaces are designed to be **host-hygienic** and **transparent**. Whether you are working on a single-service app or a complex monorepo, Airis ensures that your tools run in the right environment.
 
-## ポリシー
+## Two Modes of Operation
 
-1. `workspace.yaml` はジェネレーターが再生成するので手動変更しない。ロジックや設定は `manifest.toml` に置く。
-2. Justfile / docker-compose / エージェントは `workspace.yaml` のメタ情報を参照するだけで、 dev/CI の意思決定には使わない。
-3. workspace の構成を変えたい場合は airis-workspace のテンプレートや設定を更新して再生成する。
+### 1. Transparent Proxy (Standalone Mode)
+If you have a `compose.yml` (or any of its 4 variations), Airis automatically activates.
+- **Trigger**: Presence of `compose.yml`.
+- **Behavior**: Smart-shims (pnpm, python, etc.) redirect commands to the container.
+- **Source of Truth**: The existing `compose.yml`.
 
-## 利用例
+### 2. Managed Orchestration (Manifest Mode)
+If you have a `manifest.toml`, Airis acts as a **Config Compiler**.
+- **Intent**: `manifest.toml` declares your workspace structure, dependencies, and policies.
+- **Artifacts**: `airis gen` generates `compose.yaml`, `tsconfig.json`, and other configs.
+- **Source of Truth**: `manifest.toml`.
 
-- パッケージの一覧やフレームワーク判定に `workspace.yaml` を読み、補完や IDE 設定を行う。
-- Docker イメージ名、ボリューム設定、path resolution など技術的な事実を引き出す。
+## Core Principles
 
-## まとめ
+1. **Host Hygiene**: No `node_modules` or `target` folders on the host. Everything stays in Docker volumes.
+2. **Muscle Memory Preservation**: You run `pnpm install`, and Airis handles the redirection. No new command patterns to learn for your daily workflow.
+3. **Environment Parity**: Everyone on the team runs the exact same container, enforced by the shims.
 
-- `workspace.yaml`: 自動生成された構造メタデータ。編集禁止。
-- `manifest.toml`: 人間が定義する開発/運用ロジックの真実。すべての dev/CI 対象はここで指定。
+## Summary
 
-それぞれの責務を混ぜないことで、再生成しても壊れない安定したワークフローを維持できる。
+- **`manifest.toml`**: The **Intent**. Where you define how the workspace should look.
+- **`compose.yaml`**: The **Execution**. Where the containers and volumes are defined (either manually or generated).
+- **`Smart-Shims`**: The **Bridge**. The transparent proxy that connects your shell to the Docker environment.

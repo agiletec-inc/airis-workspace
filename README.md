@@ -1,48 +1,58 @@
 # airis-workspace
 
-**Environment Source-of-Truth, Config Compiler, and Hygiene Enforcer.**
+**The Transparent Docker-First Proxy for the Vibe Coding Era.**
 
-Airis ensures a host-hygienic, Docker-first development environment through automated orchestration and global shims.
+Airis is an environment orchestrator that acts as a transparent proxy between your host shell and Docker. It ensures a host-hygienic development environment by automatically redirecting commands to Docker whenever a Compose file is detected.
 
-## Key Features
+## 🚀 The Core Idea: Smart Shims
 
-- **Docker-First Enforcement**: Commands like `pnpm`, `npm`, and `cargo` are automatically routed to Docker containers when inside an Airis workspace.
-- **Thin Manifest**: Declare intent in `manifest.toml`, and Airis handles the rest (Compose generation, TSConfig paths, etc.).
-- **Smart Shims**: Global shims in `~/.airis/bin` that detect workspaces and proxy commands intelligently.
-- **Hygiene First**: Prevents accidental host-side dependency installation.
+With Airis, you don't need to change your muscle memory. If you are in a directory with a `compose.yml`, Airis intercepts your commands and runs them inside the container.
 
-## Quick Start
+- **Zero Config**: If you have a `compose.yml`, Airis works. No `manifest.toml` required.
+- **Transparent Proxy**: Use `pnpm`, `npm`, `uv`, or `python` as usual. If a Docker environment is present, it runs there. If not, it runs natively.
+- **Hygiene Enforcement**: Keeps `node_modules`, `target/`, and other build artifacts inside Docker volumes, keeping your host clean.
 
-1. **Install airis CLI**:
+## 📦 Supported Triggers
+
+Airis automatically detects environment intent by looking for:
+- `compose.yaml` / `compose.yml`
+- `docker-compose.yaml` / `docker-compose.yml`
+- `manifest.toml` (Optional: for monorepo orchestration and advanced policies)
+
+## 🛠️ Getting Started
+
+1. **Install Airis CLI**:
    ```bash
    cargo install --path .
    ```
 
-2. **Setup Global Shims**:
+2. **Install Global Smart-Shims**:
    ```bash
    airis guards install --global
    ```
-   *Follow the instructions to add `~/.airis/bin` to your `PATH`.*
+   *This adds `~/.airis/bin` to your `PATH`. These shims are the "magic" that enables transparent redirection.*
 
-3. **Initialize a Project**:
-   Create a `manifest.toml` in your project root.
-
-4. **Start Environment**:
+3. **Just Work**:
+   Go to any project with a `compose.yml` and run your usual commands:
    ```bash
-   airis up
+   pnpm install  # Automatically runs: docker compose exec workspace pnpm install
+   python main.py # Automatically runs: docker compose exec workspace python main.py
    ```
-   Now, any command like `pnpm install` or `pnpm dev` will run safely inside Docker.
 
-## Common Commands
+## 🧠 Advanced Features (manifest.toml)
 
-- `airis up`: Start the Docker environment.
-- `airis run <task>`: Run a specific task defined in manifest or conventions.
-- `airis shell`: Enter the workspace container shell.
-- `airis workspace uninstall`: Safely remove airis artifacts from the current repo.
+While optional, a `manifest.toml` allows you to:
+- **Orchestrate Monorepos**: Start multiple apps and infrastructure (Supabase, Traefik) with a single `airis up`.
+- **Config Compilation**: Automatically generate `compose.yaml`, `tsconfig.json`, and `package.json` from a single source of truth.
+- **Policy Gates**: Forbid LLMs or humans from running dangerous commands on the host.
 
-## Why Airis?
+## 📖 Commands
 
-Airis is not a build tool; it's an **environment orchestrator**. It solves the "it works on my machine" problem by ensuring that everyone on the team uses the exact same environment, enforced by the CLI itself.
+- `airis up`: Start the Docker environment (via Manifest or Compose).
+- `airis run <task>`: Execute a task (delegates to Docker if needed).
+- `airis shell`: Enter the primary workspace container.
+- `airis guards status --global`: Check the status of your smart-shims.
+- `airis workspace uninstall`: Safely remove Airis hooks and generated files from a repo.
 
 ---
 
