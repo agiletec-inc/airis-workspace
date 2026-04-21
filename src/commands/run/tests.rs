@@ -1,12 +1,13 @@
 use super::*;
 use indexmap::IndexMap;
 use tempfile::tempdir;
+use std::fs;
 
 use crate::manifest::Manifest;
 use crate::test_lock::DIR_LOCK;
 
 #[test]
-fn test_run_missing_manifest() {
+fn test_run_missing_manifest_and_compose() {
     let _guard = DIR_LOCK.lock().unwrap();
     let dir = tempdir().unwrap();
     let original_dir = std::env::current_dir().unwrap();
@@ -25,6 +26,27 @@ fn test_run_missing_manifest() {
 
     std::env::set_current_dir(original_dir).unwrap();
     result.unwrap();
+}
+
+#[test]
+fn test_run_missing_manifest_but_has_compose() {
+    let _guard = DIR_LOCK.lock().unwrap();
+    let dir = tempdir().unwrap();
+    let original_dir = std::env::current_dir().unwrap();
+    std::env::set_current_dir(&dir).unwrap();
+
+    // Create a dummy compose.yml
+    fs::write(dir.path().join("compose.yml"), "services: { workspace: { image: alpine } }").unwrap();
+
+    // This should NOT fail with "manifest.toml not found"
+    // It will likely fail later because 'docker compose ps' will fail in test env,
+    // but the error message should be different from "manifest.toml not found".
+    let result = run("test", &[]);
+    assert!(result.is_err());
+    let err_msg = result.unwrap_err().to_string();
+    assert!(!err_msg.contains("manifest.toml not found"));
+
+    std::env::set_current_dir(original_dir).unwrap();
 }
 
 #[test]

@@ -61,11 +61,11 @@ find_real_cmd() {{
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
 }}
 
-# Helper: find workspace root (has manifest.toml)
-find_workspace_root() {{
+# Helper: find airis context (has manifest.toml or compose.yaml)
+find_airis_context() {{
     local dir="$PWD"
     while [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/manifest.toml" ]]; then
+        if [[ -f "$dir/manifest.toml" ]] || [[ -f "$dir/compose.yaml" ]] || [[ -f "$dir/compose.yml" ]] || [[ -f "$dir/docker-compose.yaml" ]] || [[ -f "$dir/docker-compose.yml" ]]; then
             echo "$dir"
             return 0
         fi
@@ -81,13 +81,13 @@ if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/n
     if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 fi
 
-# 2. Airis Workspace detection & Smart Proxy
-if find_workspace_root >/dev/null; then
-    # We are in an airis workspace. Execute through airis (Docker-First).
+# 2. Airis Context detection & Smart Proxy
+if find_airis_context >/dev/null; then
+    # We are in an airis project or docker-first directory. Execute through airis (Docker-First).
     if command -v airis &>/dev/null; then
         exec airis exec {cmd} "$@"
     else
-        echo "⚠️  Airis workspace detected but 'airis' command not found."
+        echo "⚠️  Airis context detected but 'airis' command not found."
     fi
 fi
 
@@ -155,16 +155,4 @@ pub(crate) fn is_airis_guard(path: &Path) -> Result<bool> {
         }
     }
     Ok(false)
-}
-
-pub(crate) fn install_deny_guard(dir: &Path, cmd: &str, _msg: Option<&String>) -> Result<()> {
-    install_global_guard(dir, cmd, GuardLevel::Enforce)
-}
-
-pub(crate) fn install_wrap_guard(dir: &Path, cmd: &str, wrapper: &str) -> Result<()> {
-    validate_guard_cmd(cmd)?;
-    let script_path = dir.join(cmd);
-    let content = format!("#!/usr/bin/env bash\nexec {} \"$@\"\n", wrapper);
-    fs::write(&script_path, content)?;
-    make_executable(&script_path)
 }
