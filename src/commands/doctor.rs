@@ -140,11 +140,11 @@ pub fn run(fix: bool) -> Result<()> {
         // 1. Regenerate files
         crate::commands::generate::sync_from_manifest(&manifest)?;
 
-        // 2. Install guards if missing
+        // 2. Install global guards if missing
         for issue in &issues {
             if issue.file == "guards" {
-                println!("   {} Installing command guards...", "→".dimmed());
-                crate::commands::guards::install()?;
+                println!("   {} Installing global command guards...", "→".dimmed());
+                crate::commands::guards::install_global(None)?;
             }
         }
 
