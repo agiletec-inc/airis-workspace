@@ -27,3 +27,4 @@ pub mod test_scan;
 pub mod upgrade;
 pub mod validate_cmd;
 pub mod verify;
+pub mod workspace;

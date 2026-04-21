@@ -9,7 +9,7 @@ use crate::templates::TemplateEngine;
 
 mod catalog;
 mod compose_gen;
-mod registry;
+pub(crate) mod registry;
 mod tsconfig_gen;
 
 use catalog::resolve_catalog_versions;

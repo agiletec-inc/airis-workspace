@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "airis")]
@@ -52,35 +52,41 @@ pub enum TestLevel {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Query MANIFEST.toml data (used by justfile)
+    /// Query MANIFEST.toml data
     Manifest {
         #[command(subcommand)]
         action: ManifestCommands,
     },
 
-    /// Claude Code integration
+    /// Claude Code / MCP integration
     Claude {
         #[command(subcommand)]
         action: ClaudeCommands,
     },
 
-    /// Command guard management
+    /// Manage global command shims (~/.airis/bin)
     Guards {
         #[command(subcommand)]
         action: GuardsCommands,
     },
 
-    /// Git hooks management
+    /// Project-level cleanup and management
+    Workspace(WorkspaceArgs),
+
+    /// Git hooks management (internal)
+    #[command(hide = true)]
     Hooks {
         #[command(subcommand)]
         action: HooksCommands,
     },
 
-    /// Docker-First shim management
+    /// Docker-First shim management (deprecated)
+    #[command(hide = true)]
     Shim {
         #[command(subcommand)]
         action: ShimCommands,
     },
+
 
     /// Documentation management
     Docs {
@@ -220,7 +226,7 @@ pub enum Commands {
     /// Clean build artifacts
     Clean {
         /// Preview only (default)
-        #[arg(long, default_value_t = true)]
+        #[arg(long, default_value_t = false)]
         dry_run: bool,
         /// Remove orphaned or legacy config files (e.g., docker-compose.yml).
         /// Requires manifest.toml so user-managed compose files can be protected.
@@ -380,6 +386,18 @@ pub enum Commands {
 
     /// Start the MCP server
     Mcp,
+}
+
+#[derive(Args)]
+pub struct WorkspaceArgs {
+    #[command(subcommand)]
+    pub action: WorkspaceCommands,
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceCommands {
+    /// Uninstall airis from the current workspace (removes shims, hooks, and generated files)
+    Uninstall,
 }
 
 #[derive(Subcommand)]

@@ -5,7 +5,7 @@ use colored::Colorize;
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
     HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, ShimCommands,
-    TestLevel, ValidateCommands,
+    TestLevel, ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -128,6 +128,9 @@ fn dispatch(command: Commands) -> Result<()> {
             GuardsCommands::CheckAllow { cmd } => {
                 commands::guards::check_allow(&cmd)?;
             }
+        },
+        Commands::Workspace(args) => match args.action {
+            WorkspaceCommands::Uninstall => commands::workspace::uninstall()?,
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
