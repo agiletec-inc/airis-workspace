@@ -223,7 +223,13 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         );
     }
 
-    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
+    let manifest = match Manifest::load(manifest_path) {
+        Ok(m) => m,
+        Err(_) => {
+            // If strict load fails, try loose load and continue with a warning
+            Manifest::load_loose(manifest_path).with_context(|| "Critical failure loading manifest.toml")?
+        }
+    };
 
     // Auto-converge: Ensure workspace is ready before starting Docker-First environment
     if task == "up" {

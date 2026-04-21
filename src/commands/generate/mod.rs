@@ -1,6 +1,5 @@
 use anyhow::Result;
 use colored::Colorize;
-use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -8,19 +7,13 @@ use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
-mod agent_hooks_gen;
 mod catalog;
 mod compose_gen;
-mod hooks_gen;
-mod package_gen;
 mod registry;
 mod tsconfig_gen;
 
-use agent_hooks_gen::generate_agent_hooks;
-use catalog::{resolve_catalog_versions, resolve_package_data};
+use catalog::resolve_catalog_versions;
 use compose_gen::generate_workspace_compose;
-use hooks_gen::generate_native_hooks;
-use package_gen::{generate_package_json, generate_pnpm_workspace};
 use registry::{load_generation_registry, save_generation_registry};
 use tsconfig_gen::generate_tsconfig;
 
@@ -62,14 +55,11 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
     match config.backup_strategy {
         crate::manifest::BackupStrategy::None => Ok(()),
         crate::manifest::BackupStrategy::GitCheck => {
-            // Check if file has uncommitted changes
             let status = std::process::Command::new("git")
                 .args(["status", "--porcelain", &path.to_string_lossy()])
                 .output();
 
-            if let Ok(output) = status
-                && !output.stdout.is_empty()
-            {
+            if let Ok(output) = status && !output.stdout.is_empty() {
                 println!(
                     "   {} {} has uncommitted changes. Overwriting anyway.",
                     "⚠️".yellow(),
@@ -81,10 +71,8 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
         crate::manifest::BackupStrategy::Backup => {
             let backup_dir = Path::new(".airis/backups");
             fs::create_dir_all(backup_dir)?;
-
             let path_str = path.to_string_lossy().replace('/', "_");
             let backup_path = backup_dir.join(format!("{}.latest", path_str));
-
             fs::copy(path, &backup_path)?;
             Ok(())
         }
@@ -103,7 +91,8 @@ pub(super) fn write_with_backup(path: &Path, content: &str) -> Result<()> {
 
 pub fn preview_from_manifest(_manifest: &Manifest) -> Result<()> {
     println!("{}", "📋 Files that would be generated:".bright_yellow());
-    // (Simplified preview logic)
+    println!("   - compose.yaml");
+    println!("   - tsconfig.json");
     Ok(())
 }
 
@@ -115,72 +104,25 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     let previous_paths: Vec<String> = load_generation_registry(registry_path);
 
     if manifest.has_workspace() {
-        let mut resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+        let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
 
-        generate_package_json(manifest, &engine, &resolved_catalog, true)?;
-        generated_paths.push("package.json".into());
-
-        if !manifest.packages.workspaces.is_empty() {
-            generate_pnpm_workspace(manifest, &engine, true)?;
-            generated_paths.push("pnpm-workspace.yaml".into());
-        }
-
-        // Generate Docker Compose with artifact isolation
+        // Generate Docker Compose (Docker-First SoT)
         generate_workspace_compose(manifest)?;
         generated_paths.push("compose.yaml".into());
 
-        let workspace_root = env::current_dir()?;
-        let workspace_scope = manifest.workspace.scope.as_deref().unwrap_or("@workspace");
-
-        // Collect all project names for workspace dependency validation
-        let mut all_project_names: Vec<String> = Vec::new();
-        for app in &manifest.app {
-            let pkg_name = if let Some(ref scope) = app.scope {
-                format!("@{}/{}", scope.trim_start_matches('@'), app.name)
-            } else {
-                format!("{}/{}", workspace_scope, app.name)
-            };
-            all_project_names.push(pkg_name);
-        }
-
-        for app in &manifest.app {
-            let resolved_data = resolve_package_data(
-                app,
-                &workspace_root,
-                workspace_scope,
-                &mut resolved_catalog,
-                &manifest.packages.catalog,
-                &manifest.preset,
-                &manifest.dep_group,
-                &all_project_names,
-            )?;
-            crate::generators::package_json::generate_full_package_json(
-                app,
-                &workspace_root,
-                &resolved_catalog,
-                &resolved_data,
-            )?;
-            if let Some(ref path) = app.path {
-                generated_paths.push(format!("{}/package.json", path));
-            }
-        }
-
+        // Generate TSConfig paths (Derived from discovery)
         if !manifest.typescript.skip {
             generate_tsconfig(manifest, &engine, &resolved_catalog)?;
             generated_paths.extend(["tsconfig.base.json".into(), "tsconfig.json".into()]);
         }
-
-        generate_native_hooks()?;
-        generated_paths.extend(["hooks/pre-commit".into(), "hooks/pre-push".into()]);
-
-        generate_agent_hooks(manifest)?;
     }
 
+    // Clean up orphaned files that are no longer being generated (e.g. package.json, hooks)
     crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
     save_generation_registry(registry_path, &generated_paths)?;
 
     println!(
-        "\n{} Generation complete. Run `pnpm install` to resolve versions.",
+        "\n{} Generation complete.",
         "✅".green()
     );
     Ok(())
