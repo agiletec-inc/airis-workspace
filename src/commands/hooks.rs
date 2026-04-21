@@ -29,8 +29,11 @@ pub fn pre_commit_script() -> String {
     script.push_str("    airis verify\n");
     script.push_str("fi\n\n");
 
-    // Auto-bump version
-    script.push_str("if command -v airis &> /dev/null; then\n");
+    // Auto-bump version — only meaningful in repos carrying a Cargo.toml.
+    // Node/Python-only monorepos have nothing for `airis bump-version` to
+    // update and the command bails before reading the versioning strategy,
+    // which would block every commit.
+    script.push_str("if [ -f \"Cargo.toml\" ] && command -v airis &> /dev/null; then\n");
     script.push_str("    echo \"🔄 Auto-bumping version...\"\n");
     script.push_str("    airis bump-version --auto\n");
     script.push_str("    git add manifest.toml Cargo.toml Cargo.lock 2>/dev/null || true\n");
