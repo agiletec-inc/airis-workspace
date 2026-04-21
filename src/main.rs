@@ -4,7 +4,7 @@ use colored::Colorize;
 
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
-    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, ShimCommands,
+    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands,
     TestLevel, ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
@@ -61,7 +61,6 @@ fn run_main() -> Result<()> {
 
 /// Dispatch a parsed CLI command to the appropriate handler.
 fn dispatch(command: Commands) -> Result<()> {
-    // (Existing dispatch logic... no changes needed here yet as it returns anyhow::Result)
     match command {
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
@@ -94,10 +93,17 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::install_global(preset)?;
                 } else {
-                    commands::guards::install()?;
+                    println!("{}", "⚠️  Local guards are deprecated.".yellow());
+                    println!("   Use {} instead.", "airis guards install --global".bright_cyan());
                 }
             }
-            GuardsCommands::CheckDocker => commands::guards::check_docker()?,
+            GuardsCommands::CheckDocker => {
+                if std::path::Path::new("/.dockerenv").exists() {
+                    println!("{} Running inside Docker", "✓".green());
+                } else {
+                    println!("{} Running on host", "✗".yellow());
+                }
+            },
             GuardsCommands::Status { global, hooks } => {
                 if hooks {
                     eprintln!(
@@ -108,7 +114,7 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::status_global()?;
                 } else {
-                    commands::guards::status()?;
+                    println!("Local guards are no longer recommended. Use 'airis guards status --global'.");
                 }
             }
             GuardsCommands::Uninstall { global, hooks } => {
@@ -121,12 +127,13 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::uninstall_global()?;
                 } else {
-                    commands::guards::uninstall()?;
+                    commands::workspace::uninstall()?;
                 }
             }
             GuardsCommands::Verify => commands::guards::verify_global()?,
-            GuardsCommands::CheckAllow { cmd } => {
-                commands::guards::check_allow(&cmd)?;
+            GuardsCommands::CheckAllow { cmd: _ } => {
+                // Local check_allow is no longer supported
+                println!("check-allow is now handled by global smart-shims.");
             }
         },
         Commands::Workspace(args) => match args.action {
@@ -135,12 +142,6 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
             HooksCommands::Uninstall => commands::hooks::uninstall()?,
-        },
-        Commands::Shim { action } => match action {
-            ShimCommands::Install => commands::shim::install()?,
-            ShimCommands::List => commands::shim::list()?,
-            ShimCommands::Uninstall => commands::shim::uninstall()?,
-            ShimCommands::Exec { cmd, args } => commands::shim::exec(&cmd, &args)?,
         },
         Commands::Docs { action } => match action {
             DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,

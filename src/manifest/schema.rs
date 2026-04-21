@@ -1953,6 +1953,17 @@ pub struct PolicySection {
     pub security: SecurityPolicy,
 }
 
+impl Manifest {
+    /// Check if the manifest contains explicit orchestration or application configuration
+    /// that warrants generating a compose.yaml file.
+    pub fn has_orchestration_config(&self) -> bool {
+        !self.app.is_empty() 
+            || self.orchestration.dev.is_some() 
+            || self.docker.workspace.is_some()
+            || !self.service.is_empty()
+    }
+}
+
 /// Security policy for source code governance.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct SecurityPolicy {

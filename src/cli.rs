@@ -80,14 +80,6 @@ pub enum Commands {
         action: HooksCommands,
     },
 
-    /// Docker-First shim management (deprecated)
-    #[command(hide = true)]
-    Shim {
-        #[command(subcommand)]
-        action: ShimCommands,
-    },
-
-
     /// Documentation management
     Docs {
         #[command(subcommand)]
@@ -460,18 +452,6 @@ pub enum ClaudeCommands {
 pub enum HooksCommands {
     Install,
     Uninstall,
-}
-
-#[derive(Subcommand)]
-pub enum ShimCommands {
-    Install,
-    List,
-    Uninstall,
-    Exec {
-        cmd: String,
-        #[arg(trailing_var_arg = true)]
-        args: Vec<String>,
-    },
 }
 
 #[derive(Subcommand)]

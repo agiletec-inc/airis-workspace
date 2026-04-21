@@ -106,9 +106,21 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     if manifest.has_workspace() {
         let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
 
-        // Generate Docker Compose (Docker-First SoT)
-        generate_workspace_compose(manifest)?;
-        generated_paths.push("compose.yaml".into());
+        // Generate Docker Compose only if orchestration config is present in manifest.
+        // This avoids double-management if the user prefers manual compose files.
+        if manifest.has_orchestration_config() {
+            generate_workspace_compose(manifest)?;
+            generated_paths.push("compose.yaml".into());
+        } else {
+            // Check if we have any manual compose files to inform the user
+            if let Some(existing_compose) = crate::commands::run::compose::find_compose_file() {
+                println!(
+                    "   {} Using manual environment config: {}",
+                    "ℹ️".blue(),
+                    existing_compose
+                );
+            }
+        }
 
         // Generate TSConfig paths (Derived from discovery)
         if !manifest.typescript.skip {
