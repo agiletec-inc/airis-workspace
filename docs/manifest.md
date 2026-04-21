@@ -1,20 +1,31 @@
 # Airis Manifest Specification
 
-**Version**: 1.1.0
+**Version**: 1.2.0
 **Format**: TOML
-**File**: `manifest.toml`
+**File**: `manifest.toml` (Optional)
 
 ## Overview
 
-Airis Manifest is a declarative configuration format for Docker-first monorepo workspaces. It replaces scattered configuration files (justfile, package.json, docker-compose.yml) with a single source of truth.
+Airis is an environment source-of-truth and transparent command proxy. While it supports a declarative `manifest.toml` for complex monorepos, it also functions as a **transparent proxy** for any project containing a Docker Compose file.
 
 **Design Philosophy**:
-- **Declarative**: Describe what you want, not how to achieve it
-- **Version Policies**: Use `policy = "latest"` instead of hardcoded version numbers
-- **Auto-Generation**: All derived files are generated from manifest.toml
-- **Docker-First**: Enforce Docker-based development workflow
-- **Command Unification**: All operations through `airis` CLI
-- **LLM Policy Engine**: Control AI behavior via manifest.toml
+- **Smart Shims (Transparent Proxy)**: Commands like `pnpm` or `python` are automatically redirected to Docker if a Compose file is detected.
+- **Optional Manifest**: `manifest.toml` is only needed for monorepo orchestration and policy enforcement.
+- **Convention-First**: Detects environment intent from existing files (`compose.yml`, `package.json`, etc.).
+- **Docker-First**: Enforce Docker-based development workflow without changing your muscle memory.
+
+---
+
+## Smart Proxy Behavior
+
+When `airis guards install --global` is run, airis installs "Smart Shims" in `~/.airis/bin`. These shims detect the presence of any of the following files in the current or parent directories:
+
+1. `compose.yaml`
+2. `compose.yml`
+3. `docker-compose.yaml`
+4. `docker-compose.yml`
+
+If detected, the command (e.g., `pnpm install`) is automatically executed inside the Docker container (usually the `workspace` service) using `docker compose exec`. If no Compose file is found, the command runs natively on the host.
 
 ---
 

@@ -6,32 +6,32 @@ use clap::{Args, Parser, Subcommand};
 #[command(long_about = "\
 The Docker-first environment orchestrator for the vibe coding era.
 
-One manifest file. Every config generated. Your AI pair-programmer stays inside \
-the container where it belongs.
+One manifest file (optional). Every config generated. Your AI pair-programmer \
+stays inside the container where it belongs.
 
-airis generates compose.yaml, tsconfig, and environment-ready package.json files \
-from a single manifest.toml and repository conventions. It automates named \
-volumes to keep build artifacts off your host and ensures your Docker \
-environment is always ready to run.
+airis provides transparent command-level redirection. When you run a guarded \
+command (like pnpm or python) in a directory containing compose.yml, it \
+automatically executes inside the Docker workspace.
 
-DESIGN: airis extends your existing stack — it doesn't replace it. Turborepo, NX, \
-Doppler, Vercel, Railway — all your choice. airis handles the Docker layer that \
-those tools leave to you.")]
+DESIGN: airis acts as a transparent proxy for your existing tools. It ensures \
+environment hygiene by isolating build artifacts and dependencies within Docker \
+volumes while maintaining a native-like CLI experience.")]
 #[command(after_help = "\
 QUICK REFERENCE:
-  airis gen                 Sync workspace configs based on conventions & manifest
-  airis up                  One-shot boot: sync config, install deps, and start Docker
-  airis down                Stop all services
+  airis up                  Start the environment (via manifest.toml or compose.yml)
+  airis run <task>          Run a task (defined in manifest or delegated to Docker)
   airis shell               Enter workspace container shell
   airis doctor              Diagnose and fix workspace issues
 
-BOOTSTRAPPING:
-  Create a thin manifest.toml or ask AI via /airis:init (MCP tool workspace_init).
-  Then run `airis up`.
+SMART SHIMS:
+  Run `airis guards install --global` to enable transparent redirection for
+  pnpm, npm, uv, python, and more. When a compose.yml is detected, these
+  commands automatically execute inside Docker.
 
 CONVENTIONS:
   airis automatically discovers projects in apps/* and libs/*. Use manifest.toml
-  only for overrides (ports, env, explicit dependencies, etc.).")]
+  only for overrides. If no manifest.toml is present, airis falls back to
+  standard Docker Compose behavior.")]
 pub struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
@@ -119,7 +119,7 @@ pub enum Commands {
         truth_json: bool,
     },
 
-    /// Execute a command defined in manifest.toml [commands]
+    /// Execute a command defined in manifest.toml [commands], or delegate to Docker if compose.yml exists.
     Run {
         /// Task name (e.g., build, test)
         task: String,
@@ -128,7 +128,7 @@ pub enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Start the entire Docker-first workspace
+    /// Start the entire Docker-first workspace (via manifest.toml or compose.yml)
     Up {
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
