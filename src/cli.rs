@@ -456,8 +456,17 @@ pub enum HooksCommands {
 
 #[derive(Subcommand)]
 pub enum DocsCommands {
-    Wrap { target: String },
-    Sync,
+    Wrap {
+        target: String,
+        /// Overwrite existing target files even when [docs.mode = "warn"].
+        #[arg(long)]
+        force: bool,
+    },
+    Sync {
+        /// Overwrite existing adapter files even when [docs.mode = "warn"].
+        #[arg(long)]
+        force: bool,
+    },
     List,
 }
 

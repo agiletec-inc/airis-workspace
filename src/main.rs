@@ -149,8 +149,8 @@ fn dispatch(command: Commands) -> Result<()> {
             HooksCommands::Uninstall => commands::hooks::uninstall()?,
         },
         Commands::Docs { action } => match action {
-            DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,
-            DocsCommands::Sync => commands::docs::sync()?,
+            DocsCommands::Wrap { target, force } => commands::docs::wrap(&target, force)?,
+            DocsCommands::Sync { force } => commands::docs::sync(force)?,
             DocsCommands::List => commands::docs::list()?,
         },
         Commands::Validate { action, json } => {

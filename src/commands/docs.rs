@@ -15,7 +15,7 @@ const DEFAULT_SOURCE_FILES: &[&str] = &[
 const DEFAULT_SKILLS_SOURCE: &str = "docs/ai/playbooks";
 const DEFAULT_HOOKS_POLICY: &str = "docs/ai/hooks/HOOKS_POLICY.md";
 
-pub fn wrap(target: &str) -> Result<()> {
+pub fn wrap(target: &str, force: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
     ensure_manifest_exists(manifest_path)?;
 
@@ -39,7 +39,7 @@ pub fn wrap(target: &str) -> Result<()> {
     }
 
     manifest.save(manifest_path)?;
-    write_adapter_target(&manifest, target)?;
+    write_adapter_target(&manifest, target, force)?;
 
     println!(
         "✅ Generated {} and registered it in [docs]",
@@ -48,7 +48,7 @@ pub fn wrap(target: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn sync() -> Result<()> {
+pub fn sync(force: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
     ensure_manifest_exists(manifest_path)?;
 
@@ -62,7 +62,7 @@ pub fn sync() -> Result<()> {
     }
 
     for target in &targets {
-        write_adapter_target(&manifest, target)?;
+        write_adapter_target(&manifest, target, force)?;
         println!("✅ Synced {}", target.green());
     }
 
@@ -218,24 +218,30 @@ fn effective_hooks_policy(manifest: &Manifest) -> Option<String> {
     })
 }
 
-fn write_adapter_target(manifest: &Manifest, target: &str) -> Result<()> {
+fn write_adapter_target(manifest: &Manifest, target: &str, force: bool) -> Result<()> {
     let target_path = Path::new(target);
-    handle_existing_file(manifest, target_path)?;
+    handle_existing_file(manifest, target_path, force)?;
 
     let content = render_adapter(manifest, target)?;
     fs::write(target_path, content).with_context(|| format!("Failed to write {}", target))?;
     Ok(())
 }
 
-fn handle_existing_file(manifest: &Manifest, target_path: &Path) -> Result<()> {
+fn handle_existing_file(manifest: &Manifest, target_path: &Path, force: bool) -> Result<()> {
     if !target_path.exists() {
+        return Ok(());
+    }
+
+    if force {
+        // Caller explicitly opted into overwriting; skip the warn bail and the
+        // backup so re-runs are idempotent without leaving `.bak` litter.
         return Ok(());
     }
 
     match manifest.docs.mode {
         DocsMode::Warn => {
             bail!(
-                "⚠️  {} already exists. Refusing to overwrite in [docs.mode = \"warn\"].",
+                "⚠️  {} already exists. Refusing to overwrite in [docs.mode = \"warn\"]. Re-run with `--force` to overwrite, or set [docs.mode = \"backup\"] to keep a `.bak` copy.",
                 target_path.display()
             );
         }
@@ -710,7 +716,7 @@ to = "main"
         .unwrap();
 
         std::env::set_current_dir(dir.path()).unwrap();
-        let result = std::panic::catch_unwind(sync);
+        let result = std::panic::catch_unwind(|| sync(false));
         std::env::set_current_dir(original_dir).unwrap();
         result.unwrap().unwrap();
 
@@ -855,5 +861,35 @@ to = "main"
         manifest.policy.testing.mock_policy = MockPolicy::Allowed;
         let rendered = render_adapter(&manifest, "CLAUDE.md").unwrap();
         assert!(!rendered.contains("Testing policy:"));
+    }
+
+    #[test]
+    fn handle_existing_file_force_overwrites_in_warn_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("CLAUDE.md");
+        fs::write(&target, "stale").unwrap();
+
+        let mut manifest = manifest_with_docs();
+        manifest.docs.mode = DocsMode::Warn;
+
+        // Without force: bail.
+        assert!(handle_existing_file(&manifest, &target, false).is_err());
+
+        // With force: succeed without leaving a `.bak`.
+        handle_existing_file(&manifest, &target, true).unwrap();
+        assert!(!dir.path().join("CLAUDE.md.bak").exists());
+    }
+
+    #[test]
+    fn handle_existing_file_backup_mode_writes_bak() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("CLAUDE.md");
+        fs::write(&target, "stale").unwrap();
+
+        let mut manifest = manifest_with_docs();
+        manifest.docs.mode = DocsMode::Backup;
+
+        handle_existing_file(&manifest, &target, false).unwrap();
+        assert!(dir.path().join("CLAUDE.md.bak").exists());
     }
 }
