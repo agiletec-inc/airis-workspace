@@ -43,7 +43,7 @@ deny = []
 [versioning]
 strategy = "conventional-commits"
 source = "VERSION"
-sync_targets = ["Cargo.toml", "package.json", "npm/*/package.json"]
+sync_targets = ["Cargo.toml"]
 
 [docs]
 sources = [
