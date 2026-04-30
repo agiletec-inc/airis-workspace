@@ -52,4 +52,4 @@ sources = [
     "docs/ai/REVIEW.md",
     "docs/ai/STACK.md",
 ]
-vendors = ["codex", "claude", "gemini"]
+vendors = ["claude"]
