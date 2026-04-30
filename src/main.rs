@@ -4,8 +4,8 @@ use colored::Colorize;
 
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
-    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands,
-    TestLevel, ValidateCommands, WorkspaceCommands,
+    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, TestLevel,
+    ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -94,7 +94,10 @@ fn dispatch(command: Commands) -> Result<()> {
                     commands::guards::install_global(preset)?;
                 } else {
                     println!("{}", "⚠️  Local guards are deprecated.".yellow());
-                    println!("   Use {} instead.", "airis guards install --global".bright_cyan());
+                    println!(
+                        "   Use {} instead.",
+                        "airis guards install --global".bright_cyan()
+                    );
                 }
             }
             GuardsCommands::CheckDocker => {
@@ -103,7 +106,7 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else {
                     println!("{} Running on host", "✗".yellow());
                 }
-            },
+            }
             GuardsCommands::Status { global, hooks } => {
                 if hooks {
                     eprintln!(
@@ -114,7 +117,9 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::status_global()?;
                 } else {
-                    println!("Local guards are no longer recommended. Use 'airis guards status --global'.");
+                    println!(
+                        "Local guards are no longer recommended. Use 'airis guards status --global'."
+                    );
                 }
             }
             GuardsCommands::Uninstall { global, hooks } => {

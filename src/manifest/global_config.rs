@@ -56,16 +56,15 @@ impl GlobalGuardsSection {
         // 2. Apply preset logic
         match self.preset {
             GuardPreset::Balanced => match cmd {
-                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "uv" | "python" | "python3" => {
-                    GuardLevel::Enforce
-                }
+                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "uv"
+                | "python" | "python3" => GuardLevel::Enforce,
                 "docker" | "docker-compose" => GuardLevel::Off,
                 _ => GuardLevel::Off,
             },
             GuardPreset::Strict => GuardLevel::Enforce,
             GuardPreset::Permissive => match cmd {
-                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "uv" | "python" | "python3" | "docker"
-                | "docker-compose" => GuardLevel::Warn,
+                "npm" | "pnpm" | "yarn" | "bun" | "pip" | "pip3" | "poetry" | "npx" | "uv"
+                | "python" | "python3" | "docker" | "docker-compose" => GuardLevel::Warn,
                 _ => GuardLevel::Off,
             },
         }

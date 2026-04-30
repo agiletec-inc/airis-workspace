@@ -42,7 +42,11 @@ impl Manifest {
         manifest.migrate_testing_to_policy();
 
         if let Err(e) = manifest.validate() {
-            eprintln!("\n{} {}", "⚠️  Manifest Validation Warning:".yellow().bold(), e);
+            eprintln!(
+                "\n{} {}",
+                "⚠️  Manifest Validation Warning:".yellow().bold(),
+                e
+            );
             eprintln!("   Attempting to continue despite validation errors...\n");
         }
 
@@ -111,7 +115,8 @@ impl Manifest {
             ]
         };
 
-        if let Ok(discovered) = crate::commands::discover::discover_from_workspaces(&patterns, &root)
+        if let Ok(discovered) =
+            crate::commands::discover::discover_from_workspaces(&patterns, &root)
         {
             for disc in discovered {
                 let kind = if disc.path.starts_with("libs/") {
@@ -427,45 +432,44 @@ impl Manifest {
             },
             app: vec![],
         };
-// Guards for Docker-first enforcement
-let guards = GuardsSection {
-    deny: vec![
-        "npm".to_string(),
-        "yarn".to_string(),
-        "pnpm".to_string(),
-        "bun".to_string(),
-        "npx".to_string(),
-        "pip".to_string(),
-        "pip3".to_string(),
-        "uv".to_string(),
-        "poetry".to_string(),
-        "cargo".to_string(),
-    ],
-    allow: vec![],
-    wrap: {
-        let mut wrap = IndexMap::new();
-        wrap.insert(
-            "pnpm".to_string(),
-            "docker compose exec workspace pnpm".to_string(),
-        );
-        wrap.insert(
-            "npm".to_string(),
-            "docker compose exec workspace npm".to_string(),
-        );
-        wrap
-    },
-    deny_with_message: IndexMap::new(),
-    forbid: vec![
-        "npm".to_string(),
-        "yarn".to_string(),
-        "pnpm".to_string(),
-        "bun".to_string(),
-        "docker".to_string(),
-        "docker-compose".to_string(),
-    ],
-    danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
-};
-
+        // Guards for Docker-first enforcement
+        let guards = GuardsSection {
+            deny: vec![
+                "npm".to_string(),
+                "yarn".to_string(),
+                "pnpm".to_string(),
+                "bun".to_string(),
+                "npx".to_string(),
+                "pip".to_string(),
+                "pip3".to_string(),
+                "uv".to_string(),
+                "poetry".to_string(),
+                "cargo".to_string(),
+            ],
+            allow: vec![],
+            wrap: {
+                let mut wrap = IndexMap::new();
+                wrap.insert(
+                    "pnpm".to_string(),
+                    "docker compose exec workspace pnpm".to_string(),
+                );
+                wrap.insert(
+                    "npm".to_string(),
+                    "docker compose exec workspace npm".to_string(),
+                );
+                wrap
+            },
+            deny_with_message: IndexMap::new(),
+            forbid: vec![
+                "npm".to_string(),
+                "yarn".to_string(),
+                "pnpm".to_string(),
+                "bun".to_string(),
+                "docker".to_string(),
+                "docker-compose".to_string(),
+            ],
+            danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
+        };
 
         // Remap common commands to airis
         let mut remap = IndexMap::new();

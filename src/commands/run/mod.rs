@@ -219,14 +219,14 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                 let services_output = Command::new("docker")
                     .args(["compose", "-f", compose_file, "ps", "--services"])
                     .output()?;
-                
+
                 let services = String::from_utf8_lossy(&services_output.stdout);
                 let service_list: Vec<&str> = services
                     .lines()
                     .map(|l| l.trim())
                     .filter(|l| !l.is_empty())
                     .collect();
-                
+
                 if service_list.is_empty() {
                     bail!("No services found in {}", compose_file);
                 }
@@ -244,7 +244,10 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                     format!(" {}", extra_args.join(" "))
                 };
 
-                let cmd = format!("docker compose -f {} exec -it {} {} {}", compose_file, target_service, task, extra);
+                let cmd = format!(
+                    "docker compose -f {} exec -it {} {} {}",
+                    compose_file, target_service, task, extra
+                );
                 println!("🚀 Delegating to Docker: {}", cmd.cyan());
 
                 let status = if cfg!(target_os = "windows") {
@@ -256,9 +259,12 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
                 if !status.success() {
                     // Try 'run' if 'exec' fails (container might be stopped)
-                    let run_cmd = format!("docker compose -f {} run --rm {} {} {}", compose_file, target_service, task, extra);
+                    let run_cmd = format!(
+                        "docker compose -f {} run --rm {} {} {}",
+                        compose_file, target_service, task, extra
+                    );
                     println!("⚠️  Exec failed, trying run: {}", run_cmd.yellow());
-                    
+
                     let status = if cfg!(target_os = "windows") {
                         Command::new("cmd").args(["/C", &run_cmd]).status()
                     } else {
@@ -284,7 +290,8 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
         Ok(m) => m,
         Err(_) => {
             // If strict load fails, try loose load and continue with a warning
-            Manifest::load_loose(manifest_path).with_context(|| "Critical failure loading manifest.toml")?
+            Manifest::load_loose(manifest_path)
+                .with_context(|| "Critical failure loading manifest.toml")?
         }
     };
 

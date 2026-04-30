@@ -59,7 +59,9 @@ pub(super) fn backup_file(path: &Path) -> Result<()> {
                 .args(["status", "--porcelain", &path.to_string_lossy()])
                 .output();
 
-            if let Ok(output) = status && !output.stdout.is_empty() {
+            if let Ok(output) = status
+                && !output.stdout.is_empty()
+            {
                 println!(
                     "   {} {} has uncommitted changes. Overwriting anyway.",
                     "⚠️".yellow(),
@@ -122,9 +124,6 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
     save_generation_registry(registry_path, &generated_paths)?;
 
-    println!(
-        "\n{} Generation complete.",
-        "✅".green()
-    );
+    println!("\n{} Generation complete.", "✅".green());
     Ok(())
 }
