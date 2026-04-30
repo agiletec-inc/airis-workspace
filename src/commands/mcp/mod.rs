@@ -54,12 +54,20 @@ pub fn run() -> Result<()> {
     Ok(())
 }
 
+/// Server protocol version. Bump when the MCP spec we target changes; clients
+/// negotiate down if needed.
+const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+
 fn handle_request(request: McpRequest) -> Result<McpResponse> {
     let result = match request.method.as_str() {
         "initialize" => Some(json!({
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {
                 "tools": {
+                    "listChanged": false
+                },
+                "resources": {
+                    "subscribe": false,
                     "listChanged": false
                 }
             },
@@ -69,6 +77,12 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
             }
         })),
         "notifications/initialized" => None,
+        "resources/list" => Some(handle_resources_list()?),
+        "resources/read" => {
+            let params = request.params.as_ref().context("Missing params")?;
+            let uri = params["uri"].as_str().context("Missing uri")?;
+            Some(handle_resources_read(uri)?)
+        }
         "tools/list" => Some(json!({
             "tools": [
                 {
@@ -528,4 +542,134 @@ fn handle_workspace_status() -> Result<Value> {
         ],
         "isError": !success
     }))
+}
+
+/// Workspace resources advertised over MCP. Each entry is a project-relative
+/// path; `resources/list` filters out anything that doesn't currently exist so
+/// clients only see real files. Order is the suggested reading order: manifest
+/// first, then shared docs, then the Claude adapter, then the generated
+/// compose, then the Cargo manifest. Update this list when adding new
+/// always-relevant workspace files.
+const WORKSPACE_RESOURCES: &[(&str, &str, &str)] = &[
+    (
+        "manifest.toml",
+        "Workspace manifest — Docker-first orchestration source of truth",
+        "application/toml",
+    ),
+    (
+        "docs/ai/PROJECT_RULES.md",
+        "Project rules for AI agents",
+        "text/markdown",
+    ),
+    (
+        "docs/ai/WORKFLOW.md",
+        "Default contributor workflow and operational notes",
+        "text/markdown",
+    ),
+    ("docs/ai/REVIEW.md", "Review checklist", "text/markdown"),
+    (
+        "docs/ai/STACK.md",
+        "Stack overview and common commands",
+        "text/markdown",
+    ),
+    (
+        "CLAUDE.md",
+        "Generated Claude adapter (thin pointer to docs/ai/*.md)",
+        "text/markdown",
+    ),
+    (
+        "compose.yaml",
+        "Generated docker-compose file",
+        "application/yaml",
+    ),
+    ("Cargo.toml", "Rust crate manifest", "application/toml"),
+];
+
+fn handle_resources_list() -> Result<Value> {
+    let mut resources: Vec<Value> = Vec::new();
+    for (rel_path, description, mime_type) in WORKSPACE_RESOURCES {
+        if !Path::new(rel_path).exists() {
+            continue;
+        }
+        resources.push(json!({
+            "uri": format!("file:///{}", rel_path),
+            "name": *rel_path,
+            "description": *description,
+            "mimeType": *mime_type,
+        }));
+    }
+    Ok(json!({ "resources": resources }))
+}
+
+fn handle_resources_read(uri: &str) -> Result<Value> {
+    let rel_path = parse_workspace_uri(uri).with_context(|| {
+        format!("Invalid resource URI: {uri}. Expected file:///<workspace-relative-path>")
+    })?;
+
+    // Reject anything that isn't on the advertised list. Prevents using
+    // resources/read as a generic file-exfiltration primitive.
+    let entry = WORKSPACE_RESOURCES
+        .iter()
+        .find(|(path, _, _)| *path == rel_path)
+        .with_context(|| format!("Resource not advertised: {rel_path}"))?;
+
+    let text =
+        std::fs::read_to_string(rel_path).with_context(|| format!("Failed to read {rel_path}"))?;
+
+    Ok(json!({
+        "contents": [
+            {
+                "uri": uri,
+                "mimeType": entry.2,
+                "text": text,
+            }
+        ]
+    }))
+}
+
+/// Strip the `file:///` prefix and reject paths that try to escape the
+/// workspace root via `..` or absolute components.
+fn parse_workspace_uri(uri: &str) -> Option<&str> {
+    let path = uri.strip_prefix("file:///")?;
+    if path.is_empty() || path.starts_with('/') {
+        return None;
+    }
+    if path.split('/').any(|seg| seg == "..") {
+        return None;
+    }
+    Some(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_workspace_uri_accepts_relative_paths() {
+        assert_eq!(
+            parse_workspace_uri("file:///manifest.toml"),
+            Some("manifest.toml")
+        );
+        assert_eq!(
+            parse_workspace_uri("file:///docs/ai/STACK.md"),
+            Some("docs/ai/STACK.md")
+        );
+    }
+
+    #[test]
+    fn parse_workspace_uri_rejects_traversal_and_absolute() {
+        assert_eq!(parse_workspace_uri("file:///"), None);
+        assert_eq!(parse_workspace_uri("file:////etc/passwd"), None);
+        assert_eq!(parse_workspace_uri("file:///../etc/passwd"), None);
+        assert_eq!(parse_workspace_uri("file:///docs/../etc/passwd"), None);
+        assert_eq!(parse_workspace_uri("https://example.com/x"), None);
+    }
+
+    #[test]
+    fn handle_resources_read_rejects_unadvertised_paths() {
+        // `Cargo.lock` is a real file in this workspace but not on the
+        // advertised list, so reads should be refused.
+        let err = handle_resources_read("file:///Cargo.lock").unwrap_err();
+        assert!(err.to_string().contains("not advertised"));
+    }
 }
