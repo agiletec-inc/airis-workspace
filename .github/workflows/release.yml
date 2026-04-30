@@ -197,14 +197,31 @@ jobs:
           LOCAL="${{ steps.version.outputs.version }}"
           # crates.io rejects requests without a descriptive User-Agent.
           UA="airis-workspace-release (+https://github.com/agiletec-inc/airis-workspace)"
-          RESPONSE=$(curl -sf -A "$UA" https://crates.io/api/v1/crates/airis-workspace || true)
-          if [ -z "$RESPONSE" ]; then
-            echo "⚠️  Failed to query crates.io — skipping publish to avoid regressions."
+
+          # Capture HTTP status separately from the body so we can
+          # distinguish "crate has never been published" (404 → publish
+          # the initial version) from transient network failures
+          # (5xx / connection error → skip). The previous version
+          # used `curl -sf || true`, which collapsed both cases into an
+          # empty RESPONSE and created a catch-22 where the very first
+          # publish never ran.
+          HTTP_CODE=$(curl -s -A "$UA" -o /tmp/crates_resp.json \
+            -w '%{http_code}' \
+            https://crates.io/api/v1/crates/airis-workspace || echo "000")
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "Crate not yet on crates.io — performing initial publish for $LOCAL."
+            echo "should_publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "⚠️  crates.io returned HTTP $HTTP_CODE — skipping publish to avoid regressions."
             echo "should_publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          REMOTE=$(printf '%s' "$RESPONSE" \
-            | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["crate"].get("max_stable_version",""))')
+
+          REMOTE=$(python3 -c 'import json; d=json.load(open("/tmp/crates_resp.json")); print(d["crate"].get("max_stable_version",""))')
           echo "Local version:  $LOCAL"
           echo "Remote version: $REMOTE"
           if [ -z "$REMOTE" ]; then
