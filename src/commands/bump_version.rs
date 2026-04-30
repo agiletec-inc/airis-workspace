@@ -70,9 +70,13 @@ pub fn run(mode: BumpMode) -> Result<()> {
 
     // Update Cargo.toml only (manifest.toml is NEVER touched)
     update_cargo_toml(&new_version)?;
+    let lock_updated = update_cargo_lock(&new_version)?;
 
     println!("✅ Version bumped successfully!");
     println!("   Cargo.toml: {}", new_version.green());
+    if lock_updated {
+        println!("   Cargo.lock: {}", new_version.green());
+    }
 
     Ok(())
 }
@@ -252,6 +256,66 @@ fn update_cargo_toml(new_version: &str) -> Result<()> {
     Ok(())
 }
 
+/// Read the package name from `[package]` in Cargo.toml.
+fn read_cargo_package_name() -> Result<Option<String>> {
+    let cargo_path = Path::new("Cargo.toml");
+    if !cargo_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(cargo_path).with_context(|| "Failed to read Cargo.toml")?;
+
+    let mut in_package = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix('[') {
+            in_package = rest.trim_end_matches(']').trim() == "package";
+            continue;
+        }
+        if in_package && let Some(value) = trimmed.strip_prefix("name") {
+            return Ok(value
+                .trim_start()
+                .strip_prefix('=')
+                .map(|v| v.trim().trim_matches('"').to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// Sync this package's version in Cargo.lock.
+///
+/// The pre-commit hook bumps Cargo.toml on every commit; if Cargo.lock is left
+/// stale, every follow-up commit produces another mismatch and the hook keeps
+/// re-bumping forever. We update only the package block whose `name` matches
+/// Cargo.toml so unrelated packages in the lockfile stay untouched.
+fn update_cargo_lock(new_version: &str) -> Result<bool> {
+    let lock_path = Path::new("Cargo.lock");
+    if !lock_path.exists() {
+        return Ok(false);
+    }
+    let pkg_name = match read_cargo_package_name()? {
+        Some(name) => name,
+        None => return Ok(false),
+    };
+
+    let content = fs::read_to_string(lock_path).with_context(|| "Failed to read Cargo.lock")?;
+    let updated = replace_lock_version(&content, &pkg_name, new_version)?;
+    if updated == content {
+        return Ok(false);
+    }
+    fs::write(lock_path, &updated).with_context(|| "Failed to write Cargo.lock")?;
+    Ok(true)
+}
+
+/// Replace the `version = "..."` line that immediately follows the named
+/// package's `name = "..."` line. Pure function so it can be unit-tested.
+fn replace_lock_version(content: &str, pkg_name: &str, new_version: &str) -> Result<String> {
+    let escaped = regex::escape(pkg_name);
+    let pattern = Regex::new(&format!(r#"(name = "{escaped}"\nversion = ")[^"]+(")"#))?;
+    Ok(pattern
+        .replace(content, format!(r#"${{1}}{}${{2}}"#, new_version).as_str())
+        .into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +379,28 @@ mod tests {
     fn test_strip_commit_comments() {
         let raw = "fix: something\n# please enter the commit message\n\n# Changes to be committed:";
         assert_eq!(strip_commit_comments(raw), "fix: something");
+    }
+
+    #[test]
+    fn test_replace_lock_version_targets_named_package_only() {
+        let lock = "[[package]]\n\
+                    name = \"other-thing\"\n\
+                    version = \"1.0.0\"\n\
+                    \n\
+                    [[package]]\n\
+                    name = \"airis-workspace\"\n\
+                    version = \"3.3.2\"\n\
+                    dependencies = []\n";
+        let updated = replace_lock_version(lock, "airis-workspace", "3.4.0").unwrap();
+        assert!(updated.contains("name = \"airis-workspace\"\nversion = \"3.4.0\""));
+        // Untouched neighbour package.
+        assert!(updated.contains("name = \"other-thing\"\nversion = \"1.0.0\""));
+    }
+
+    #[test]
+    fn test_replace_lock_version_noop_when_package_absent() {
+        let lock = "[[package]]\nname = \"only-other\"\nversion = \"1.0.0\"\n";
+        let updated = replace_lock_version(lock, "airis-workspace", "9.9.9").unwrap();
+        assert_eq!(updated, lock);
     }
 }

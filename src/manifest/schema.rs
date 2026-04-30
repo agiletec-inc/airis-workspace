@@ -358,7 +358,11 @@ pub struct AppConfig {
     pub scripts: IndexMap<String, String>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub deps: IndexMap<String, String>,
-    #[serde(rename = "devDeps", default, skip_serializing_if = "IndexMap::is_empty")]
+    #[serde(
+        rename = "devDeps",
+        default,
+        skip_serializing_if = "IndexMap::is_empty"
+    )]
     pub dev_deps: IndexMap<String, String>,
 }
 
@@ -1957,8 +1961,8 @@ impl Manifest {
     /// Check if the manifest contains explicit orchestration or application configuration
     /// that warrants generating a compose.yaml file.
     pub fn has_orchestration_config(&self) -> bool {
-        !self.app.is_empty() 
-            || self.orchestration.dev.is_some() 
+        !self.app.is_empty()
+            || self.orchestration.dev.is_some()
             || self.docker.workspace.is_some()
             || !self.service.is_empty()
     }

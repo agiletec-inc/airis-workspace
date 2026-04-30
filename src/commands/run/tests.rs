@@ -1,7 +1,7 @@
 use super::*;
 use indexmap::IndexMap;
-use tempfile::tempdir;
 use std::fs;
+use tempfile::tempdir;
 
 use crate::manifest::Manifest;
 use crate::test_lock::DIR_LOCK;
@@ -36,7 +36,11 @@ fn test_run_missing_manifest_but_has_compose() {
     std::env::set_current_dir(&dir).unwrap();
 
     // Create a dummy compose.yml
-    fs::write(dir.path().join("compose.yml"), "services: { workspace: { image: alpine } }").unwrap();
+    fs::write(
+        dir.path().join("compose.yml"),
+        "services: { workspace: { image: alpine } }",
+    )
+    .unwrap();
 
     // This should NOT fail with "manifest.toml not found"
     // It will likely fail later because 'docker compose ps' will fail in test env,

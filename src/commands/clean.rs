@@ -45,8 +45,7 @@ fn is_project_root(dir: &Path) -> bool {
 /// manifests; an in-memory default never reaches disk and only feeds the
 /// canonical `clean.dirs` / `clean.recursive` lists here.
 fn default_manifest() -> Manifest {
-    toml::from_str("")
-        .expect("empty manifest must deserialize via serde defaults — schema bug")
+    toml::from_str("").expect("empty manifest must deserialize via serde defaults — schema bug")
 }
 
 /// Run the clean command

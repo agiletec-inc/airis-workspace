@@ -9,7 +9,10 @@ use crate::commands::generate::registry::load_generation_registry;
 
 /// Uninstall airis from the current workspace by removing shims, hooks, and generated files.
 pub fn uninstall() -> Result<()> {
-    println!("{}", "🗑️  Uninstalling airis from current workspace...".bright_blue());
+    println!(
+        "{}",
+        "🗑️  Uninstalling airis from current workspace...".bright_blue()
+    );
     println!();
 
     // 1. Remove markers from Git hooks
@@ -25,7 +28,7 @@ pub fn uninstall() -> Result<()> {
     println!("{}", "✅ Workspace uninstalled successfully.".green());
     println!("   Note: Your manifest.toml and .airis/backups remain untouched.");
     println!("   To remove global shims, run: airis guards uninstall --global");
-    
+
     Ok(())
 }
 
@@ -41,11 +44,9 @@ fn remove_git_hooks_markers() -> Result<()> {
     for entry in fs::read_dir(hooks_dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() {
-            if clean_file_markers(&path, "# >>> airis start", "# <<< airis end")? {
-                println!("   {} {}", "✓".green(), path.display());
-                cleaned += 1;
-            }
+        if path.is_file() && clean_file_markers(&path, "# >>> airis start", "# <<< airis end")? {
+            println!("   {} {}", "✓".green(), path.display());
+            cleaned += 1;
         }
     }
 

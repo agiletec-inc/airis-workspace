@@ -141,7 +141,7 @@ pub fn uninstall_global() -> Result<()> {
                 .lines()
                 .filter(|line| !line.contains(".airis/bin") && !line.contains("# airis guards"))
                 .collect();
-            
+
             let new_content = lines.join("\n") + "\n";
             fs::write(&rc_path, new_content)?;
             println!("   {} Removed PATH from ~/{}", "✓".green(), rc_file.cyan());
@@ -149,7 +149,11 @@ pub fn uninstall_global() -> Result<()> {
         }
     }
 
-    println!("{} Removed {} guards and cleaned up PATH", "✅".green(), removed);
+    println!(
+        "{} Removed {} guards and cleaned up PATH",
+        "✅".green(),
+        removed
+    );
 
     if path_removed {
         println!(
