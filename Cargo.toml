@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "3.5.0"
+version = "3.5.1"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -92,12 +92,15 @@ miette = { version = "7.6.0", features = ["fancy"] }
 indicatif = "0.18.4"
 thiserror = "2.0.18"
 
+# Archive naming follows cargo-dist's default layout
+# (see dist-workspace.toml): airis-workspace-{target}.{ext} under the
+# v{version} release tag.
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.tar.gz"
-pkg-fmt = "tgz"
+pkg-url = "{ repo }/releases/download/v{ version }/airis-workspace-{ target }.tar.xz"
+pkg-fmt = "txz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.zip"
+pkg-url = "{ repo }/releases/download/v{ version }/airis-workspace-{ target }.zip"
 pkg-fmt = "zip"
 
 [profile.release]
@@ -105,6 +108,11 @@ lto = true
 codegen-units = 1
 panic = 'abort'
 strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 [dev-dependencies]
 assert_cmd = "2.2"

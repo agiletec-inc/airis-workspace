@@ -21,9 +21,20 @@ Airis automatically detects environment intent by looking for:
 
 ## 🛠️ Getting Started
 
-1. **Install Airis CLI**:
+1. **Install Airis CLI** — pick whichever fits your toolchain:
    ```bash
-   cargo install --path .
+   # macOS / Linux: Homebrew
+   brew install agiletec-inc/tap/airis-workspace
+
+   # Any platform: shell installer
+   curl --proto '=https' --tlsv1.2 -LsSf \
+     https://github.com/agiletec-inc/airis-workspace/releases/latest/download/airis-workspace-installer.sh | sh
+
+   # Rust users: prebuilt binary via cargo-binstall
+   cargo binstall airis-workspace
+
+   # Rust users: build from source
+   cargo install airis-workspace
    ```
 
 2. **Install Global Smart-Shims**:
