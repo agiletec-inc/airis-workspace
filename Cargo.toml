@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "3.4.0"
+version = "3.5.0"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -32,7 +32,6 @@ exclude = [
     "/dist",
     "/docs",
     "/scripts",
-    "/npm",
     # Release workflow side-effects: downloaded artifacts and checksums
     # must not be packaged into the crate when cargo publish runs in the
     # same working directory after build artifacts are fetched.
