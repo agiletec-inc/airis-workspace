@@ -1,6 +1,14 @@
 [workspace]
 members = ["cargo:."]
 
+# === MAINTENANCE NOTE ===
+# `.github/workflows/release.yml` has a hand-applied customization in the
+# `publish-homebrew-formula` job: it mints a GitHub App installation token
+# (HOMEBREW_TAP_APP_ID / HOMEBREW_TAP_APP_PRIVATE_KEY) instead of using
+# the static PAT (HOMEBREW_TAP_TOKEN) that cargo-dist's template hard-codes.
+# After running `dist init` or `dist generate`, re-apply that diff —
+# search for the "MANUAL CUSTOMIZATION" marker in release.yml.
+
 # Config for 'dist'
 [dist]
 # The preferred dist version to use in CI (Cargo.toml SemVer syntax)
@@ -15,6 +23,10 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# `release.yml` has a hand-applied diff (publish-homebrew-formula uses
+# a GitHub App token instead of a static PAT). Tell `dist plan/build`
+# this is intentional so it does not error on out-of-date generated CI.
+allow-dirty = ["ci"]
 # A GitHub repo to push Homebrew formulas to
 tap = "agiletec-inc/homebrew-tap"
 # Publish jobs to run in CI
