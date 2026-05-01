@@ -323,12 +323,27 @@ jobs:
           pattern: artifacts-*
           path: Formula/
           merge-multiple: true
-      # This is extra complex because you can make your Formula name not match your app name
-      # so we need to find releases with a *.rb file, and publish with that filename.
-      - name: Commit formula files
+      # === MANUAL CUSTOMIZATION — re-apply after `dist generate` ===
+      # cargo-dist's template ends with `git push` directly to the tap's
+      # default branch. The org-level "Main Branch Protection" ruleset
+      # (combined with `Homebrew tap protection` on this repo) requires
+      # changes to land via pull request. The publisher App is registered
+      # as a `bypass_actor` with `bypass_mode: pull_request`, so it can
+      # bypass the "0 required reviews are not yet satisfied" friction —
+      # but it still has to go through a PR. Hence: branch + PR + immediate
+      # squash-merge below. See dist-workspace.toml for the maintenance
+      # note pointing at this customization.
+      - name: Commit formula on a release branch and merge via PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
         run: |
+          set -euo pipefail
           git config --global user.name "${GITHUB_USER}"
           git config --global user.email "${GITHUB_EMAIL}"
+
+          BRANCH="release/formula-${TAG}"
+          git checkout -b "$BRANCH"
 
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith(".rb")] | any)'); do
             filename=$(echo "$release" | jq '.artifacts[] | select(endswith(".rb"))' --raw-output)
@@ -343,7 +358,22 @@ jobs:
             git add "Formula/${filename}"
             git commit -m "${name} ${version}"
           done
-          git push
+
+          git push --set-upstream origin "$BRANCH"
+
+          PR_TITLE="chore(formula): update for ${TAG}"
+          PR_BODY="Automated formula update produced by the \`Release\` workflow on \`agiletec-inc/airis-workspace@${TAG}\`. The publisher App (\`agiletec-inc-homebrew-publisher\`) is the bypass actor for \`Homebrew tap protection\`; this PR is merged immediately because the ruleset has \`required_approving_review_count: 0\` and the App is in \`bypass_mode: pull_request\`."
+
+          PR_URL=$(gh pr create \
+            --base "$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)" \
+            --head "$BRANCH" \
+            --title "$PR_TITLE" \
+            --body "$PR_BODY")
+
+          # Immediate squash-merge. With required_reviews=0 + App bypass +
+          # no required status checks, --auto is unnecessary and would
+          # require the repo's "Allow auto-merge" setting to be enabled.
+          gh pr merge --squash --delete-branch "$PR_URL"
 
   announce:
     needs:
