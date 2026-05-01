@@ -4,8 +4,10 @@ members = ["cargo:."]
 # === MAINTENANCE NOTE ===
 # `.github/workflows/release.yml` has a hand-applied customization in the
 # `publish-homebrew-formula` job: it mints a GitHub App installation token
-# (HOMEBREW_TAP_APP_ID / HOMEBREW_TAP_APP_PRIVATE_KEY) instead of using
-# the static PAT (HOMEBREW_TAP_TOKEN) that cargo-dist's template hard-codes.
+# from the org-shared `homebrew-tap-publisher` App (org var
+# HOMEBREW_TAP_PUBLISHER_CLIENT_ID + org secret
+# HOMEBREW_TAP_PUBLISHER_PRIVATE_KEY) instead of using the static PAT
+# (HOMEBREW_TAP_TOKEN) that cargo-dist's template hard-codes.
 # After running `dist init` or `dist generate`, re-apply that diff —
 # search for the "MANUAL CUSTOMIZATION" marker in release.yml.
 
