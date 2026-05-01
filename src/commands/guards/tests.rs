@@ -1,7 +1,3 @@
-use super::*;
-
-use std::fs;
-
 use crate::manifest::{GlobalConfig, GuardLevel};
 
 #[test]
