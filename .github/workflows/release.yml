@@ -345,6 +345,14 @@ jobs:
           BRANCH="release/formula-${TAG}"
           git checkout -b "$BRANCH"
 
+          # Rerun safety: if a previous attempt pushed this branch but
+          # crashed before merging, the remote ref blocks fast-forward
+          # on retry. Delete the stale remote ref before pushing so the
+          # workflow is idempotent. The repo-level `non_fast_forward`
+          # rule applies only to the default branch (~DEFAULT_BRANCH),
+          # so feature-branch deletion is allowed.
+          gh api -X DELETE "repos/agiletec-inc/homebrew-tap/git/refs/heads/${BRANCH}" 2>/dev/null || true
+
           for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith(".rb")] | any)'); do
             filename=$(echo "$release" | jq '.artifacts[] | select(endswith(".rb"))' --raw-output)
             name=$(echo "$filename" | sed "s/\.rb$//")
