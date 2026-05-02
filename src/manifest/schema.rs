@@ -1829,12 +1829,94 @@ pub struct TemplateConfig {
     pub package_config: String,
 }
 
-/// Runtime aliases configuration
+/// Runtime declarations.
+///
+/// Two responsibilities live here:
+/// 1. `alias` — short aliases consumed by `airis new` (e.g., "py" -> "fastapi").
+/// 2. `node` / `python` / `rust` — declarative runtime versions consumed by
+///    workspace Dockerfile generation and `airis exec` cmd→service routing
+///    (Phase 1 onward; see docs/ai/IDEAL_STATE.md §2 and the eager-floating-book plan).
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RuntimesSection {
-    /// Short aliases for runtimes (e.g., "py" -> "fastapi", "ts" -> "hono")
+    /// Short aliases for `airis new` templates (e.g., "py" -> "fastapi", "ts" -> "hono")
     #[serde(default)]
     pub alias: IndexMap<String, String>,
+    /// Node runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<RuntimeSpec>,
+    /// Python runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<RuntimeSpec>,
+    /// Rust toolchain to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust: Option<RuntimeSpec>,
+}
+
+/// A runtime declaration. Accepts either a bare version string or a detailed table.
+///
+/// ```toml
+/// [runtimes]
+/// node = "24"                     # short form
+///
+/// [runtimes.python]
+/// version = "3.13"
+/// package_manager = "uv"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum RuntimeSpec {
+    /// Bare version string, e.g., `node = "24"`
+    Short(String),
+    /// Detailed table with version + optional image / package_manager / components
+    Detailed(RuntimeDetail),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct RuntimeDetail {
+    pub version: String,
+    /// Override the resolved base image (e.g., `python:3.13-slim`). Default: derived from version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Package manager hint for ecosystems with multiple options (Python: uv|pip|poetry).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_manager: Option<String>,
+    /// Toolchain components (e.g., Rust: ["clippy", "rustfmt"]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub toolchain_components: Vec<String>,
+}
+
+impl RuntimeSpec {
+    /// Returns the version string for this runtime spec.
+    pub fn version(&self) -> &str {
+        match self {
+            RuntimeSpec::Short(v) => v.as_str(),
+            RuntimeSpec::Detailed(d) => d.version.as_str(),
+        }
+    }
+
+    /// Returns the explicitly overridden image, if any.
+    pub fn image_override(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.image.as_deref(),
+        }
+    }
+
+    /// Returns the explicit package manager hint, if any.
+    pub fn package_manager(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.package_manager.as_deref(),
+        }
+    }
+
+    /// Returns toolchain components (empty for `Short`).
+    pub fn toolchain_components(&self) -> &[String] {
+        match self {
+            RuntimeSpec::Short(_) => &[],
+            RuntimeSpec::Detailed(d) => &d.toolchain_components,
+        }
+    }
 }
 
 // =============================================================================

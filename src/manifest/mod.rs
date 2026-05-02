@@ -40,6 +40,7 @@ impl Manifest {
             toml::from_str(content).with_context(|| "Failed to parse manifest.toml")?;
 
         manifest.migrate_testing_to_policy();
+        manifest.warn_runtime_image_overlap();
 
         if let Err(e) = manifest.validate() {
             eprintln!(
@@ -61,6 +62,7 @@ impl Manifest {
 
         // [testing] → [policy.testing] migration fallback
         manifest.migrate_testing_to_policy();
+        manifest.warn_runtime_image_overlap();
 
         manifest.validate()?;
         manifest.resolve_conventions();
@@ -76,6 +78,27 @@ impl Manifest {
         }
 
         Ok(manifest)
+    }
+
+    /// Warn when [workspace].image and [runtimes].node both define the Node version.
+    ///
+    /// Phase 1a only emits an advisory; the workspace Dockerfile generator that
+    /// honours [runtimes] lands in Phase 1c. Until then [workspace].image keeps
+    /// driving Node selection so existing manifests stay byte-identical.
+    fn warn_runtime_image_overlap(&self) {
+        let default_image = crate::channel::defaults::NODE_LTS_IMAGE;
+        let workspace_image_overridden = self.workspace.image != default_image;
+
+        if let Some(node) = &self.runtimes.node
+            && workspace_image_overridden
+        {
+            eprintln!(
+                "⚠️  Both [workspace] image (\"{}\") and [runtimes.node] (\"{}\") are set. \
+                 Phase 1c will pick [runtimes.node]; [workspace] image is deprecated.",
+                self.workspace.image,
+                node.version()
+            );
+        }
     }
 
     /// Migrate top-level [testing] to [policy.testing] with deprecation warning.
