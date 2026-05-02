@@ -1,5 +1,6 @@
 mod build_ops;
 pub(crate) mod compose;
+pub(crate) mod exec;
 mod hooks;
 mod monitoring;
 mod services;
@@ -24,7 +25,17 @@ use services::{display_compose_urls, display_service_urls};
 
 // Re-export public API
 pub use build_ops::{run_build_prod, run_build_quick, run_test_coverage};
-pub use monitoring::{run_exec, run_logs, run_ps, run_restart};
+pub use exec::run_exec;
+pub use monitoring::{run_logs, run_ps, run_restart};
+
+/// Wrapper for `airis down` that drops a down-marker before stopping
+/// containers, so a racing `airis exec` in another shell skips its
+/// auto-up rather than relaunching the stack the user just tore down.
+pub fn run_down(extra_args: &[String]) -> Result<()> {
+    let manifest = Manifest::load_loose(Path::new(crate::manifest::MANIFEST_FILE)).ok();
+    exec::write_down_marker(manifest.as_ref());
+    run("down", extra_args)
+}
 
 // Internal timing constants for health probes
 const TCP_CONNECT_TIMEOUT_MS: u64 = 200;
