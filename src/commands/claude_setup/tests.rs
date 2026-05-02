@@ -377,13 +377,13 @@ fn test_no_infra_constants_in_templates() {
     // installs and re-introduces the private-overlay problem the merge
     // was meant to eliminate. This test is the regression guard.
     let bad_substrings = [
-        "100.82.",      // a real Tailscale CGNAT range we used to leak
-        "kazuki@",      // personal SSH user
+        "100.82.",       // a real Tailscale CGNAT range we used to leak
+        "kazuki@",       // personal SSH user
         "/Users/kazuki", // personal $HOME
-        "RTX 5070",     // GPU model that pinned a specific machine
-        "ssd-2tb",      // host-specific volume label
-        "agile-server", // single-machine hostname
-        "video-restore",// project name unrelated to the rule
+        "RTX 5070",      // GPU model that pinned a specific machine
+        "ssd-2tb",       // host-specific volume label
+        "agile-server",  // single-machine hostname
+        "video-restore", // project name unrelated to the rule
     ];
 
     let mut hits: Vec<String> = Vec::new();
