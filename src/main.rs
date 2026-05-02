@@ -183,7 +183,7 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
         Commands::Install { extra_args } => commands::install::run(&extra_args)?,
-        Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
+        Commands::Down { extra_args } => commands::run::run_down(&extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
             scan,
@@ -290,7 +290,11 @@ fn dispatch(command: Commands) -> Result<()> {
             follow,
             tail,
         } => commands::run::run_logs(service.as_deref(), follow, tail)?,
-        Commands::Exec { service, cmd } => commands::run::run_exec(&service, &cmd)?,
+        Commands::Exec {
+            service,
+            no_auto_up,
+            cmd,
+        } => commands::run::run_exec(service.as_deref(), &cmd, !no_auto_up)?,
         Commands::Restart { service } => commands::run::run_restart(service.as_deref())?,
         Commands::Network { action } => match action {
             NetworkCommands::Init => commands::network::init()?,

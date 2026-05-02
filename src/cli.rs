@@ -282,10 +282,27 @@ pub enum Commands {
         tail: Option<u32>,
     },
 
-    /// Execute command in a service container
+    /// Execute a command in a workspace service container.
+    ///
+    /// Service is auto-resolved from the command's runtime family
+    /// (pnpm/npm/node → workspace, python/uv → workspace, cargo → workspace).
+    /// Override with `--service`, or pass a service name as the first
+    /// positional argument for backward compatibility:
+    ///
+    /// ```text
+    /// airis exec pnpm install              # auto-route
+    /// airis exec --service api ls          # explicit
+    /// airis exec workspace pnpm install    # legacy positional form
+    /// ```
     Exec {
-        service: String,
-        #[arg(trailing_var_arg = true)]
+        /// Explicit service to exec into (takes precedence over auto-routing).
+        #[arg(long, short = 's')]
+        service: Option<String>,
+        /// Skip the auto-up that runs when the resolved service is stopped.
+        #[arg(long)]
+        no_auto_up: bool,
+        /// Command and its arguments.
+        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
     },
 

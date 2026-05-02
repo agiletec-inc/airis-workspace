@@ -120,20 +120,6 @@ pub fn run_logs(service: Option<&str>, follow: bool, tail: Option<u32>) -> Resul
     Ok(())
 }
 
-pub fn run_exec(service: &str, cmd: &[String]) -> Result<()> {
-    let mut args = vec!["compose", "exec", service];
-    for c in cmd {
-        args.push(c);
-    }
-
-    let mut child = Command::new("docker")
-        .args(args)
-        .spawn()
-        .with_context(|| "Failed to run docker compose exec")?;
-    child.wait()?;
-    Ok(())
-}
-
 pub fn run_restart(service: Option<&str>) -> Result<()> {
     let mut args = vec!["compose", "restart"];
     if let Some(s) = service {
