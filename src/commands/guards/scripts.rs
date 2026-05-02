@@ -83,25 +83,25 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
-    # We are in an airis project or docker-first directory. Execute through airis (Docker-First).
+    # We are in an airis project or docker-first directory. Route through airis exec
+    # in the workspace service. Phase 1 will replace this with cmd→service auto-routing.
     if command -v airis &>/dev/null; then
-        exec airis exec {cmd} "$@"
+        exec airis exec workspace {cmd} "$@"
     else
-        echo "⚠️  Airis context detected but 'airis' command not found."
+        echo "⚠️  Airis context detected but 'airis' command not found." >&2
     fi
 fi
 
 # 3. Not in airis workspace or airis missing: Apply Policy
 case "$LEVEL" in
     warn)
-        echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis run' or 'airis shell'."
+        echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis exec' or 'airis shell'." >&2
         if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
         ;;
     enforce)
-        # Only enforce if we are actually in a project that *could* be using airis 
-        # but doesn't have a manifest, or if the user wants strict host-wide blocking.
-        # For now, we allow it if no manifest is found (Standard behavior).
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+        echo "❌ AIRIS: '{cmd}' is enforced. No airis project context found." >&2
+        echo "   cd into a workspace with manifest.toml/compose.yaml, or set guards.preset = warn." >&2
+        exit 126
         ;;
     *)
         if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
