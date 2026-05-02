@@ -133,8 +133,8 @@ pub(crate) mod defaults {
     pub const RUST_IMAGE: &str = "rust:1.88-slim";
 
     // Python
-    pub const PYTHON_VERSION: &str = "3.12";
-    pub const PYTHON_IMAGE: &str = "python:3.12-slim";
+    pub const PYTHON_VERSION: &str = "3.13";
+    pub const PYTHON_IMAGE: &str = "python:3.13-slim";
 
     // Alpine (for minimal runtime stages)
     pub const ALPINE_VERSION: &str = "3.21";

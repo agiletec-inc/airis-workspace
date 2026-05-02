@@ -964,3 +964,114 @@ fn test_levenshtein_distance() {
     assert_eq!(levenshtein_distance("lst", "lts"), 2);
     assert_eq!(levenshtein_distance("react", "latest"), 5);
 }
+
+// =============================================================================
+// [runtimes] declarative section (Phase 1a)
+// =============================================================================
+
+#[test]
+fn runtimes_section_defaults_to_empty() {
+    let manifest = load_from_str(&minimal_manifest()).unwrap();
+    assert!(manifest.runtimes.alias.is_empty());
+    assert!(manifest.runtimes.node.is_none());
+    assert!(manifest.runtimes.python.is_none());
+    assert!(manifest.runtimes.rust.is_none());
+}
+
+#[test]
+fn runtimes_section_parses_short_form() {
+    let toml = r#"
+version = 1
+[project]
+id = "rt"
+
+[runtimes]
+node = "24"
+python = "3.13"
+rust = "1.88"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let node = manifest.runtimes.node.as_ref().unwrap();
+    assert_eq!(node.version(), "24");
+    assert!(node.image_override().is_none());
+    assert!(node.package_manager().is_none());
+    assert!(node.toolchain_components().is_empty());
+
+    assert_eq!(manifest.runtimes.python.as_ref().unwrap().version(), "3.13");
+    assert_eq!(manifest.runtimes.rust.as_ref().unwrap().version(), "1.88");
+}
+
+#[test]
+fn runtimes_section_parses_detailed_form() {
+    let toml = r#"
+version = 1
+[project]
+id = "rt"
+
+[runtimes.python]
+version = "3.13"
+package_manager = "uv"
+image = "python:3.13-slim"
+
+[runtimes.rust]
+version = "1.88"
+toolchain_components = ["clippy", "rustfmt"]
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let py = manifest.runtimes.python.as_ref().unwrap();
+    assert_eq!(py.version(), "3.13");
+    assert_eq!(py.package_manager(), Some("uv"));
+    assert_eq!(py.image_override(), Some("python:3.13-slim"));
+
+    let rust = manifest.runtimes.rust.as_ref().unwrap();
+    assert_eq!(rust.toolchain_components(), &["clippy", "rustfmt"]);
+}
+
+#[test]
+fn runtimes_section_alias_remains_backward_compatible() {
+    let toml = r#"
+version = 1
+[project]
+id = "rt"
+
+[runtimes.alias]
+py = "fastapi"
+ts = "hono"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    assert_eq!(
+        manifest.runtimes.alias.get("py").map(String::as_str),
+        Some("fastapi")
+    );
+    assert_eq!(
+        manifest.runtimes.alias.get("ts").map(String::as_str),
+        Some("hono")
+    );
+    assert!(manifest.runtimes.node.is_none());
+}
+
+#[test]
+fn runtimes_section_round_trips_through_toml() {
+    let toml = r#"
+version = 1
+[project]
+id = "rt"
+
+[runtimes]
+node = "24"
+
+[runtimes.python]
+version = "3.13"
+package_manager = "uv"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let serialized = toml::to_string(&manifest).unwrap();
+    // Round-trip: re-parsing the serialized form must preserve runtime versions.
+    let reparsed: Manifest = toml::from_str(&serialized).unwrap();
+    assert_eq!(reparsed.runtimes.node.as_ref().unwrap().version(), "24");
+    assert_eq!(reparsed.runtimes.python.as_ref().unwrap().version(), "3.13");
+    assert_eq!(
+        reparsed.runtimes.python.as_ref().unwrap().package_manager(),
+        Some("uv")
+    );
+}
