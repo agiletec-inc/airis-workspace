@@ -313,15 +313,106 @@ fn test_initialize_source_dir() {
 
     templates::initialize_source_dir(&source).unwrap();
 
+    // Every rule listed in managed_dirs() must land on disk after init.
+    // Adding a new rule to managed_dirs() without updating tests should
+    // not be possible — this loop catches the omission automatically.
     assert!(source.join("CLAUDE.md").exists());
-    assert!(source.join("rules/docker-first.md").exists());
-    assert!(source.join("rules/server-access.md").exists());
+    for managed in templates::managed_dirs() {
+        for file in managed.files {
+            let path = source.join(managed.rel_dir).join(file.rel_path);
+            assert!(path.exists(), "{} should exist after init", path.display());
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                file.content,
+                "{} content should match embedded template",
+                path.display()
+            );
+        }
+    }
 
-    // Content should match embedded templates
+    // CLAUDE.md content matches the embedded template.
     let expected = templates::global_claude_md().content;
     assert_eq!(
         fs::read_to_string(source.join("CLAUDE.md")).unwrap(),
         expected
+    );
+}
+
+#[test]
+fn test_managed_dirs_includes_all_expected_rules() {
+    // Hard list of rule files we expect after merging llm-rules into
+    // airis-workspace. Touching managed_dirs() without updating this set
+    // should fail loudly so we don't accidentally drop a rule.
+    let expected: std::collections::HashSet<&str> = [
+        "docker-first.md",
+        "server-access.md",
+        "orbstack.md",
+        "planning.md",
+        "bug-fix.md",
+        "secrets-tier.md",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut actual: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for managed in templates::managed_dirs() {
+        if managed.rel_dir == "rules" {
+            for file in managed.files {
+                actual.insert(file.rel_path);
+            }
+        }
+    }
+
+    assert_eq!(
+        actual, expected,
+        "rules/ template set drifted from expected. \
+         If you added a rule on purpose, update both managed_dirs() and this test."
+    );
+}
+
+#[test]
+fn test_no_infra_constants_in_templates() {
+    // Templates ship in an MIT-licensed binary. Anything that leaks a
+    // server hostname / IP / personal username pollutes downstream
+    // installs and re-introduces the private-overlay problem the merge
+    // was meant to eliminate. This test is the regression guard.
+    let bad_substrings = [
+        "100.82.",       // a real Tailscale CGNAT range we used to leak
+        "kazuki@",       // personal SSH user
+        "/Users/kazuki", // personal $HOME
+        "RTX 5070",      // GPU model that pinned a specific machine
+        "ssd-2tb",       // host-specific volume label
+        "agile-server",  // single-machine hostname
+        "video-restore", // project name unrelated to the rule
+    ];
+
+    let mut hits: Vec<String> = Vec::new();
+    for managed in templates::managed_dirs() {
+        for file in managed.files {
+            for needle in bad_substrings {
+                if file.content.contains(needle) {
+                    // secrets-tier.md uses one of these as a *teaching example*
+                    // of what NOT to do — explicit allow-list keeps the test
+                    // honest without requiring renaming the example value.
+                    if file.rel_path == "secrets-tier.md" && needle == "192.0.2.42" {
+                        continue;
+                    }
+                    hits.push(format!("{} contains {:?}", file.rel_path, needle));
+                }
+            }
+        }
+    }
+    let global = templates::global_claude_md();
+    for needle in bad_substrings {
+        if global.content.contains(needle) {
+            hits.push(format!("CLAUDE.md contains {:?}", needle));
+        }
+    }
+
+    assert!(
+        hits.is_empty(),
+        "templates should not embed infra constants:\n  {}",
+        hits.join("\n  ")
     );
 }
 
