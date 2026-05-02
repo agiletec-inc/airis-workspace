@@ -95,7 +95,7 @@ IDE 拡張 (VSCode ESLint/Prettier/TypeScript LSP、Cursor AI 補完) と git ho
 
 **Phase 1 (現実解)**: §1 の例外リストとして「IDE / git hook 依存の node」を許容。ただし「IDE が要求するから何でも入れる」ではなく「**最小限の node ランタイムだけ、明示的に**」を目指す (例: 1 バージョンに pin、グローバル npm install を禁止 等は別途検討)
 
-**Phase 2 (理想解)**: **devcontainer.json (or Cursor の Remote Container 機能) で IDE 自体をコンテナ内で動かす**。これにより IDE 拡張・git hook が workspace コンテナ内で完結し、host node が完全に不要になる。当初 §12 Out of scope としていたが、§1 の理想形を完全達成するには **Phase 2 で取り組む必須項目** に格上げする
+**Phase 2 (理想解)**: **devcontainer.json (or Cursor の Remote Container 機能) で IDE 自体をコンテナ内で動かす**。これにより IDE 拡張・git hook が workspace コンテナ内で完結し、host node が完全に不要になる。当初 §13 Out of scope としていたが、§1 の理想形を完全達成するには **Phase 2 で取り組む必須項目** に格上げする
 
 **現状ズレ:**
 - Claude Code の global rules (`~/.claude/CLAUDE.md`, `~/.claude/rules/docker-first.md`) は「host で実行するな」と文章で書いているが、host に実行可能な binary が残っている限り Claude が叩いてしまう余地が残る
@@ -312,7 +312,78 @@ CMD ["node", "/app/dist/server.js"]
 
 ---
 
-## 12. Out of scope (このビジョンが扱わないこと)
+## 12. Branch & Deployment Strategy (trunk-based)
+
+ArgoCD で管理される全リポジトリ (`agile-server`, `agiletec`, `airis-studio`, ...) は **trunk-based** で運用する:
+
+- `main` が唯一の長期ブランチ。`stg` / `dev` / `production` などの env-per-branch は **禁止**
+- `feature/*` は短命 (数日〜1 週間以内に main へ merge)。長期化したら設計を疑う
+- main への push は PR 経由必須 (review/CI 必須化はリポ単位で調整)
+
+### env 切替は valuesObject で
+
+env 差は **ArgoCD Application の `valuesObject`** で表現する:
+
+```yaml
+# argocd/agiletec-corporate-prd.yaml
+source:
+  repoURL: https://github.com/agiletec-inc/agiletec.git
+  targetRevision: main          # ← 固定
+  path: charts/agiletec-app
+  helm:
+    valuesObject:
+      image: { tag: <prd-image-sha> }
+      ingress: { host: agiletec.net }
+      doppler: { config: prd }
+
+# argocd/agiletec-corporate-stg.yaml
+source:
+  repoURL: https://github.com/agiletec-inc/agiletec.git
+  targetRevision: main          # ← 同じく main
+  path: charts/agiletec-app
+  helm:
+    valuesObject:
+      image: { tag: <stg-image-sha> }
+      ingress: { host: stg.agiletec.net }
+      doppler: { config: stg }
+```
+
+stg と prd の差は valuesObject 内の `image.tag` / `ingress.host` / `doppler.config` だけ。同じ branch の同じ Helm chart を異なる values で render する。
+
+### Promotion フロー
+
+1. feature branch で開発 → CI が image SHA を build & push
+2. PR で `argocd/<app>-stg.yaml` の `image.tag` を新 SHA に更新 → main merge → ArgoCD が ~3 min 以内に stg 環境を sync → 動作確認
+3. 別 PR で `argocd/<app>-prd.yaml` の `image.tag` を **同じ SHA** に揃える → main merge → ArgoCD が prd 環境を sync
+
+「stg branch から prd branch へ merge」は使わない。すべて main 上で values を書き換える PR で promotion を表現する。
+
+### ApplicationSet SCM Provider の不変条件
+
+`agile-server/bootstrap/applicationset.yaml` の SCM Provider 設定は次の 3 filter を揃える:
+
+- `filters.branchMatch: '^main$'` で main 以外 pick しない
+- `filters.pathsExist: [argocd]` で argocd/ を持つ repo に絞る
+- `filters.labelMatch: argocd-enabled` で opt-in を要求
+
+3 つ揃うと、ある repo に stg branch があっても **構造的に Application が生成されない**。env-per-branch を repo 規律ではなく **構造で** 防ぐ。
+
+### 例外: Helm chart のバージョン pin
+
+`apps/<chart>.yaml` で Helm chart のバージョンを `targetRevision: 0.14.1` のように pin するのは OK (これは git revision ではなく chart version、ArgoCD の Helm source で同フィールドが両用途を兼ねている)。`apps/arc-controller.yaml` `apps/traefik.yaml` `apps/zot.yaml` 等が該当。
+
+### 各 CLAUDE.md からの参照
+
+各 ArgoCD-managed リポの `CLAUDE.md` (or `.claude/rules/`) は本セクションを **規範として参照** する。リポ固有の例外がある場合は本セクションの不変条件を満たした上で例外を明記する。
+
+**現状ズレ:**
+- `agiletec/CLAUDE.md` L96 が「`main → stg → feature/*`」(env-per-branch 教典) を残している
+- `agile-server/bootstrap/applicationset.yaml` の SCM Provider に `branchMatch` filter 未設定
+- agiletec の cluster 上に live する `agiletec-infra-stg` 等 9 個の stg-suffixed Application が `targetRevision: stg` (env-per-branch 残存)。trunk-based PR 群 merge 後に main へ揃う
+
+---
+
+## 13. Out of scope (このビジョンが扱わないこと)
 
 - IDE 拡張 (VSCode / Cursor) のチーム共通設定 (※ チーム単位で個別管理、個人 dotfiles の領域)
 - モバイルネイティブ開発 (iOS / Android 開発は別 stack)
