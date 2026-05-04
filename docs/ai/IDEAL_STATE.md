@@ -305,7 +305,7 @@ CMD ["node", "/app/dist/server.js"]
 
 - Application runtime config (DB-backed settings, tenant boundaries, feature flags) — `docs/ai/architecture-invariants.md` 系の別 SSOT
 - Secret values — Doppler が SSOT
-- Cluster manifest (Application/AppProject/Helm values) — `agile-server/apps/*.yaml` が SSOT
+- Cluster manifest (Application/AppProject/Helm values) — `agile-server/bootstrap/applications.yaml` + `agile-deploy/apps/*.yaml` が SSOT
 
 **現状ズレ:**
 - 上記範囲が `docs/ai/PROJECT_RULES.md` に明記されているが、実際の `manifest.toml` 機能で全部カバー出来ているかは未計測
@@ -370,7 +370,7 @@ stg と prd の差は valuesObject 内の `image.tag` / `ingress.host` / `dopple
 
 ### 例外: Helm chart のバージョン pin
 
-`apps/<chart>.yaml` で Helm chart のバージョンを `targetRevision: 0.14.1` のように pin するのは OK (これは git revision ではなく chart version、ArgoCD の Helm source で同フィールドが両用途を兼ねている)。`apps/arc-controller.yaml` `apps/traefik.yaml` `apps/zot.yaml` 等が該当。
+`agile-deploy/apps/<scope>/<chart>.yaml` で Helm chart のバージョンを `targetRevision: 0.14.1` のように pin するのは OK (これは git revision ではなく chart version、ArgoCD の Helm source で同フィールドが両用途を兼ねている)。`agile-deploy/apps/infra/arc-controller.yaml` `agile-deploy/apps/infra/traefik.yaml` `agile-deploy/apps/infra/zot.yaml` 等が該当。
 
 ### 各 CLAUDE.md からの参照
 
