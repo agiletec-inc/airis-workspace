@@ -7,6 +7,7 @@ use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
+mod ai_gen;
 mod catalog;
 mod compose_gen;
 pub(crate) mod registry;
@@ -119,6 +120,9 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
             generated_paths.extend(["tsconfig.base.json".into(), "tsconfig.json".into()]);
         }
     }
+
+    // Generate AI instructions (Issue #203)
+    ai_gen::sync_ai_rules(manifest, &mut generated_paths)?;
 
     // Clean up orphaned files that are no longer being generated (e.g. package.json, hooks)
     crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);
