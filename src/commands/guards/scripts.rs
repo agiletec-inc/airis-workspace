@@ -83,10 +83,10 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
-    # We are in an airis project or docker-first directory. Route through airis exec
-    # in the workspace service. Phase 1 will replace this with cmd→service auto-routing.
+    # We are in an airis project. `airis exec <cmd>` auto-routes by command
+    # name (Phase 1b): pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
     if command -v airis &>/dev/null; then
-        exec airis exec workspace {cmd} "$@"
+        exec airis exec {cmd} "$@"
     else
         echo "⚠️  Airis context detected but 'airis' command not found." >&2
     fi

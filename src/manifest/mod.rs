@@ -580,6 +580,7 @@ impl Manifest {
                 source: "1.0.0".to_string(),
             },
             docs: DocsSection::default(),
+            ai: AISection::default(),
             ci: CiSection::default(),
             templates: TemplatesSection::default(),
             runtimes: RuntimesSection::default(),

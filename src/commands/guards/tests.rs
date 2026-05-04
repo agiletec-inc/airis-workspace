@@ -46,14 +46,22 @@ fn test_global_config_serialization() {
 }
 
 #[test]
-fn installed_shim_invokes_airis_exec_workspace() {
+fn installed_shim_invokes_airis_exec_with_cmd_only() {
+    // Phase 1b contract: shim hands off to `airis exec <cmd>` and lets the
+    // CLI auto-route to the right service based on the command's runtime
+    // family. The earlier Phase 0 form `airis exec workspace <cmd>` worked
+    // around the broken CLI signature; now that's no longer needed.
     let dir = tempfile::tempdir().unwrap();
     install_global_guard(dir.path(), "pnpm", GuardLevel::Enforce).unwrap();
 
     let content = fs::read_to_string(dir.path().join("pnpm")).unwrap();
     assert!(
-        content.contains("exec airis exec workspace pnpm \"$@\""),
-        "shim must route through workspace service (Phase 0 contract). Got:\n{content}"
+        content.contains("exec airis exec pnpm \"$@\""),
+        "shim must hand off to `airis exec <cmd>` for auto-routing. Got:\n{content}"
+    );
+    assert!(
+        !content.contains("exec airis exec workspace"),
+        "Phase 0 workaround must be gone now that auto-routing exists. Got:\n{content}"
     );
 }
 

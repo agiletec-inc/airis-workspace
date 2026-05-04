@@ -64,6 +64,9 @@ pub struct Manifest {
     /// Documentation management (CLAUDE.md, .cursorrules, etc.)
     #[serde(default)]
     pub docs: DocsSection,
+    /// AI tool configuration (CLAUDE.md, etc.) SSOT
+    #[serde(default)]
+    pub ai: AISection,
     /// CI/CD configuration
     #[serde(default)]
     pub ci: CiSection,
@@ -1447,6 +1450,53 @@ pub enum DocsVendor {
     Codex,
     Claude,
     Gemini,
+}
+
+/// AI tool configuration — Single Source of Truth for AI rules.
+/// Feeds into CLAUDE.md, AGENTS.md, GEMINI.md, and .cursor/rules/ generation.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct AISection {
+    /// Shared rule files used as the source of truth (e.g., ["docs/ai/PROJECT_RULES.md"])
+    #[serde(default)]
+    pub shared_rules: Vec<String>,
+    /// Claude Code configuration
+    #[serde(default)]
+    pub claude: Option<ClaudeAIConfig>,
+    /// Codex configuration
+    #[serde(default)]
+    pub codex: Option<CodexAIConfig>,
+    /// Gemini configuration
+    #[serde(default)]
+    pub gemini: Option<GeminiAIConfig>,
+    /// Cursor configuration
+    #[serde(default)]
+    pub cursor: Option<CursorAIConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ClaudeAIConfig {
+    /// Target file path (e.g., ".claude/CLAUDE.md")
+    pub target: String,
+    /// Directory for generated individual rules (e.g., ".claude/rules/generated/")
+    pub rules_dir: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CodexAIConfig {
+    /// Target file path (e.g., "AGENTS.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct GeminiAIConfig {
+    /// Target file path (e.g., "GEMINI.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CursorAIConfig {
+    /// Directory for generated individual rules (e.g., ".cursor/rules/")
+    pub rules_dir: String,
 }
 
 /// CI/CD configuration
