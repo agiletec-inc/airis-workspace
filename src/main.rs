@@ -295,6 +295,8 @@ fn dispatch(command: Commands) -> Result<()> {
             no_auto_up,
             cmd,
         } => commands::run::run_exec(service.as_deref(), &cmd, !no_auto_up)?,
+        Commands::Host { cmd } => commands::run::run_host(&cmd)?,
+        Commands::Bypass { cmd } => commands::run::run_host(&cmd)?,
         Commands::Restart { service } => commands::run::run_restart(service.as_deref())?,
         Commands::Network { action } => match action {
             NetworkCommands::Init => commands::network::init()?,

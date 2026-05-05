@@ -306,6 +306,31 @@ pub enum Commands {
         cmd: Vec<String>,
     },
 
+    /// Execute a command on the host, bypassing any airis guards/shims.
+    ///
+    /// This is useful when you want to run a command locally without Docker,
+    /// even if you are inside an airis project.
+    ///
+    /// ```text
+    /// airis host pnpm install
+    /// ```
+    Host {
+        /// Command and its arguments.
+        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
+
+    /// Alias for 'host' — execute a command on the host, bypassing any airis guards/shims.
+    ///
+    /// ```text
+    /// airis bypass pnpm install
+    /// ```
+    Bypass {
+        /// Command and its arguments.
+        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
+
     /// Restart Docker services
     Restart { service: Option<String> },
 

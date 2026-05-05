@@ -61,11 +61,11 @@ find_real_cmd() {{
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
 }}
 
-# Helper: find airis context (has manifest.toml or compose.yaml)
+# Helper: find airis context (has manifest.toml or .airis directory)
 find_airis_context() {{
     local dir="$PWD"
     while [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/manifest.toml" ]] || [[ -f "$dir/compose.yaml" ]] || [[ -f "$dir/compose.yml" ]] || [[ -f "$dir/docker-compose.yaml" ]] || [[ -f "$dir/docker-compose.yml" ]]; then
+        if [[ -f "$dir/manifest.toml" ]] || [[ -d "$dir/.airis" ]]; then
             echo "$dir"
             return 0
         fi
@@ -74,17 +74,30 @@ find_airis_context() {{
     return 1
 }}
 
-REAL_CMD=$(find_real_cmd {cmd})
+# 1. Bypass check: Skip guard if AIRIS_SKIP_GUARD, AIRIS_HOST, or AIRIS_BYPASS is set
+# Also skip if the first argument is 'bypass' or 'host'
+if [[ "${{AIRIS_SKIP_GUARD:-}}" == "1" ]] || [[ "${{AIRIS_HOST:-}}" == "1" ]] || [[ "${{AIRIS_BYPASS:-}}" == "1" ]] || [[ "${{AIRIS_BYPASS:-}}" == "true" ]]; then
+    REAL_CMD=$(find_real_cmd "{cmd}")
+    if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+fi
 
-# 1. Inside Docker/CI: always allow host command
+if [[ "$1" == "bypass" ]] || [[ "$1" == "host" ]]; then
+    shift
+    REAL_CMD=$(find_real_cmd "{cmd}")
+    if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+fi
+
+REAL_CMD=$(find_real_cmd "{cmd}")
+
+# 2. Inside Docker/CI: always allow host command
 if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/null || [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ "${{CI:-}}" == "true" ]]; then
     if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 fi
 
-# 2. Airis Context detection & Smart Proxy
+# 3. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
     # We are in an airis project. `airis exec <cmd>` auto-routes by command
-    # name (Phase 1b): pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
+    # name: pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
     if command -v airis &>/dev/null; then
         exec airis exec {cmd} "$@"
     else
@@ -92,21 +105,9 @@ if find_airis_context >/dev/null; then
     fi
 fi
 
-# 3. Not in airis workspace or airis missing: Apply Policy
-case "$LEVEL" in
-    warn)
-        echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis exec' or 'airis shell'." >&2
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-    enforce)
-        echo "❌ AIRIS: '{cmd}' is enforced. No airis project context found." >&2
-        echo "   cd into a workspace with manifest.toml/compose.yaml, or set guards.preset = warn." >&2
-        exit 126
-        ;;
-    *)
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-esac
+# 4. Not in airis workspace: Gentle allow
+# Outside an airis project, we stay out of the way to ensure host/docker coexistence.
+if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 "#,
         GLOBAL_GUARD_MARKER = GLOBAL_GUARD_MARKER,
         level = level_str,

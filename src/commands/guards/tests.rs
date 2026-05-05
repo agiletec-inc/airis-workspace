@@ -79,15 +79,13 @@ fn marker_present_in_generated_script() {
 
 #[cfg(unix)]
 #[test]
-fn enforce_fails_outside_airis_context() {
+fn allow_outside_airis_context() {
     // Create a guard shim in a tempdir, then run it from another tempdir that
-    // contains no manifest.toml / compose.yaml. The enforce branch must hit
-    // and exit 126.
+    // contains no manifest.toml / compose.yaml.
+    // The script should now allow execution (Gentle Allow) instead of blocking.
     let bin_dir = tempfile::tempdir().unwrap();
     install_global_guard(bin_dir.path(), "fakecmd", GuardLevel::Enforce).unwrap();
 
-    // tmp_home: HOME for the shim. PWD lives below this so find_airis_context
-    // walks up without finding a manifest.
     let tmp_home = tempfile::tempdir().unwrap();
     let work_dir = tmp_home.path().join("work");
     fs::create_dir_all(&work_dir).unwrap();
@@ -102,16 +100,32 @@ fn enforce_fails_outside_airis_context() {
         .output()
         .expect("bash must be available");
 
+    // Since 'fakecmd' doesn't exist in /usr/bin or /bin, it should exit 127 (command not found)
+    // rather than 126 (enforced).
     assert_eq!(
         output.status.code(),
-        Some(126),
-        "enforce outside airis context must exit 126.\nstdout:\n{}\nstderr:\n{}",
+        Some(127),
+        "Outside airis context should now allow execution (gentle allow), resulting in 127 for non-existent cmd.\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("is enforced"),
-        "expected enforcement message in stderr, got: {stderr}"
-    );
+}
+
+#[cfg(unix)]
+#[test]
+fn bypass_check_skips_guards() {
+    let bin_dir = tempfile::tempdir().unwrap();
+    install_global_guard(bin_dir.path(), "fakecmd", GuardLevel::Enforce).unwrap();
+
+    let script = bin_dir.path().join("fakecmd");
+
+    // With AIRIS_SKIP_GUARD=1, it should immediately try to exec real cmd (and exit 127)
+    let output = Command::new("bash")
+        .arg(&script)
+        .env("AIRIS_SKIP_GUARD", "1")
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("bash must be available");
+
+    assert_eq!(output.status.code(), Some(127));
 }

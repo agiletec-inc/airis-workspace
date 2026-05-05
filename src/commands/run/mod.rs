@@ -28,6 +28,45 @@ pub use build_ops::{run_build_prod, run_build_quick, run_test_coverage};
 pub use exec::run_exec;
 pub use monitoring::{run_logs, run_ps, run_restart};
 
+/// Execute a command on the host, bypassing any airis guards/shims.
+pub fn run_host(cmd: &[String]) -> Result<()> {
+    if cmd.is_empty() {
+        bail!("No command provided to airis host");
+    }
+
+    let program = &cmd[0];
+    let args = &cmd[1..];
+
+    println!(
+        "🚀 Running on host: {} {}",
+        program.cyan(),
+        args.join(" ").cyan()
+    );
+
+    // Set bypass environment variables that the shim scripts recognize.
+    // Safety: In single-threaded context (CLI startup), this is safe.
+    unsafe {
+        std::env::set_var("AIRIS_SKIP_GUARD", "1");
+        std::env::set_var("AIRIS_HOST", "1");
+    }
+
+    let status = if cfg!(target_os = "windows") {
+        Command::new("cmd")
+            .arg("/C")
+            .arg(cmd.join(" "))
+            .status()
+    } else {
+        Command::new(program).args(args).status()
+    }
+    .with_context(|| format!("Failed to execute: {}", cmd.join(" ")))?;
+
+    if !status.success() {
+        bail!("Command failed with exit code: {:?}", status.code());
+    }
+
+    Ok(())
+}
+
 /// Wrapper for `airis down` that drops a down-marker before stopping
 /// containers, so a racing `airis exec` in another shell skips its
 /// auto-up rather than relaunching the stack the user just tore down.
