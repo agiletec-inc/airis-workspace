@@ -6,6 +6,8 @@
 
 全てDockerコンテナ内で実行する。ホストでパッケージマネージャやランタイムを直接実行しない。設計・構成・コマンドの詳細は `~/.claude/rules/docker-first.md` を参照。
 
+OrbStack 固有の挙動(自動 `*.orb.local` DNS、ローカル image を k8s から registry なしで参照、`/mnt/mac` 共有など)は `~/.claude/rules/orbstack.md` を参照。
+
 ## Safety
 
 - hookの無効化・削除・迂回をしない（`--no-verify`, `git config core.hooksPath` 変更を含む）
@@ -16,12 +18,30 @@
 ## Docker Container Safety
 
 - **自分の compose project 以外のコンテナを絶対に stop/rm/kill/down しない**
+- **自分の compose project 内のコンテナは `docker stop`/`start`/`restart` OK**。GPU 競合回避や一時的な pause など、運用上必要なら止めていい。ただし `down`/`rm` はデータ損失リスクがあるのでユーザー確認
 - ポート競合が発生した場合、既存コンテナを止めるのではなくユーザーに報告して判断を仰ぐ
 - `docker compose down` は実行前に必ずユーザーの確認を取る（自分の project であっても）
 - Traefik 経由のサービスにホストポートバインド（`ports:`）は不要。`expose:` を使う
 - ポート番号をハードコードしない。環境変数（`${PORT:-3000}`）を使う
 - `docker system prune`, `docker volume prune` 等の破壊的クリーンアップはユーザーの明示的な指示がある場合のみ
 - 他プロジェクトのコンテナ・ボリューム・ネットワーク・イメージを削除しない
+
+## Server-Side Mutation
+
+GitOps 配下のサーバー(env で指定された host、詳細は `~/.claude/rules/server-access.md`)では:
+
+- **SSH は read-only 観測のみ**: `kubectl get/describe/logs`, `cat`, `ls`, `git log`, `docker ps/logs`, `nvidia-smi` は OK
+- **Cluster mutation は GitOps 経由のみ**: `kubectl (apply|annotate|rollout|patch|delete|create|scale|edit|replace)` を SSH で実行しない。Application sync は PR → main → ArgoCD pull、緊急時は ArgoCD UI から
+- **server-side ファイル作成・編集・バックアップ禁止**: `scp` / `rsync` / heredoc / `>` / `tee` / `.bak` / `.old` / `_backup` 全面禁止
+- **例外は bootstrap 手順のみ**: 該当リポジトリの `bootstrap/` で明示された Secret plant など、手順書記載のものだけ
+- 上記は PreToolUse hook で機械的にブロックされる(`airis guards install --global` で配布)
+- 詳細は `~/.claude/rules/server-access.md`
+
+## Secrets
+
+機密度の階層分けと置き場所(commit OK / .env / Doppler / 1Password)は `~/.claude/rules/secrets-tier.md` を参照。
+
+infra 固有値(サーバー名、IP、Tailscale、ホストパスなど)は **rule にハードコードせず env / Doppler から取得する**。詳細は同 rule 内の Tier 1 項。
 
 ## Verify — 完了報告の前に自分で確認する
 
@@ -39,6 +59,8 @@
 - 公式のベストプラクティスやサンプルコードがあればそのまま使ってよい
 - 自分の前提知識で推測するより公式を参照した方が速く正確に解決できる
 - サイレントフォールバックや握りつぶしではなく、適切なエラーを明示的に返す
+- `A || B` 式のフォールバックでエラーを握りつぶすな。失敗は失敗として throw/log する
+- 環境変数の旧名→新名フォールバック(`NEW_KEY || OLD_KEY`)禁止。リネームしたら一括置換しろ
 
 ## Naming & Structure
 
@@ -46,23 +68,9 @@
 - `core`, `utils`, `common`, `shared`, `helpers` は使わない — 何をしているかわからない
 - フラットに始めてファイルが増えたときだけネストする
 
-## Planning
+## Planning / Bug Fix
 
-プランには以下を必ず含める:
-
-- 変更ファイル一覧（パスと変更理由）
-- 具体的な変更内容（コードレベル）
-- 変更順序と依存関係
-- 検証手順
-
-「〇〇を修正」だけのバレットポイントではなく「L123-145を以下に変更」の粒度で書く。
-
-## Bug Fix
-
-1. 再現テストを先に書く
-2. コードを修正する
-3. テストが通ることを確認する
-4. ブラウザで実際に直っていることを目視確認する
+`~/.claude/rules/planning.md` と `~/.claude/rules/bug-fix.md` を参照。
 
 ## MCP
 
