@@ -59,11 +59,11 @@ fn setup_shell_path() -> Result<()> {
         let content = fs::read_to_string(&rc_path)?;
         let shell_name = if rc_file.contains("zsh") { "zsh" } else { "bash" };
 
-        let mut lines_to_add = Vec::new();
+        let mut lines_to_add: Vec<String> = Vec::new();
 
         // 1. PATH setup
         if !content.contains(".airis/bin") {
-            lines_to_add.push("export PATH=\"$HOME/.airis/bin:$PATH\"  # airis guards");
+            lines_to_add.push("export PATH=\"$HOME/.airis/bin:$PATH\"  # airis guards".to_string());
             path_added = true;
         }
 
@@ -78,7 +78,7 @@ fn setup_shell_path() -> Result<()> {
                 .interact()
                 .unwrap_or(false) 
             {
-                lines_to_add.push(&format!("source <(airis init-shell {}) # airis prompt", shell_name));
+                lines_to_add.push(format!("source <(airis init-shell {}) # airis prompt", shell_name));
                 prompt_added = true;
             }
         }
