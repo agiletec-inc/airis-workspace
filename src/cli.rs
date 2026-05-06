@@ -249,6 +249,13 @@ pub enum Commands {
         k8s: bool,
     },
 
+    /// Show current workspace and guard status
+    Status {
+        /// Show a concise one-line status (for shell prompts)
+        #[arg(long, short = 's')]
+        short: bool,
+    },
+
     /// Run linting
     Lint {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -385,6 +392,12 @@ pub enum Commands {
         check: bool,
         #[arg(long)]
         version: Option<String>,
+    },
+
+    /// Initialize shell integration (prompt, etc.)
+    InitShell {
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
     },
 
     /// Generate shell completion scripts

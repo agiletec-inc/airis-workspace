@@ -19,9 +19,8 @@ airis-workspace/
 │   ├── config/
 │   │   └── mod.rs           # WorkspaceConfig schema
 │   └── templates/
-│       └── mod.rs           # Handlebars template engine
+│   └── mod.rs           # Handlebars template engine
 ├── templates/
-│   └── justfile-global      # Justfile template
 ├── examples/
 │   └── workspace.yaml       # Example configuration
 ├── Cargo.toml               # Rust package manifest
