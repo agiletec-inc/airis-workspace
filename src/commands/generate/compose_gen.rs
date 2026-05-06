@@ -124,9 +124,11 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
 
             // Add project-local isolation volumes (Anonymous volumes to hide host junk)
             for dir in defaults.isolated_dirs {
-                // By providing only the container path, Docker creates an anonymous volume
-                // that masks the host's directory at this location.
-                app_volumes.push(format!("/app/{}/{}", path, dir));
+                let mount_point = format!("/app/{}/{}", path, dir);
+                app_volumes.push(mount_point.clone());
+                if !workspace_volumes.contains(&mount_point) {
+                    workspace_volumes.push(mount_point);
+                }
             }
 
             // Also add global caches for this specific service
@@ -151,7 +153,11 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
                         dir.replace('.', "").replace('/', "-")
                     );
                     volumes.insert(volume_name.clone(), ComposeVolume::default());
-                    app_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
+                    let mount_point = format!("{}:/app/{}/{}", volume_name, path, dir);
+                    app_volumes.push(mount_point.clone());
+                    if !workspace_volumes.contains(&mount_point) {
+                        workspace_volumes.push(mount_point);
+                    }
                 }
                 if stack_def.gpu {
                     use_gpu = true;
