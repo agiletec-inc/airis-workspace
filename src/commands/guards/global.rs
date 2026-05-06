@@ -46,8 +46,8 @@ pub fn install_global(preset: Option<GuardPreset>) -> Result<()> {
 }
 
 fn setup_shell_path() -> Result<()> {
-    let path_line = "export PATH=\"$HOME/.airis/bin:$PATH\"  # airis guards";
     let mut path_added = false;
+    let mut prompt_added = false;
 
     for rc_file in &[".zshrc", ".bashrc"] {
         let home = dirs::home_dir().context("No home dir")?;
@@ -57,20 +57,45 @@ fn setup_shell_path() -> Result<()> {
         }
 
         let content = fs::read_to_string(&rc_path)?;
-        if content.contains(".airis/bin") {
-            continue;
+        let shell_name = if rc_file.contains("zsh") { "zsh" } else { "bash" };
+
+        let mut lines_to_add = Vec::new();
+
+        // 1. PATH setup
+        if !content.contains(".airis/bin") {
+            lines_to_add.push("export PATH=\"$HOME/.airis/bin:$PATH\"  # airis guards");
+            path_added = true;
         }
 
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new().append(true).open(&rc_path)?;
-        writeln!(file, "\n{}", path_line)?;
-        println!("   {} Added PATH to ~/{}", "✓".green(), rc_file.cyan());
-        path_added = true;
+        // 2. Prompt integration setup
+        if !content.contains("airis init-shell") {
+            use dialoguer::{Confirm, theme::ColorfulTheme};
+            let question = format!("Would you like to enable the airis status line in your {} prompt?", shell_name);
+            
+            if Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt(question)
+                .default(true)
+                .interact()
+                .unwrap_or(false) 
+            {
+                lines_to_add.push(&format!("source <(airis init-shell {}) # airis prompt", shell_name));
+                prompt_added = true;
+            }
+        }
+
+        if !lines_to_add.is_empty() {
+            use std::io::Write;
+            let mut file = fs::OpenOptions::new().append(true).open(&rc_path)?;
+            for line in lines_to_add {
+                writeln!(file, "{}", line)?;
+            }
+            println!("   {} Updated ~/{}", "✓".green(), rc_file.cyan());
+        }
     }
 
-    if path_added {
+    if path_added || prompt_added {
         println!(
-            "\n{} Reload your shell: {}",
+            "\n{} Shell integration complete. Reload your shell: {}",
             "🔧".yellow(),
             "source ~/.zshrc".cyan()
         );

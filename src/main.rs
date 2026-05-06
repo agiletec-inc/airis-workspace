@@ -257,6 +257,9 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::run::run("build", &[])?;
             }
         }
+        Commands::Status { short } => {
+            commands::status::run(short)?;
+        }
         Commands::Clean {
             dry_run,
             purge,
@@ -399,6 +402,9 @@ fn dispatch(command: Commands) -> Result<()> {
             }
         }
 
+        Commands::InitShell { shell } => {
+            commands::init_shell::run(shell)?;
+        }
         Commands::Completion { shell } => {
             commands::completion::run(shell)?;
         }
