@@ -3,7 +3,8 @@ use anyhow::Result;
 pub fn run(shell: clap_complete::Shell) -> Result<()> {
     match shell {
         clap_complete::Shell::Zsh => {
-            println!(r#"
+            println!(
+                r#"
 # airis shell integration (zsh)
 # Add this to your ~/.zshrc: source <(airis init-shell zsh)
 
@@ -20,10 +21,12 @@ _airis_prompt_precmd() {{
 # Add to precmd hooks
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd _airis_prompt_precmd
-"#);
+"#
+            );
         }
         clap_complete::Shell::Bash => {
-            println!(r#"
+            println!(
+                r#"
 # airis shell integration (bash)
 # Add this to your ~/.bashrc: source <(airis init-shell bash)
 
@@ -34,7 +37,8 @@ _airis_prompt_command() {{
 }}
 
 # PROMPT_COMMAND="...; _airis_prompt_command"
-"#);
+"#
+            );
         }
         _ => {
             eprintln!("Shell integration not yet implemented for {:?}", shell);

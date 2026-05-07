@@ -57,7 +57,11 @@ fn setup_shell_path() -> Result<()> {
         }
 
         let content = fs::read_to_string(&rc_path)?;
-        let shell_name = if rc_file.contains("zsh") { "zsh" } else { "bash" };
+        let shell_name = if rc_file.contains("zsh") {
+            "zsh"
+        } else {
+            "bash"
+        };
 
         let mut lines_to_add: Vec<String> = Vec::new();
 
@@ -70,15 +74,21 @@ fn setup_shell_path() -> Result<()> {
         // 2. Prompt integration setup
         if !content.contains("airis init-shell") {
             use dialoguer::{Confirm, theme::ColorfulTheme};
-            let question = format!("Would you like to enable the airis status line in your {} prompt?", shell_name);
-            
+            let question = format!(
+                "Would you like to enable the airis status line in your {} prompt?",
+                shell_name
+            );
+
             if Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt(question)
                 .default(true)
                 .interact()
-                .unwrap_or(false) 
+                .unwrap_or(false)
             {
-                lines_to_add.push(format!("source <(airis init-shell {}) # airis prompt", shell_name));
+                lines_to_add.push(format!(
+                    "source <(airis init-shell {}) # airis prompt",
+                    shell_name
+                ));
                 prompt_added = true;
             }
         }

@@ -5,7 +5,9 @@ use std::process::Command;
 
 /// Run a host command bypassing airis guards (`AIRIS_BYPASS=1`).
 pub fn run(cmd: &[String]) -> Result<()> {
-    let (name, args) = cmd.split_first().expect("cmd is non-empty (enforced by clap)");
+    let (name, args) = cmd
+        .split_first()
+        .expect("cmd is non-empty (enforced by clap)");
 
     // Find the real binary, excluding ~/.airis/bin so we don't re-enter the guard.
     let real_path = env::var("PATH")
