@@ -8,7 +8,6 @@ use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
 mod ai_gen;
-mod catalog;
 mod compose_gen;
 pub(crate) mod registry;
 mod tsconfig_gen;

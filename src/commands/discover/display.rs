@@ -54,15 +54,6 @@ pub fn print_discovery_result(result: &DiscoveryResult) {
         println!();
     }
 
-    // Catalog
-    if !result.catalog.is_empty() {
-        println!("{}", "📋 Extracted Catalog (from package.json):".green());
-        for (name, version) in &result.catalog {
-            println!("   {}: {}", name.white(), version.dimmed());
-        }
-        println!();
-    }
-
     if result.is_empty() {
         println!(
             "{}",

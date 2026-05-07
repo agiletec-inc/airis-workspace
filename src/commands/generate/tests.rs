@@ -1,61 +1,10 @@
 use indexmap::IndexMap;
 use std::fs;
 
-use crate::manifest::{CatalogEntry, Manifest};
+use crate::manifest::Manifest;
 
-use super::catalog::{matches_wildcard_catalog, wildcard_matches};
 use super::registry::{load_generation_registry, save_generation_registry};
 use super::tsconfig_gen::detect_ts_major;
-
-// ── wildcard_matches ──
-
-#[test]
-fn test_wildcard_matches_prefix() {
-    assert!(wildcard_matches(
-        "@radix-ui/react-*",
-        "@radix-ui/react-slot"
-    ));
-    assert!(wildcard_matches(
-        "@radix-ui/react-*",
-        "@radix-ui/react-dialog"
-    ));
-    assert!(!wildcard_matches("@radix-ui/react-*", "@radix-ui/themes"));
-}
-
-#[test]
-fn test_wildcard_matches_exact() {
-    assert!(wildcard_matches("react", "react"));
-    assert!(!wildcard_matches("react", "react-dom"));
-}
-
-#[test]
-fn test_wildcard_matches_star_only() {
-    // "*" matches everything
-    assert!(wildcard_matches("*", "anything"));
-    assert!(wildcard_matches("*", ""));
-}
-
-// ── matches_wildcard_catalog ──
-
-#[test]
-fn test_matches_wildcard_catalog_hit() {
-    let entry = CatalogEntry::Policy(crate::manifest::VersionPolicy::Latest);
-    let wildcards = vec![("@radix-ui/react-*", &entry)];
-    assert!(matches_wildcard_catalog("@radix-ui/react-slot", &wildcards));
-}
-
-#[test]
-fn test_matches_wildcard_catalog_miss() {
-    let entry = CatalogEntry::Policy(crate::manifest::VersionPolicy::Latest);
-    let wildcards = vec![("@radix-ui/react-*", &entry)];
-    assert!(!matches_wildcard_catalog("zod", &wildcards));
-}
-
-#[test]
-fn test_matches_wildcard_catalog_empty() {
-    let wildcards: Vec<(&str, &CatalogEntry)> = vec![];
-    assert!(!matches_wildcard_catalog("react", &wildcards));
-}
 
 // ── detect_ts_major ──
 

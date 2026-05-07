@@ -622,8 +622,6 @@ image = "node:24"
 workdir = "/app"
 volumes = []
 
-[catalog]
-
 [workspaces]
 apps = []
 libs = []
@@ -647,8 +645,6 @@ features = []
 [packages]
 workspaces = []
 app = []
-
-[packages.catalog]
 
 [packages.root.dependencies]
 

@@ -106,9 +106,6 @@ fn test_generate_manifest_content() {
     // Check library is also using [[app]] with kind = "lib"
     assert!(content.contains("kind = \"lib\""));
     assert!(content.contains("name = \"ui\""));
-    // Check catalog
-    assert!(content.contains("[packages.catalog]"));
-    assert!(content.contains("typescript"));
     // Check scripts/deps are included
     assert!(content.contains("scripts = {"));
     assert!(content.contains("deps = {"));

@@ -1,4 +1,3 @@
-use super::validation::levenshtein_distance;
 use super::*;
 use std::io::Write;
 
@@ -77,43 +76,6 @@ image = "redis:7"
 
 [service.cache]
 image = "redis:7"
-"#;
-    assert!(load_from_str(toml).is_ok());
-}
-
-#[test]
-fn test_validate_catalog_follow_missing_reference() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog]
-react = "latest"
-
-[packages.catalog.react-dom]
-follow = "nonexistent"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("react-dom") && msg.contains("nonexistent"),
-        "got: {msg}"
-    );
-}
-
-#[test]
-fn test_validate_catalog_follow_valid_reference() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog]
-react = "latest"
-
-[packages.catalog.react-dom]
-follow = "react"
 "#;
     assert!(load_from_str(toml).is_ok());
 }
@@ -283,9 +245,6 @@ port = 6379
 image = "redis:7"
 port = 6379
 
-[packages.catalog.react-dom]
-follow = "missing"
-
 [guards]
 deny = ["pnpm"]
 
@@ -294,9 +253,7 @@ pnpm = "docker compose exec workspace pnpm"
 "#;
     let err = load_from_str(toml).unwrap_err();
     let msg = err.to_string();
-    // All three errors should be present
     assert!(msg.contains("Duplicate port"), "got: {msg}");
-    assert!(msg.contains("missing"), "got: {msg}");
     assert!(msg.contains("Guard conflict"), "got: {msg}");
 }
 
@@ -511,66 +468,6 @@ dep_groups = ["nonexistent"]
     );
 }
 
-// ── catalog follow cycle detection ──
-
-#[test]
-fn test_validate_catalog_follow_cycle_direct() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog.a]
-follow = "b"
-
-[packages.catalog.b]
-follow = "a"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("cycle"), "got: {msg}");
-}
-
-#[test]
-fn test_validate_catalog_follow_cycle_indirect() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog.a]
-follow = "b"
-
-[packages.catalog.b]
-follow = "c"
-
-[packages.catalog.c]
-follow = "a"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("cycle"), "got: {msg}");
-}
-
-#[test]
-fn test_validate_catalog_follow_chain_no_cycle() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog]
-react = "latest"
-
-[packages.catalog.react-dom]
-follow = "react"
-
-[packages.catalog."@types/react"]
-follow = "react"
-"#;
-    assert!(load_from_str(toml).is_ok());
-}
-
 // ── env.validation orphan detection ──
 
 #[test]
@@ -613,38 +510,6 @@ pattern = "^postgresql://"
 
 [env.validation.SENTRY_DSN]
 pattern = "^https://"
-"#;
-    assert!(load_from_str(toml).is_ok());
-}
-
-// ── catalog typo detection ──
-
-#[test]
-fn test_validate_catalog_typo_warning_lates() {
-    // "lates" is Levenshtein distance 1 from "latest" — should warn but not error
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog]
-react = "lates"
-"#;
-    // Should load successfully (warning only, not error)
-    assert!(load_from_str(toml).is_ok());
-}
-
-#[test]
-fn test_validate_catalog_no_false_positive_semver() {
-    // Semver strings should not trigger typo warnings
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[packages.catalog]
-react = "^18.2.0"
-zod = "~3.22.0"
 "#;
     assert!(load_from_str(toml).is_ok());
 }
@@ -951,18 +816,6 @@ ai_rules = ["New rule."]
         schema::MockPolicy::Forbidden
     );
     assert_eq!(manifest.policy.testing.ai_rules[0], "New rule.");
-}
-
-// ── levenshtein_distance unit tests ──
-
-#[test]
-fn test_levenshtein_distance() {
-    assert_eq!(levenshtein_distance("latest", "latest"), 0);
-    assert_eq!(levenshtein_distance("lates", "latest"), 1);
-    assert_eq!(levenshtein_distance("latets", "latest"), 2);
-    assert_eq!(levenshtein_distance("lts", "lts"), 0);
-    assert_eq!(levenshtein_distance("lst", "lts"), 2);
-    assert_eq!(levenshtein_distance("react", "latest"), 5);
 }
 
 // =============================================================================

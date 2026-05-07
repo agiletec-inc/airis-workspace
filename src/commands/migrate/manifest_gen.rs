@@ -55,15 +55,6 @@ pub(super) fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<S
         "".to_string(),
     ];
 
-    // Catalog from discovery
-    if !discovery.catalog.is_empty() {
-        lines.push("[packages.catalog]".to_string());
-        for (name, version) in &discovery.catalog {
-            lines.push(format!("\"{}\" = \"{}\"", name, version));
-        }
-        lines.push("".to_string());
-    }
-
     // App definitions (using [[app]] array format for package.json generation)
     if !discovery.apps.is_empty() {
         for app in &discovery.apps {
