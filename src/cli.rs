@@ -70,6 +70,20 @@ pub enum Commands {
         action: GuardsCommands,
     },
 
+    /// Run a host command, bypassing airis guards (sets AIRIS_BYPASS=1)
+    ///
+    /// Use this when you need to run a guarded command (pnpm, npm, python, ...)
+    /// directly on the host — e.g. global installs outside any airis workspace.
+    ///
+    /// Examples:
+    ///   airis host npm install -g typescript
+    ///   airis host pnpm add -g prettier
+    Host {
+        /// Command and arguments to run on the host.
+        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
+
     /// Project-level cleanup and management
     Workspace(WorkspaceArgs),
 

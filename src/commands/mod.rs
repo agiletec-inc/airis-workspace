@@ -14,6 +14,7 @@ pub mod generate;
 pub mod generate_types;
 pub mod guards;
 pub mod hooks;
+pub mod host;
 pub mod init_shell;
 pub mod install;
 pub mod manifest_cmd;
