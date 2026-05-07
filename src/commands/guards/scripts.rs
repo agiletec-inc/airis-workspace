@@ -111,21 +111,9 @@ if find_airis_context >/dev/null; then
     fi
 fi
 
-# 3. Not in airis workspace or airis missing: Apply Policy
-case "$LEVEL" in
-    warn)
-        echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis exec' or 'airis shell'." >&2
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-    enforce)
-        echo "❌ AIRIS: '{cmd}' is enforced. No airis project context found." >&2
-        echo "   cd into a workspace with manifest.toml/compose.yaml, or set guards.preset = warn." >&2
-        exit 126
-        ;;
-    *)
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-esac
+# 3. Not in any airis workspace — pass through unconditionally.
+#    Guards only enforce Docker-first hygiene *inside* a workspace.
+if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 "#,
         GLOBAL_GUARD_MARKER = GLOBAL_GUARD_MARKER,
         level = level_str,
