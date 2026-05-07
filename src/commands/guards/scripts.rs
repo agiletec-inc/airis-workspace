@@ -76,6 +76,11 @@ find_airis_context() {{
 
 REAL_CMD=$(find_real_cmd {cmd})
 
+# 0. Explicit bypass: AIRIS_BYPASS=1 or `airis host <cmd>`
+if [[ "${{AIRIS_BYPASS:-}}" == "1" ]]; then
+    if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+fi
+
 # 1. Inside Docker/CI: always allow host command
 if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/null || [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ "${{CI:-}}" == "true" ]]; then
     if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi

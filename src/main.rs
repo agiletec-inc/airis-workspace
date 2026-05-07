@@ -141,6 +141,7 @@ fn dispatch(command: Commands) -> Result<()> {
                 println!("check-allow is now handled by global smart-shims.");
             }
         },
+        Commands::Host { cmd } => commands::host::run(&cmd)?,
         Commands::Workspace(args) => match args.action {
             WorkspaceCommands::Uninstall => commands::workspace::uninstall()?,
         },
