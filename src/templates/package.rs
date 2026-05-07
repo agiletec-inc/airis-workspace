@@ -119,5 +119,4 @@ impl TemplateEngine {
             .context("Failed to serialize package.json")?;
         Ok(format!("{content}\n"))
     }
-
 }

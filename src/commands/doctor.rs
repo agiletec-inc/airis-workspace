@@ -426,7 +426,6 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -225,4 +225,3 @@ pub(super) fn compute_unified_diff(
 
     (additions, deletions, output)
 }
-
