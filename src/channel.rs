@@ -89,7 +89,7 @@ pub enum RuntimeFamily {
 /// Resolved toolchain information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Toolchain {
-    /// Docker image reference (e.g., "node:22-alpine")
+    /// Docker image reference (e.g., "node:24-alpine")
     pub image: String,
     /// Image digest for reproducibility (e.g., "sha256:abc123...")
     /// None if not yet resolved

@@ -618,7 +618,7 @@ rust_edition = "2024"
 name = "demo"
 package_manager = "pnpm@10"
 service = "workspace"
-image = "node:22"
+image = "node:24"
 workdir = "/app"
 volumes = []
 
@@ -633,7 +633,7 @@ apps = []
 autostart = []
 
 [docker]
-baseImage = "node:22"
+baseImage = "node:24"
 workdir = "/app"
 
 [docker.workspace]

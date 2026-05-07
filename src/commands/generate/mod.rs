@@ -13,7 +13,6 @@ mod compose_gen;
 pub(crate) mod registry;
 mod tsconfig_gen;
 
-use catalog::resolve_catalog_versions;
 use compose_gen::generate_workspace_compose;
 use registry::{load_generation_registry, save_generation_registry};
 use tsconfig_gen::generate_tsconfig;
@@ -132,7 +131,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     let previous_paths: Vec<String> = load_generation_registry(registry_path);
 
     if manifest.has_workspace() {
-        let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+        let resolved_catalog = crate::pnpm::read_workspace_catalog();
 
         // Always generate Docker Compose to ensure environment isolation (Hygiene).
         // Convention-based discovery ensures projects are managed even if not in manifest.toml.
