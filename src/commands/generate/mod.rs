@@ -22,7 +22,7 @@ use tsconfig_gen::generate_tsconfig;
 mod tests;
 
 /// CLI entry point for `airis gen`
-pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
+pub fn run(dry_run: bool, force: bool, _migrate: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if !manifest_path.exists() {
@@ -35,11 +35,36 @@ pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
     if dry_run {
         preview_from_manifest(&manifest)?;
     } else {
+        if force {
+            remove_legacy_compose_files();
+        }
         println!("{}", "🧩 Regenerating workspace files...".bright_blue());
         sync_from_manifest(&manifest)?;
     }
 
     Ok(())
+}
+
+/// Delete legacy compose file variants, leaving only `compose.yaml`.
+fn remove_legacy_compose_files() {
+    let legacy = [
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+        "workspace/compose.yml",
+        "workspace/docker-compose.yaml",
+        "workspace/docker-compose.yml",
+    ];
+
+    for name in legacy {
+        let path = Path::new(name);
+        if path.exists() {
+            match fs::remove_file(path) {
+                Ok(()) => println!("   {} removed legacy {}", "✓".green(), name),
+                Err(e) => println!("   {} could not remove {}: {}", "✗".red(), name, e),
+            }
+        }
+    }
 }
 
 pub(super) fn backup_file(path: &Path) -> Result<()> {
