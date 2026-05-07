@@ -14,13 +14,11 @@ pub(super) fn compute_diff(manifest: &Manifest) -> Result<DiffResult> {
     let engine = TemplateEngine::new()?;
     let resolved_catalog = crate::pnpm::read_workspace_catalog();
 
-    let mut files = Vec::new();
-
     // Check package.json
-    files.push(check_file_with_content(
+    let files = vec![check_file_with_content(
         "package.json",
         engine.render_package_json(manifest, &resolved_catalog)?,
-    )?);
+    )?];
 
     // pnpm-workspace.yaml is user-owned — not checked by airis diff
 
