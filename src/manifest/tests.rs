@@ -242,7 +242,7 @@ version = 1
 id = "test"
 
 [service.web]
-image = "node:22"
+image = "node:24"
 volumes = ["./apps/web:/app"]
 "#;
     let err = load_from_str(toml).unwrap_err();
@@ -262,7 +262,7 @@ id = "test"
 volumes = ["workspace-node-modules:/app/node_modules"]
 
 [service.web]
-image = "node:22"
+image = "node:24"
 volumes = ["web-data:/app/data"]
 "#;
     assert!(load_from_str(toml).is_ok());
@@ -466,7 +466,7 @@ id = "test"
 SUPABASE_URL = "${SUPABASE_URL}"
 
 [service.api]
-image = "node:22"
+image = "node:24"
 env_groups = ["supabase", "nonexistent"]
 "#;
     let err = load_from_str(toml).unwrap_err();
@@ -486,7 +486,7 @@ id = "test"
 SUPABASE_URL = "${SUPABASE_URL}"
 
 [service.api]
-image = "node:22"
+image = "node:24"
 env_groups = ["supabase"]
 "#;
     assert!(load_from_str(toml).is_ok());

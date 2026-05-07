@@ -955,7 +955,7 @@ pub struct K8sResources {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct StackDefinition {
-    /// Docker image (e.g., "node:22-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
+    /// Docker image (e.g., "node:24-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// Artifact directories to isolate in named volumes

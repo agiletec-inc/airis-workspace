@@ -7,15 +7,13 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
-use indexmap::IndexMap;
 use std::fs;
 use std::path::Path;
 
 use crate::commands::manifest_cmd::WorkspaceTruth;
-use crate::manifest::{CatalogEntry, MANIFEST_FILE, Manifest};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
-use crate::version_resolver::resolve_version;
 
 /// Issue severity levels
 #[derive(Debug, Clone, PartialEq)]
@@ -214,8 +212,7 @@ fn check_command_guards(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<
 fn check_generated_files(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<()> {
     let engine = TemplateEngine::new()?;
 
-    // Resolve catalog versions for comparison
-    let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+    let resolved_catalog = crate::pnpm::read_workspace_catalog();
 
     // Check package.json
     check_file(
@@ -224,14 +221,7 @@ fn check_generated_files(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result
         issues,
     )?;
 
-    // Check pnpm-workspace.yaml (minimal file for pnpm compatibility)
-    if !manifest.packages.workspaces.is_empty() {
-        check_file(
-            "pnpm-workspace.yaml",
-            || engine.render_pnpm_workspace(manifest),
-            issues,
-        )?;
-    }
+    // pnpm-workspace.yaml is user-owned — not checked by airis doctor
 
     // compose.yml and CI/CD workflows are project-owned — not checked by airis doctor
 
@@ -436,43 +426,6 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
     Ok(())
 }
 
-/// Resolve catalog version policies (copied from generate.rs to avoid circular deps)
-fn resolve_catalog_versions(
-    catalog: &IndexMap<String, CatalogEntry>,
-) -> Result<IndexMap<String, String>> {
-    if catalog.is_empty() {
-        return Ok(IndexMap::new());
-    }
-
-    let mut resolved: IndexMap<String, String> = IndexMap::new();
-
-    for (package, entry) in catalog {
-        let version = match entry {
-            CatalogEntry::Policy(policy) => {
-                let policy_str = policy.as_str();
-                resolve_version(package, policy_str)?
-            }
-            CatalogEntry::Empty(_) => resolve_version(package, "latest")?,
-            CatalogEntry::Version(version) => version.clone(),
-            CatalogEntry::Follow(follow_config) => {
-                let target = &follow_config.follow;
-                if let Some(target_version) = resolved.get(target) {
-                    target_version.clone()
-                } else {
-                    anyhow::bail!(
-                        "Cannot resolve '{}': follow target '{}' not found",
-                        package,
-                        target
-                    );
-                }
-            }
-        };
-
-        resolved.insert(package.clone(), version);
-    }
-
-    Ok(resolved)
-}
 
 #[cfg(test)]
 mod tests {
