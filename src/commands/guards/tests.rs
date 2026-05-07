@@ -79,15 +79,14 @@ fn marker_present_in_generated_script() {
 
 #[cfg(unix)]
 #[test]
-fn enforce_fails_outside_airis_context() {
-    // Create a guard shim in a tempdir, then run it from another tempdir that
-    // contains no manifest.toml / compose.yaml. The enforce branch must hit
-    // and exit 126.
+fn enforce_passes_through_outside_airis_context() {
+    // Guards only enforce Docker-first hygiene *inside* a workspace.
+    // Outside any airis context, the shim must pass through regardless of level.
+    // The real command doesn't exist here, so we expect 127 (not found) — not
+    // a guard-imposed error code like 126.
     let bin_dir = tempfile::tempdir().unwrap();
     install_global_guard(bin_dir.path(), "fakecmd", GuardLevel::Enforce).unwrap();
 
-    // tmp_home: HOME for the shim. PWD lives below this so find_airis_context
-    // walks up without finding a manifest.
     let tmp_home = tempfile::tempdir().unwrap();
     let work_dir = tmp_home.path().join("work");
     fs::create_dir_all(&work_dir).unwrap();
@@ -104,14 +103,43 @@ fn enforce_fails_outside_airis_context() {
 
     assert_eq!(
         output.status.code(),
-        Some(126),
-        "enforce outside airis context must exit 126.\nstdout:\n{}\nstderr:\n{}",
+        Some(127),
+        "outside airis context, shim must pass through (exit 127 = real cmd not found).\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("is enforced"),
-        "expected enforcement message in stderr, got: {stderr}"
+}
+
+#[cfg(unix)]
+#[test]
+fn airis_bypass_skips_guard() {
+    // AIRIS_BYPASS=1 must short-circuit all guard logic and exec the real command.
+    // We use `true` (always exits 0) as the guarded command.
+    let bin_dir = tempfile::tempdir().unwrap();
+    install_global_guard(bin_dir.path(), "true", GuardLevel::Enforce).unwrap();
+
+    let tmp_home = tempfile::tempdir().unwrap();
+    let work_dir = tmp_home.path().join("work");
+    // Plant a manifest.toml so the guard would normally route to Docker.
+    fs::create_dir_all(&work_dir).unwrap();
+    fs::write(work_dir.join("manifest.toml"), "[workspace]\n").unwrap();
+
+    let script = bin_dir.path().join("true");
+    let output = Command::new("bash")
+        .arg(&script)
+        .current_dir(&work_dir)
+        .env_clear()
+        .env("HOME", tmp_home.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env("AIRIS_BYPASS", "1")
+        .output()
+        .expect("bash must be available");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "AIRIS_BYPASS=1 must exec the real command and exit 0.\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
     );
 }
