@@ -79,6 +79,64 @@ fn marker_present_in_generated_script() {
 
 #[cfg(unix)]
 #[test]
+fn shim_routes_to_airis_exec_inside_workspace() {
+    // When run inside an airis workspace the shim must exec `airis exec <cmd>`.
+    // We verify this by placing a mock `airis` script on PATH that records its
+    // arguments to a file, then asserting the recorded args match expectations.
+    let bin_dir = tempfile::tempdir().unwrap();
+    install_global_guard(bin_dir.path(), "pnpm", GuardLevel::Enforce).unwrap();
+
+    let tmp_home = tempfile::tempdir().unwrap();
+    let work_dir = tmp_home.path().join("work");
+    fs::create_dir_all(&work_dir).unwrap();
+    // Workspace marker — guard will detect this and route to Docker.
+    fs::write(work_dir.join("manifest.toml"), "[workspace]\n").unwrap();
+
+    // Mock `airis` binary: writes its arguments to a file, then exits 0.
+    let recorded = tmp_home.path().join("airis-args.txt");
+    let mock_airis = tmp_home.path().join("airis");
+    fs::write(
+        &mock_airis,
+        format!(
+            "#!/usr/bin/env bash\necho \"$@\" > \"{}\"\nexit 0\n",
+            recorded.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_airis, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let shim = bin_dir.path().join("pnpm");
+    let path = format!("{}:/usr/bin:/bin", tmp_home.path().display());
+    let output = Command::new("bash")
+        .arg(&shim)
+        .args(["install", "--frozen-lockfile"])
+        .current_dir(&work_dir)
+        .env_clear()
+        .env("HOME", tmp_home.path())
+        .env("PATH", &path)
+        .output()
+        .expect("bash must be available");
+
+    assert!(
+        output.status.success(),
+        "shim must exit 0 when mock airis succeeds.\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let args = fs::read_to_string(&recorded).expect("mock airis must have written args file");
+    assert_eq!(
+        args.trim(),
+        "exec pnpm install --frozen-lockfile",
+        "shim must call `airis exec pnpm <args>`, got: {args}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn enforce_passes_through_outside_airis_context() {
     // Guards only enforce Docker-first hygiene *inside* a workspace.
     // Outside any airis context, the shim must pass through regardless of level.
