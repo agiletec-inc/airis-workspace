@@ -83,12 +83,26 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
+    # PRE-CHECK: Prevent host pollution
+    # If node_modules or other artifacts exist on host, refuse to run
+    # and demand 'airis clean'.
+    for artifact in "node_modules" ".next" "dist" "build" "target" ".venv"; do
+        if [[ -d "$artifact" ]]; then
+            echo "❌ AIRIS: Host pollution detected! '$artifact' exists on host." >&2
+            echo "   This is forbidden in Docker-First architecture." >&2
+            echo "   Run 'airis clean' to restore hygiene before continuing." >&2
+            exit 125
+        fi
+    done
+
     # We are in an airis project. `airis exec <cmd>` auto-routes by command
     # name (Phase 1b): pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
     if command -v airis &>/dev/null; then
         exec airis exec {cmd} "$@"
     else
-        echo "⚠️  Airis context detected but 'airis' command not found." >&2
+        echo "❌ AIRIS: Context detected but 'airis' command not found." >&2
+        echo "   Cannot route to Docker. Host execution is blocked for hygiene." >&2
+        exit 124
     fi
 fi
 

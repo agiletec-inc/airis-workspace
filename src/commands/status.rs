@@ -62,12 +62,23 @@ fn run_short() -> Result<()> {
             current_dir.file_name().unwrap_or_default().to_string_lossy().to_string()
         };
 
+        // POLLUTION CHECK: check for node_modules, etc. on host
+        let mut polluted = false;
+        for artifact in &["node_modules", ".next", "dist", "build", "target", ".venv"] {
+            if Path::new(artifact).exists() {
+                polluted = true;
+                break;
+            }
+        }
+
         // Bypass check
         let bypass = std::env::var("AIRIS_SKIP_GUARD").is_ok() 
             || std::env::var("AIRIS_BYPASS").is_ok()
             || std::env::var("AIRIS_HOST").is_ok();
 
-        if bypass {
+        if polluted {
+            parts.push(format!("💀{}({})", name.red().bold(), "POLLUTED".on_red().white().bold()));
+        } else if bypass {
             parts.push(format!("{}({})", name.yellow(), "BYPASS".bold().yellow()));
         } else {
             parts.push(name.bright_cyan().bold().to_string());

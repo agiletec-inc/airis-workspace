@@ -98,7 +98,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
     // Identify global stacks to apply based on manifest (pnpm, cargo, etc.)
     let global_stacks = ["pnpm", "rust", "python"];
 
-    // Apply global stack conventions (Caches and Env)
+    // Apply global stack conventions (Caches, Env, and root-level isolation)
     for stack_name in global_stacks {
         let defaults = crate::conventions::framework_defaults(stack_name);
         for (cache_id, mount_path) in defaults.global_caches {
@@ -108,6 +108,14 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         }
         for (key, val) in defaults.docker_env {
             workspace_env.insert(key.to_string(), val.to_string());
+        }
+        // Isolate root-level artifact dirs so host is never polluted by workspace-wide
+        // package manager output (e.g. /app/node_modules from pnpm install at the root).
+        for dir in defaults.isolated_dirs {
+            let mount_point = format!("/app/{}", dir);
+            if !workspace_volumes.contains(&mount_point) {
+                workspace_volumes.push(mount_point);
+            }
         }
     }
 
