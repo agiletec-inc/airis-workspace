@@ -1227,25 +1227,18 @@ impl ProjectDefinition {
 
         // Lib-specific conventions
         if self.kind.as_deref() == Some("lib") {
-            // main
+            // main — point directly at TypeScript source for internal packages
             if self.main.is_none() {
-                self.main = Some("./dist/index.js".to_string());
+                self.main = Some("./src/index.ts".to_string());
             }
 
-            // exports
+            // exports — source export pattern: consumers resolve .ts directly, no build needed
             if self.exports.is_none() {
-                // Default: "." = { types = "./dist/index.d.ts", import = "./dist/index.js" }
                 let mut export_map = toml::map::Map::new();
-                let mut dot_export = toml::map::Map::new();
-                dot_export.insert(
-                    "types".to_string(),
-                    toml::Value::String("./dist/index.d.ts".to_string()),
+                export_map.insert(
+                    ".".to_string(),
+                    toml::Value::String("./src/index.ts".to_string()),
                 );
-                dot_export.insert(
-                    "import".to_string(),
-                    toml::Value::String("./dist/index.js".to_string()),
-                );
-                export_map.insert(".".to_string(), toml::Value::Table(dot_export));
                 self.exports = Some(toml::Value::Table(export_map));
             }
 
