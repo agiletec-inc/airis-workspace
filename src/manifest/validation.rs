@@ -4,9 +4,8 @@ use anyhow::{Result, bail};
 
 use super::*;
 
-static GUARD_CMD_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex")
-});
+static GUARD_CMD_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
 impl Manifest {
     /// Validate manifest consistency.

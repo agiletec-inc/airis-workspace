@@ -184,14 +184,7 @@ pub fn build_docker(project: &str, opts: &DockerBuildOpts) -> Result<()> {
         .transpose()?;
 
     if build_targets.len() == 1 {
-        return build_single_target(
-            project,
-            &build_targets[0],
-            &root,
-            opts,
-            &remote,
-            false,
-        );
+        return build_single_target(project, &build_targets[0], &root, opts, &remote, false);
     }
 
     println!("{}", "==================================".bright_blue());
