@@ -7,9 +7,22 @@ use std::path::Path;
 use super::write_with_backup;
 use crate::manifest::Manifest;
 
+/// Resolve the Docker image for a dev workspace service based on its framework.
+///
+/// Each framework needs a runtime that can execute its build tools (uv, cargo, npm).
+/// Falls back to the manifest workspace image (typically node:24-alpine) for Node apps.
+fn resolve_service_image(framework: Option<&str>, workspace_image: &str) -> String {
+    match framework.unwrap_or("node") {
+        "python" => "python:3.12-slim".to_string(),
+        "rust" => "rust:1-slim".to_string(),
+        _ => workspace_image.to_string(),
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct ComposeFile {
-    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
     services: IndexMap<String, ComposeService>,
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     volumes: IndexMap<String, ComposeVolume>,
@@ -189,15 +202,66 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
                 None
             };
 
+            let image = resolve_service_image(
+                app.framework.as_deref(),
+                &manifest.workspace.image,
+            );
             services.insert(
                 app.name.clone(),
                 ComposeService {
-                    image: manifest.workspace.image.clone(),
+                    image,
                     container_name: Some(format!("{}-{}", project_name, app.name)),
                     volumes: app_volumes,
                     environment: app_env,
                     working_dir: Some(format!("/app/{}", path)),
                     deploy,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    // Process apps defined in [apps.X] table format (IndexMap, newer convention)
+    for (name, app) in &manifest.apps {
+        if services.contains_key(name) {
+            continue; // already handled via [[app]] entries
+        }
+        if let Some(ref path) = app.path {
+            let mut app_env = IndexMap::new();
+            let mut app_volumes = vec![format!("{}:/app/{}", ".", path)];
+
+            let framework = app
+                .framework
+                .as_deref()
+                .or(app.app_type.as_deref())
+                .unwrap_or("node");
+            let defaults = crate::conventions::framework_defaults(framework);
+
+            for dir in defaults.isolated_dirs {
+                let mount_point = format!("/app/{}/{}", path, dir);
+                app_volumes.push(mount_point.clone());
+                if !workspace_volumes.contains(&mount_point) {
+                    workspace_volumes.push(mount_point);
+                }
+            }
+            for (cache_id, mount_path) in defaults.global_caches {
+                let volume_name = format!("{}-{}", project_name, cache_id);
+                volumes.insert(volume_name.clone(), ComposeVolume::default());
+                app_volumes.push(format!("{}:{}", volume_name, mount_path));
+            }
+            for (key, val) in defaults.docker_env {
+                app_env.insert(key.to_string(), val.to_string());
+            }
+
+            let image = resolve_service_image(Some(framework), &manifest.workspace.image);
+            services.insert(
+                name.clone(),
+                ComposeService {
+                    image,
+                    container_name: Some(format!("{}-{}", project_name, name)),
+                    volumes: app_volumes,
+                    environment: app_env,
+                    working_dir: Some(format!("/app/{}", path)),
                     ..Default::default()
                 },
             );
@@ -218,7 +282,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
     );
 
     let compose = ComposeFile {
-        version: "3.8".into(),
+        version: None,
         services,
         volumes,
         networks,
