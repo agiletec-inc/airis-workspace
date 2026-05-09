@@ -1,6 +1,11 @@
+use std::sync::LazyLock;
+
 use anyhow::{Result, bail};
 
 use super::*;
+
+static GUARD_CMD_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
 impl Manifest {
     /// Validate manifest consistency.
@@ -76,16 +81,15 @@ impl Manifest {
         }
 
         // 3b. Validate guard command names (shell metacharacter prevention)
-        let cmd_re = regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").unwrap();
         for cmd in &self.guards.deny {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
             }
         }
         for cmd in self.guards.wrap.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.wrap contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
@@ -102,7 +106,7 @@ impl Manifest {
             }
         }
         for cmd in self.guards.deny_with_message.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny_with_message contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
