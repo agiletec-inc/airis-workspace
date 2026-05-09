@@ -202,10 +202,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
                 None
             };
 
-            let image = resolve_service_image(
-                app.framework.as_deref(),
-                &manifest.workspace.image,
-            );
+            let image = resolve_service_image(app.framework.as_deref(), &manifest.workspace.image);
             services.insert(
                 app.name.clone(),
                 ComposeService {
