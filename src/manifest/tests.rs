@@ -1145,3 +1145,69 @@ id = "test"
         "got: {msg}"
     );
 }
+
+#[test]
+fn test_validate_catalog_rejects_query_string() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+"react?version=18" = "latest"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("react?version=18") && msg.contains("valid npm package name"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_catalog_rejects_fragment() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+"react#latest" = "latest"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("react#latest") && msg.contains("valid npm package name"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_guard_wrap_value_with_newline_rejected() {
+    let toml = "version = 1\n[project]\nid = \"test\"\n[guards]\n[guards.wrap]\nnpm = \"docker exec workspace npm\\nrm -rf /\"\n";
+    // Newlines are in the dangerous_chars list — must be rejected.
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("dangerous character"),
+        "newline in wrap value should be rejected; got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_guard_deny_with_message_invalid_name_rejected() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[guards.deny_with_message]
+"npm; evil" = "do not use npm"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("npm; evil") && msg.contains("invalid command name"),
+        "got: {msg}"
+    );
+}
