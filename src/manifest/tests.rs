@@ -1075,3 +1075,73 @@ package_manager = "uv"
         Some("uv")
     );
 }
+
+#[test]
+fn test_validate_catalog_valid_npm_names() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+react = "latest"
+react-dom = "latest"
+"@agiletec/ui" = "latest"
+"@scope/my-pkg.v2" = "latest"
+"#;
+    assert!(load_from_str(toml).is_ok());
+}
+
+#[test]
+fn test_validate_catalog_rejects_path_traversal() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+"../evil" = "latest"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("../evil") && msg.contains("valid npm package name"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_catalog_rejects_uppercase() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+"React" = "latest"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("React") && msg.contains("valid npm package name"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn test_validate_catalog_rejects_spaces_in_name() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[packages.catalog]
+"bad name" = "latest"
+"#;
+    let err = load_from_str(toml).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("bad name") && msg.contains("valid npm package name"),
+        "got: {msg}"
+    );
+}
