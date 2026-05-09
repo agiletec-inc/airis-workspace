@@ -89,8 +89,8 @@ fn shim_routes_to_airis_exec_inside_workspace() {
     let tmp_home = tempfile::tempdir().unwrap();
     let work_dir = tmp_home.path().join("work");
     fs::create_dir_all(&work_dir).unwrap();
-    // Workspace marker — guard will detect this and route to Docker.
-    fs::write(work_dir.join("manifest.toml"), "[workspace]\n").unwrap();
+    // Workspace marker — .airis/ directory is the airis-specific context indicator.
+    fs::create_dir_all(work_dir.join(".airis")).unwrap();
 
     // Mock `airis` binary: writes its arguments to a file, then exits 0.
     let recorded = tmp_home.path().join("airis-args.txt");
@@ -178,9 +178,9 @@ fn airis_bypass_skips_guard() {
 
     let tmp_home = tempfile::tempdir().unwrap();
     let work_dir = tmp_home.path().join("work");
-    // Plant a manifest.toml so the guard would normally route to Docker.
+    // Plant .airis/ so the guard would normally route to Docker.
     fs::create_dir_all(&work_dir).unwrap();
-    fs::write(work_dir.join("manifest.toml"), "[workspace]\n").unwrap();
+    fs::create_dir_all(work_dir.join(".airis")).unwrap();
 
     let script = bin_dir.path().join("true");
     let output = Command::new("bash")
