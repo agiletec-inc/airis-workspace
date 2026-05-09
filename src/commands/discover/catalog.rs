@@ -60,7 +60,7 @@ pub fn extract_catalog_from_path(base_path: &Path) -> Result<IndexMap<String, St
             catalog: Option<IndexMap<String, String>>,
         }
 
-        if let Ok(workspace) = serde_yml::from_str::<PnpmWorkspace>(&content)
+        if let Ok(workspace) = serde_yaml_ng::from_str::<PnpmWorkspace>(&content)
             && let Some(existing_catalog) = workspace.catalog
         {
             for (pkg, version) in existing_catalog {
