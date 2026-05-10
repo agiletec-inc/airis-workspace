@@ -1,5 +1,5 @@
-mod schema;
 mod global_config;
+mod schema;
 pub(crate) mod validation;
 
 #[cfg(test)]

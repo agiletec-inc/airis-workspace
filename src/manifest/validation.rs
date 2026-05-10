@@ -349,4 +349,3 @@ impl Manifest {
         }
     }
 }
-
