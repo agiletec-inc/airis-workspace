@@ -43,33 +43,33 @@ pub fn build_affected_docker(base: &str, head: &str, opts: &DockerBuildOpts) -> 
 
     let mut exec = executor::ParallelExecutor::new(worker_count);
 
+    // Load pnpm-lock.yaml once and build the DAG before the loop to avoid
+    // redundant I/O for every affected project.
+    let lock_path = root.join("pnpm-lock.yaml");
+    let dag_opt = pnpm::PnpmLock::load(&lock_path).ok().map(|lock| {
+        let workspace_map = pnpm::build_workspace_map(&lock);
+        dag::build_dag(&workspace_map)
+    });
+
     for proj in &affected_projects {
         let target = convert_package_to_path(proj);
         let resolved_channel = resolve_channel_for_project(opts.channel.clone(), &target);
 
-        let deps: Vec<String> = {
-            let lock_path = root.join("pnpm-lock.yaml");
-            if let Ok(lock) = pnpm::PnpmLock::load(&lock_path) {
-                let workspace_map = pnpm::build_workspace_map(&lock);
-                let dag = dag::build_dag(&workspace_map);
-                dag.nodes
-                    .get(&target)
-                    .map(|n| {
-                        n.deps
+        let deps: Vec<String> = dag_opt
+            .as_ref()
+            .and_then(|dag| dag.nodes.get(&target))
+            .map(|n| {
+                n.deps
+                    .iter()
+                    .filter(|d| {
+                        affected_projects
                             .iter()
-                            .filter(|d| {
-                                affected_projects
-                                    .iter()
-                                    .any(|ap| convert_package_to_path(ap) == **d)
-                            })
-                            .cloned()
-                            .collect()
+                            .any(|ap| convert_package_to_path(ap) == **d)
                     })
-                    .unwrap_or_default()
-            } else {
-                vec![]
-            }
-        };
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
 
         exec.add_task(executor::BuildTask {
             id: target.clone(),
