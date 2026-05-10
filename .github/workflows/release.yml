@@ -403,8 +403,10 @@ jobs:
 
   # === MANUAL CUSTOMIZATION ===
   # Notify airis-mcp-gateway to bump AIRIS_VERSION after a successful release.
-  # Requires AIRIS_DISPATCH_TOKEN org-level secret: fine-grained PAT with
-  # `contents: write` on agiletec-inc/airis-mcp-gateway.
+  # Uses the agiletec-inc-homebrew-publisher GitHub App (already org-wide) to
+  # generate a short-lived token — no PAT or extra secret needed.
+  # One-time setup: add airis-mcp-gateway to the App's repository access list
+  # in GitHub App settings.
   notify-gateway:
     needs:
       - plan
@@ -412,10 +414,18 @@ jobs:
       - announce
     if: ${{ always() && needs.host.result == 'success' && !fromJson(needs.plan.outputs.val).announcement_is_prerelease }}
     runs-on: "ubuntu-22.04"
-    env:
-      GH_TOKEN: ${{ secrets.AIRIS_DISPATCH_TOKEN }}
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.HOMEBREW_TAP_PUBLISHER_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_TAP_PUBLISHER_PRIVATE_KEY }}
+          owner: agiletec-inc
+          repositories: airis-mcp-gateway
       - name: Dispatch AIRIS_VERSION bump to airis-mcp-gateway
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION=$(echo '${{ needs.plan.outputs.val }}' | jq -r '.releases[0].app_version')
           gh api repos/agiletec-inc/airis-mcp-gateway/dispatches \
