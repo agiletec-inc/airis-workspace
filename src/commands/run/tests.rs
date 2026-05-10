@@ -667,7 +667,7 @@ id = "test"
 name = "test"
 package_manager = "pnpm"
 service = "workspace"
-image = "node:22"
+image = "node:24"
 [commands]
 test = "echo safe"
 "#,
@@ -705,7 +705,7 @@ id = "test"
 name = "test"
 package_manager = "pnpm"
 service = "workspace"
-image = "node:22"
+image = "node:24"
 [commands]
 test = "echo safe"
 "#,
@@ -743,7 +743,7 @@ id = "test"
 name = "test"
 package_manager = "pnpm"
 service = "workspace"
-image = "node:22"
+image = "node:24"
 [commands]
 test = "echo safe"
 "#,

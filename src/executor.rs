@@ -104,7 +104,7 @@ impl ParallelExecutor {
     pub async fn execute<F, Fut>(&self, task_fn: F) -> Result<Vec<TaskResult>>
     where
         F: Fn(BuildTask) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<TaskResult>> + Send,
+        Fut: std::future::Future<Output = Result<TaskResult>> + Send + 'static,
     {
         use colored::Colorize;
 
@@ -161,44 +161,14 @@ impl ParallelExecutor {
                 Some(t) => t.clone(),
                 None => continue,
             };
-            let semaphore = Arc::clone(&semaphore);
-            let tx = tx.clone();
-            let states = Arc::clone(&states);
-            let task_fn = task_fn.clone();
-            let captured_id = task.id.clone();
-            let multi_clone = multi.clone();
-
-            tokio::spawn(async move {
-                let _permit = semaphore
-                    .acquire()
-                    .await
-                    .expect("semaphore closed unexpectedly");
-
-                // Mark as running
-                {
-                    let mut states = states.lock().await;
-                    states.insert(task.id.clone(), TaskState::Running);
-                }
-
-                let pb = multi_clone.add(ProgressBar::new_spinner());
-                pb.set_style(
-                    ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
-                        .unwrap()
-                        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
-                );
-                pb.set_message(format!("Compiling {}", captured_id));
-                pb.enable_steady_tick(std::time::Duration::from_millis(80));
-
-                let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
-                    task_id: captured_id,
-                    success: false,
-                    duration_ms: 0,
-                    error: Some(e.to_string()),
-                });
-
-                pb.finish_and_clear();
-                let _ = tx.send(result).await;
-            });
+            enqueue_task(
+                task,
+                Arc::clone(&semaphore),
+                Arc::clone(&states),
+                tx.clone(),
+                task_fn.clone(),
+                multi.clone(),
+            );
         }
 
         // Process completions and spawn newly ready tasks
@@ -307,45 +277,14 @@ impl ParallelExecutor {
                                 Some(t) => t.clone(),
                                 None => continue,
                             };
-                            let semaphore = Arc::clone(&semaphore);
-                            let tx = tx.clone();
-                            let states = Arc::clone(&states);
-                            let task_fn = task_fn.clone();
-                            let captured_id = task.id.clone();
-                            let multi_clone = multi.clone();
-
-                            tokio::spawn(async move {
-                                let _permit = semaphore
-                                    .acquire()
-                                    .await
-                                    .expect("semaphore closed unexpectedly");
-
-                                {
-                                    let mut states = states.lock().await;
-                                    states.insert(task.id.clone(), TaskState::Running);
-                                }
-
-                                let pb = multi_clone.add(ProgressBar::new_spinner());
-                                pb.set_style(
-                                    ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
-                                        .unwrap()
-                                        .tick_strings(&[
-                                            "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-                                        ]),
-                                );
-                                pb.set_message(format!("Compiling {}", captured_id));
-                                pb.enable_steady_tick(std::time::Duration::from_millis(80));
-
-                                let result = task_fn(task).await.unwrap_or_else(|e| TaskResult {
-                                    task_id: captured_id,
-                                    success: false,
-                                    duration_ms: 0,
-                                    error: Some(e.to_string()),
-                                });
-
-                                pb.finish_and_clear();
-                                let _ = tx.send(result).await;
-                            });
+                            enqueue_task(
+                                task,
+                                Arc::clone(&semaphore),
+                                Arc::clone(&states),
+                                tx.clone(),
+                                task_fn.clone(),
+                                multi.clone(),
+                            );
                         }
                     }
                 }
@@ -376,6 +315,65 @@ impl ParallelExecutor {
 
         Ok(results)
     }
+}
+
+/// Spawn a single build task, wrapping the future in an inner `tokio::spawn`
+/// so that panics inside `task_fn` are caught as `JoinError` rather than
+/// silently dropping the channel send and deadlocking the executor loop.
+fn enqueue_task<F, Fut>(
+    task: BuildTask,
+    semaphore: Arc<Semaphore>,
+    states: Arc<Mutex<HashMap<String, TaskState>>>,
+    tx: mpsc::Sender<TaskResult>,
+    task_fn: F,
+    multi: MultiProgress,
+) where
+    F: Fn(BuildTask) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<TaskResult>> + Send + 'static,
+{
+    let captured_id = task.id.clone();
+    tokio::spawn(async move {
+        let _permit = semaphore
+            .acquire()
+            .await
+            .expect("semaphore closed unexpectedly");
+
+        {
+            let mut states = states.lock().await;
+            states.insert(task.id.clone(), TaskState::Running);
+        }
+
+        let pb = multi.add(ProgressBar::new_spinner());
+        pb.set_style(
+            ProgressStyle::with_template("{spinner:.green} {msg:.dim}")
+                .unwrap()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
+        );
+        pb.set_message(format!("Compiling {}", captured_id));
+        pb.enable_steady_tick(std::time::Duration::from_millis(80));
+
+        // Use a nested spawn so panics inside task_fn become a JoinError
+        // rather than silently dropping the channel send.
+        let fut = task_fn(task);
+        let result = match tokio::spawn(fut).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(e)) => TaskResult {
+                task_id: captured_id.clone(),
+                success: false,
+                duration_ms: 0,
+                error: Some(e.to_string()),
+            },
+            Err(join_err) => TaskResult {
+                task_id: captured_id.clone(),
+                success: false,
+                duration_ms: 0,
+                error: Some(format!("task panicked: {join_err}")),
+            },
+        };
+
+        pb.finish_and_clear();
+        let _ = tx.send(result).await;
+    });
 }
 
 /// Get default parallelism (number of CPUs)

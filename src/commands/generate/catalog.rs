@@ -4,23 +4,6 @@ use std::path::Path;
 
 use crate::manifest::{CatalogEntry, ProjectDefinition};
 
-/// Prepare catalog mapping for generation.
-///
-/// In pnpm catalogs mode, this doesn't resolve actual version numbers from npm.
-/// It only prepares the mapping for package.json generation.
-pub(super) fn resolve_catalog_versions(
-    catalog: &IndexMap<String, CatalogEntry>,
-) -> Result<IndexMap<String, String>> {
-    let mut resolved: IndexMap<String, String> = IndexMap::new();
-
-    for (package, _) in catalog {
-        // For pnpm catalogs, we just need to know which packages are in the catalog
-        resolved.insert(package.clone(), "catalog:".to_string());
-    }
-
-    Ok(resolved)
-}
-
 /// Resolve package data for full-gen mode.
 ///
 /// Combines: convention scripts + preset + dep_group + import scan → final deps/scripts

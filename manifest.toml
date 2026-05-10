@@ -45,11 +45,23 @@ strategy = "conventional-commits"
 source = "VERSION"
 sync_targets = ["Cargo.toml"]
 
-[docs]
-sources = [
+[ai]
+shared_rules = [
     "docs/ai/PROJECT_RULES.md",
     "docs/ai/WORKFLOW.md",
     "docs/ai/REVIEW.md",
     "docs/ai/STACK.md",
 ]
-vendors = ["claude"]
+
+[ai.claude]
+target = "CLAUDE.md"
+rules_dir = ".claude/rules/generated/"
+
+[ai.codex]
+target = "AGENTS.md"
+
+[ai.gemini]
+target = "GEMINI.md"
+
+[ai.cursor]
+rules_dir = ".cursor/rules/"

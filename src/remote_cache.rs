@@ -129,15 +129,18 @@ pub fn remote_store(
 fn s3_get(bucket: &str, key: &str) -> Result<Option<CachedArtifact>> {
     let url = format!("s3://{}/{}", bucket, key);
 
-    // Try to get the artifact
     let output = Command::new("aws")
         .args(["s3", "cp", &url, "-"])
         .output()
         .context("Failed to run aws s3 cp (is AWS CLI installed?)")?;
 
     if !output.status.success() {
-        // Not found or error - treat as cache miss
-        return Ok(None);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // NoSuchKey = object not found → genuine cache miss
+        if stderr.contains("NoSuchKey") || stderr.is_empty() {
+            return Ok(None);
+        }
+        bail!("S3 cache fetch failed: {}", stderr.trim());
     }
 
     let content = String::from_utf8(output.stdout).context("Invalid UTF-8 from S3")?;
@@ -152,11 +155,11 @@ fn s3_put(bucket: &str, key: &str, artifact: &CachedArtifact) -> Result<()> {
     let url = format!("s3://{}/{}", bucket, key);
     let content = serde_json::to_string_pretty(artifact)?;
 
-    // Write to temp file first
-    let temp_file = std::env::temp_dir().join(format!("airis-cache-{}.json", uuid_v4()));
-    std::fs::write(&temp_file, &content)?;
-
+    // NamedTempFile is auto-deleted on drop, even if an error occurs.
+    let temp_file = tempfile::NamedTempFile::new().context("Failed to create temp file")?;
+    std::fs::write(temp_file.path(), &content)?;
     let temp_file_str = temp_file
+        .path()
         .to_str()
         .context("Temp file path contains non-UTF-8 characters")?;
 
@@ -165,12 +168,9 @@ fn s3_put(bucket: &str, key: &str, artifact: &CachedArtifact) -> Result<()> {
         .output()
         .context("Failed to run aws s3 cp")?;
 
-    // Cleanup temp file
-    let _ = std::fs::remove_file(&temp_file);
-
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to upload to S3: {}", stderr);
+        bail!("Failed to upload to S3: {}", stderr.trim());
     }
 
     Ok(())
@@ -181,11 +181,9 @@ fn s3_put(bucket: &str, key: &str, artifact: &CachedArtifact) -> Result<()> {
 // =============================================================================
 
 fn oci_pull(tag: &str) -> Result<Option<CachedArtifact>> {
-    // Create temp directory for pull
-    let temp_dir = std::env::temp_dir().join(format!("airis-oci-{}", uuid_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
-
+    let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
     let temp_dir_str = temp_dir
+        .path()
         .to_str()
         .context("Temp directory path contains non-UTF-8 characters")?;
 
@@ -195,21 +193,19 @@ fn oci_pull(tag: &str) -> Result<Option<CachedArtifact>> {
         .context("Failed to run oras pull (is oras installed?)")?;
 
     if !output.status.success() {
-        // Not found or error - treat as cache miss
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        return Ok(None);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("not found") || stderr.contains("404") || stderr.is_empty() {
+            return Ok(None);
+        }
+        bail!("OCI cache pull failed: {}", stderr.trim());
     }
 
-    // Read artifact.json from pulled content
-    let artifact_path = temp_dir.join("artifact.json");
+    let artifact_path = temp_dir.path().join("artifact.json");
     if !artifact_path.exists() {
-        let _ = std::fs::remove_dir_all(&temp_dir);
         return Ok(None);
     }
 
     let content = std::fs::read_to_string(&artifact_path)?;
-    let _ = std::fs::remove_dir_all(&temp_dir);
-
     let artifact: CachedArtifact =
         serde_json::from_str(&content).context("Failed to parse cached artifact from OCI")?;
 
@@ -217,44 +213,23 @@ fn oci_pull(tag: &str) -> Result<Option<CachedArtifact>> {
 }
 
 fn oci_push(tag: &str, artifact: &CachedArtifact) -> Result<()> {
-    // Create temp directory for push
-    let temp_dir = std::env::temp_dir().join(format!("airis-oci-{}", uuid_v4()));
-    std::fs::create_dir_all(&temp_dir)?;
-
-    // Write artifact.json
-    let artifact_path = temp_dir.join("artifact.json");
+    let temp_dir = tempfile::tempdir().context("Failed to create temp directory")?;
+    let artifact_path = temp_dir.path().join("artifact.json");
     let content = serde_json::to_string_pretty(artifact)?;
     std::fs::write(&artifact_path, &content)?;
 
     let output = Command::new("oras")
         .args(["push", tag, "artifact.json:application/json"])
-        .current_dir(&temp_dir)
+        .current_dir(temp_dir.path())
         .output()
         .context("Failed to run oras push")?;
 
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
-
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Failed to push to OCI registry: {}", stderr);
+        bail!("Failed to push to OCI registry: {}", stderr.trim());
     }
 
     Ok(())
-}
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/// Generate a simple UUID v4 (good enough for temp files)
-fn uuid_v4() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{:x}", now)
 }
 
 #[cfg(test)]
