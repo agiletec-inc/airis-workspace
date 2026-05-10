@@ -61,11 +61,16 @@ find_real_cmd() {{
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.airis/bin' | tr '\n' ':' | sed 's/:$//') which "$1" 2>/dev/null
 }}
 
-# Helper: find airis context (has manifest.toml or compose.yaml)
+# Helper: find docker-first context by walking up the directory tree.
+# Matches on .airis/ directory (airis-specific) or any compose file (Docker-based project).
 find_airis_context() {{
     local dir="$PWD"
     while [[ "$dir" != "/" ]]; do
-        if [[ -f "$dir/manifest.toml" ]] || [[ -f "$dir/compose.yaml" ]] || [[ -f "$dir/compose.yml" ]] || [[ -f "$dir/docker-compose.yaml" ]] || [[ -f "$dir/docker-compose.yml" ]]; then
+        if [[ -d "$dir/.airis" ]] \
+            || [[ -f "$dir/compose.yaml" ]] \
+            || [[ -f "$dir/compose.yml" ]] \
+            || [[ -f "$dir/docker-compose.yaml" ]] \
+            || [[ -f "$dir/docker-compose.yml" ]]; then
             echo "$dir"
             return 0
         fi
@@ -88,20 +93,7 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
-    # PRE-CHECK: Prevent host pollution
-    # If node_modules or other artifacts exist on host, refuse to run
-    # and demand 'airis clean'.
-    for artifact in "node_modules" ".next" "dist" "build" "target" ".venv"; do
-        if [[ -d "$artifact" ]]; then
-            echo "❌ AIRIS: Host pollution detected! '$artifact' exists on host." >&2
-            echo "   This is forbidden in Docker-First architecture." >&2
-            echo "   Run 'airis clean' to restore hygiene before continuing." >&2
-            exit 125
-        fi
-    done
-
-    # We are in an airis project. `airis exec <cmd>` auto-routes by command
-    # name (Phase 1b): pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
+    # We are in an airis docker-first project. Route to Docker via airis exec.
     if command -v airis &>/dev/null; then
         exec airis exec {cmd} "$@"
     else
