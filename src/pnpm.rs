@@ -54,7 +54,7 @@ impl PnpmLock {
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
         let lock: PnpmLock =
-            serde_yml::from_str(&content).with_context(|| "Failed to parse pnpm-lock.yaml")?;
+            serde_yaml_ng::from_str(&content).with_context(|| "Failed to parse pnpm-lock.yaml")?;
 
         if !lock.lockfile_version.starts_with("9.") {
             anyhow::bail!(
@@ -172,7 +172,7 @@ pub fn read_workspace_catalog() -> IndexMap<String, String> {
     #[derive(serde::Deserialize)]
     struct PnpmWorkspace {
         #[serde(default)]
-        catalog: IndexMap<String, serde_yml::Value>,
+        catalog: IndexMap<String, serde_yaml_ng::Value>,
     }
 
     let content = match std::fs::read_to_string(path) {
@@ -180,7 +180,7 @@ pub fn read_workspace_catalog() -> IndexMap<String, String> {
         Err(_) => return IndexMap::new(),
     };
 
-    let workspace: PnpmWorkspace = match serde_yml::from_str(&content) {
+    let workspace: PnpmWorkspace = match serde_yaml_ng::from_str(&content) {
         Ok(w) => w,
         Err(_) => return IndexMap::new(),
     };
