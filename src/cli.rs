@@ -84,6 +84,13 @@ pub enum Commands {
         cmd: Vec<String>,
     },
 
+    /// Alias for `host` — bypass airis guards and run directly on the host.
+    Bypass {
+        /// Command and arguments to run on the host.
+        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
+        cmd: Vec<String>,
+    },
+
     /// Project-level cleanup and management
     Workspace(WorkspaceArgs),
 
