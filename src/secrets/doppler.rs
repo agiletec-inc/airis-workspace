@@ -89,7 +89,18 @@ mod tests {
     fn wrap_command_with_no_extra_args() {
         let (program, args) = provider().wrap_command("docker", &[]);
         assert_eq!(program, "doppler");
-        assert_eq!(args, ["run", "--project", "my-project", "--config", "dev", "--", "docker"]);
+        assert_eq!(
+            args,
+            [
+                "run",
+                "--project",
+                "my-project",
+                "--config",
+                "dev",
+                "--",
+                "docker"
+            ]
+        );
     }
 
     #[test]
