@@ -27,12 +27,13 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
 
-        // compose.yaml is the canonical Docker Compose V2 name — always Tool-owned.
-        // Legacy variants are User-owned; use `airis gen --force` to migrate them.
-        "compose.yaml" | "workspace/compose.yaml" => Ownership::Tool,
-        "compose.yml"
+        // All compose variants are user-owned: airis gen writes to .airis/workspace-compose.yaml
+        // instead of the project root, so it never conflicts with the user's runtime compose.yaml.
+        "compose.yaml"
+        | "compose.yml"
         | "docker-compose.yaml"
         | "docker-compose.yml"
+        | "workspace/compose.yaml"
         | "workspace/compose.yml"
         | "workspace/docker-compose.yaml"
         | "workspace/docker-compose.yml" => Ownership::User,
@@ -111,7 +112,10 @@ mod tests {
             Ownership::Tool
         );
         assert_eq!(get_ownership(Path::new("airis.lock")), Ownership::Tool);
-        assert_eq!(get_ownership(Path::new("compose.yaml")), Ownership::Tool);
+        assert_eq!(
+            get_ownership(Path::new(".airis/workspace-compose.yaml")),
+            Ownership::Tool
+        );
 
         // App package.json files are now tool-owned
         assert_eq!(
@@ -134,18 +138,14 @@ mod tests {
 
     #[test]
     fn test_compose_yaml_variants_ownership() {
-        // compose.yaml is the Docker Compose V2 canonical name — always Tool-owned (airis manages it).
-        assert_eq!(get_ownership(Path::new("compose.yaml")), Ownership::Tool);
-        assert_eq!(
-            get_ownership(Path::new("workspace/compose.yaml")),
-            Ownership::Tool
-        );
-
-        // Legacy variants are always User-owned — airis never touches them.
+        // All compose variants at the project root are user-owned.
+        // airis gen writes to .airis/workspace-compose.yaml instead.
         for name in &[
+            "compose.yaml",
             "compose.yml",
             "docker-compose.yaml",
             "docker-compose.yml",
+            "workspace/compose.yaml",
             "workspace/compose.yml",
             "workspace/docker-compose.yaml",
             "workspace/docker-compose.yml",
@@ -153,7 +153,7 @@ mod tests {
             assert_eq!(
                 get_ownership(Path::new(name)),
                 Ownership::User,
-                "{name} should be User-owned (legacy)"
+                "{name} should be User-owned"
             );
         }
     }

@@ -117,7 +117,7 @@ pub(super) fn write_with_backup(path: &Path, content: &str) -> Result<()> {
 
 pub fn preview_from_manifest(_manifest: &Manifest) -> Result<()> {
     println!("{}", "📋 Files that would be generated:".bright_yellow());
-    println!("   - compose.yaml");
+    println!("   - .airis/workspace-compose.yaml");
     println!("   - tsconfig.json");
     Ok(())
 }
@@ -135,7 +135,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
         // Always generate Docker Compose to ensure environment isolation (Hygiene).
         // Convention-based discovery ensures projects are managed even if not in manifest.toml.
         generate_workspace_compose(manifest)?;
-        generated_paths.push("compose.yaml".into());
+        generated_paths.push(".airis/workspace-compose.yaml".into());
 
         // Generate TSConfig paths (Derived from discovery)
         if !manifest.typescript.skip {
