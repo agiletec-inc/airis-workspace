@@ -285,7 +285,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         networks,
     };
 
-    let content = serde_yml::to_string(&compose)?;
+    let content = serde_yaml_ng::to_string(&compose)?;
 
     // Standardize on compose.yaml (Docker Compose V2) at the project root
     let target_path = Path::new("compose.yaml");

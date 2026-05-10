@@ -7,14 +7,23 @@ use super::*;
 static GUARD_CMD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
+// https://docs.npmjs.com/cli/v10/configuring-npm/package-json#name
+static NPM_PKG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^(@[a-z0-9][a-z0-9\-._~]*/)?[a-z0-9][a-z0-9\-._~]*$")
+        .expect("npm package name regex")
+});
+
 impl Manifest {
     /// Validate manifest consistency.
     ///
     /// Checks:
     /// 1. No duplicate ports across service entries
-    /// 2. No command appears in both guards.deny and guards.wrap
-    /// 3. dep_group / env_group references resolve to defined groups
-    /// 4. env.validation keys exist in env.required or env.optional
+    /// 2. Catalog keys are valid npm package names; follow references point to existing catalog keys
+    /// 3. No command appears in both guards.deny and guards.wrap
+    /// 4. dep_group / env_group references resolve to defined groups
+    /// 5. Catalog follow chains have no cycles
+    /// 6. env.validation keys exist in env.required or env.optional
+    /// 7. Catalog version strings that look like typos of "latest" / "lts" (warning only)
     pub fn validate(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
 
@@ -54,7 +63,26 @@ impl Manifest {
             }
         }
 
-        // 2. Check for commands in both guards.deny and guards.wrap
+        // 2. Validate catalog follow references (skip if default_policy can resolve the target)
+        // Also validate catalog keys as npm package names to prevent URL path manipulation.
+        for (key, entry) in &self.packages.catalog {
+            if !NPM_PKG_RE.is_match(key) {
+                errors.push(format!(
+                    "packages.catalog key \"{key}\" is not a valid npm package name (use lowercase letters, digits, hyphens, dots; scoped names like @scope/pkg are allowed)"
+                ));
+            }
+            if let CatalogEntry::Follow(f) = entry
+                && !self.packages.catalog.contains_key(&f.follow)
+                && self.packages.default_policy.is_none()
+            {
+                errors.push(format!(
+                        "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog (add it or set default_policy)",
+                        f.follow
+                    ));
+            }
+        }
+
+        // 3. Check for commands in both guards.deny and guards.wrap
         for cmd in &self.guards.deny {
             if self.guards.wrap.contains_key(cmd) {
                 errors.push(format!(
