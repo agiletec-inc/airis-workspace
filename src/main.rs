@@ -1,26 +1,13 @@
-mod channel;
-mod commands;
-mod conventions;
-mod dag;
-mod docker_build;
-mod executor;
-mod generators;
-mod import_scanner;
-mod manifest;
-mod ownership;
-mod pnpm;
-mod preset;
-mod remote_cache;
-mod safe_fs;
-mod secrets;
-mod templates;
-#[cfg(test)]
-mod test_lock;
-mod version_resolver;
-
 use anyhow::Result;
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser};
 use colored::Colorize;
+
+use airis_workspace::cli::{
+    ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
+    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, TestLevel,
+    ValidateCommands, WorkspaceCommands,
+};
+use airis_workspace::commands;
 
 /// Get version string with dev suffix for non-release builds
 fn get_version() -> String {
@@ -35,691 +22,26 @@ fn get_version() -> String {
     }
 }
 
-#[derive(Parser)]
-#[command(name = "airis")]
-#[command(about = "The Docker-first monorepo manager for the vibe coding era")]
-#[command(long_about = "\
-The Docker-first monorepo manager for the vibe coding era.
+fn main() {
+    // 1. Start background update check
+    commands::upgrade::spawn_check();
 
-One manifest file. Every config generated. Your AI pair-programmer stays inside \
-the container where it belongs.
+    // 2. Run CLI
+    let result = run_main();
 
-airis generates compose.yml, package.json, pnpm-workspace.yaml, tsconfig, and \
-CI/CD workflows from a single manifest.toml. Command guards keep AI agents from \
-running package managers on the host or picking the wrong tool.
+    // 3. Print update notification
+    commands::upgrade::print_notification();
 
-DESIGN: airis extends your existing stack — it doesn't replace it. Turborepo, NX, \
-Doppler, Vercel, Railway — all your choice. airis handles the Docker layer that \
-those tools leave to you.")]
-#[command(after_help = "\
-QUICK REFERENCE:
-  airis init --write        Analyze project and create manifest.toml
-  airis up                  Docker-First: Sync config, install deps, and start dev server
-  airis down                Stop all services
-  airis shell               Enter workspace container shell
-  airis doctor              Diagnose and fix workspace issues
-
-CONFIG: All commands are defined in manifest.toml [commands] section.
-  airis run <task>          Execute any command (e.g., test, lint, build)
-  airis up/down/shell/...   Surgical shortcuts for common Docker-first workflows
-
-MANIFEST SECTIONS:
-  [commands]    Command definitions (what 'airis run <task>' executes)
-  [guards]      Host command blocking (deny, wrap, forbid)
-  [remap]       Auto-translate blocked commands to safe alternatives
-  [packages]    Dependency catalog and workspace config")]
-struct Cli {
-    /// Print version
-    #[arg(short = 'V', long = "version")]
-    version: bool,
-
-    #[command(subcommand)]
-    command: Option<Commands>,
+    if let Err(e) = result {
+        eprintln!("{}: {:?}", "Error".red().bold(), e);
+        std::process::exit(1);
+    }
 }
 
-/// Test level for `airis test --level`
-#[derive(Clone, Debug, clap::ValueEnum)]
-enum TestLevel {
-    Unit,
-    Integration,
-    E2e,
-    Smoke,
-}
+fn run_main() -> Result<()> {
+    // Setup miette for fancy errors
+    miette::set_panic_hook();
 
-#[derive(Subcommand)]
-enum Commands {
-    /// Initialize workspace by discovering projects and creating manifest.toml.
-    ///
-    /// Scans apps/, libs/ for projects, detects frameworks (Next.js, Vite,
-    /// Hono, Rust, Python, Cloudflare Workers, Node.js), and generates
-    /// manifest.toml as single source of truth. Default is dry-run (preview only).
-    /// Use --write to execute. NEVER overwrites existing manifest.toml.
-    Init {
-        /// Force snapshot capture (default: auto on first run)
-        #[arg(long)]
-        snapshot: bool,
-        /// Skip snapshot capture (for CI or repeated runs)
-        #[arg(long)]
-        no_snapshot: bool,
-        /// Actually write generated files (default: dry-run, shows what would be generated)
-        #[arg(long)]
-        write: bool,
-        /// Skip project discovery and use empty template instead
-        #[arg(long)]
-        skip_discovery: bool,
-    },
-
-    /// Query MANIFEST.toml data (used by justfile)
-    Manifest {
-        #[command(subcommand)]
-        action: ManifestCommands,
-    },
-
-    /// Claude Code integration (CLAUDE.md, rules, plugin status)
-    Claude {
-        #[command(subcommand)]
-        action: ClaudeCommands,
-    },
-
-    /// Command guard management (PATH-based command blocking)
-    Guards {
-        #[command(subcommand)]
-        action: GuardsCommands,
-    },
-
-    /// Git hooks management
-    Hooks {
-        #[command(subcommand)]
-        action: HooksCommands,
-    },
-
-    /// Docker-First shim management (intercept commands → Docker)
-    Shim {
-        #[command(subcommand)]
-        action: ShimCommands,
-    },
-
-    /// Documentation management (CLAUDE.md, .cursorrules, etc.)
-    Docs {
-        #[command(subcommand)]
-        action: DocsCommands,
-    },
-
-    /// Validate workspace configuration
-    Validate {
-        #[command(subcommand)]
-        action: ValidateCommands,
-        /// Output results as JSON (for LLM integration)
-        #[arg(long, global = true)]
-        json: bool,
-    },
-
-    /// Run system health checks
-    Verify,
-
-    /// Diagnose workspace configuration and show actionable fixes.
-    ///
-    /// Checks: manifest.toml validity, Docker status, generated file sync,
-    /// guard installation, environment variables.
-    /// Use --truth for LLM-consumable workspace info (root, compose files,
-    /// recommended commands).
-    Doctor {
-        /// Automatically fix detected issues
-        #[arg(long)]
-        fix: bool,
-        /// Show startup truth (workspace root, compose files, commands)
-        #[arg(long)]
-        truth: bool,
-        /// Output startup truth as JSON (for LLM/automation)
-        #[arg(long)]
-        truth_json: bool,
-    },
-
-    /// Execute a command defined in manifest.toml [commands] section.
-    ///
-    /// Commands are shell strings defined in manifest.toml. airis does not
-    /// interpret arguments — the entire command string is executed as-is.
-    /// To change what a command does, edit manifest.toml [commands].
-    Run {
-        /// Task name from manifest.toml [commands] section (e.g., up, down, shell, build, test)
-        task: String,
-        /// Extra arguments passed after `--` (forwarded to the underlying command)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Start the entire Docker-first workspace (The "One Command").
-    ///
-    /// Automatically performs:
-    /// 1. Syncing manifest.toml -> generated configs (gen)
-    /// 2. Syncing dependencies inside the container (install)
-    /// 3. Starting all Docker services (up)
-    ///
-    /// This is the primary entry point for development.
-    Up {
-        /// Extra arguments forwarded to docker compose (e.g., --no-cache, --force-recreate)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Install dependencies inside Docker container (normally automatic).
-    ///
-    /// Runs the package manager specified in manifest.toml inside the
-    /// workspace container. Note: This is automatically executed by 'airis up'.
-    Install {
-        /// Extra arguments passed to the package manager
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Stop Docker services (alias for 'airis run down').
-    ///
-    /// Executes the 'down' command from manifest.toml [commands].
-    Down {
-        /// Extra arguments forwarded to docker compose (e.g., --volumes, --rmi all)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Enter workspace container shell (alias for 'airis run shell').
-    ///
-    /// Executes the 'shell' command from manifest.toml [commands].
-    /// Inside the container, you can run package manager commands directly.
-    Shell {
-        /// Extra arguments forwarded to the shell command
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run tests (alias for 'run test')
-    Test {
-        /// Scan test files: categorize, detect forbidden patterns, check type enforcement
-        #[arg(long)]
-        scan: bool,
-        /// Test level: unit, integration, e2e, smoke (resolves to [commands].test:<level>)
-        #[arg(long, value_enum)]
-        level: Option<TestLevel>,
-        /// Check coverage threshold
-        #[arg(long)]
-        coverage_check: bool,
-        /// Minimum coverage percentage (default: 80)
-        #[arg(long, default_value = "80")]
-        min_coverage: u8,
-        /// Extra arguments passed after `--` (forwarded to the underlying command)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Build projects (alias for 'airis run build', or Docker build with --docker).
-    ///
-    /// Without --docker: executes 'build' from manifest.toml [commands].
-    /// With --docker: builds the prod target of the service Dockerfile.
-    /// With --affected: only builds projects changed since --base.
-    Build {
-        /// Target project path (e.g., apps/web)
-        project: Option<String>,
-        /// Build only affected projects (based on git diff)
-        #[arg(long)]
-        affected: bool,
-        /// Base branch/commit for --affected (default: origin/main)
-        #[arg(long, default_value = "origin/main")]
-        base: String,
-        /// Head branch/commit for --affected (default: HEAD)
-        #[arg(long, default_value = "HEAD")]
-        head: String,
-        /// Build Docker image using the prod target of the service Dockerfile
-        #[arg(long)]
-        docker: bool,
-        /// Runtime channel: lts, current, edge, bun, deno, or version (e.g., 22.12.0)
-        /// If not specified, reads from manifest.toml [projects.<name>.runner.channel]
-        #[arg(long)]
-        channel: Option<String>,
-        /// Build for multiple targets (comma-separated: node,edge,bun,deno)
-        #[arg(long, value_delimiter = ',')]
-        targets: Option<Vec<String>>,
-        /// Number of parallel build workers (default: CPU count)
-        #[arg(long, short = 'j')]
-        parallel: Option<usize>,
-        /// Image name for Docker build (e.g., ghcr.io/org/app:tag)
-        #[arg(long)]
-        image: Option<String>,
-        /// Push image to registry after build
-        #[arg(long)]
-        push: bool,
-        /// Output directory for build context (for debugging)
-        #[arg(long)]
-        context_out: Option<std::path::PathBuf>,
-        /// No cache for Docker build
-        #[arg(long)]
-        no_cache: bool,
-        /// Remote cache URL (s3://bucket/prefix or oci://registry/image)
-        #[arg(long)]
-        remote_cache: Option<String>,
-        /// Build production Docker image (legacy)
-        #[arg(long)]
-        prod: bool,
-        /// Quick build test (standalone output check)
-        #[arg(long)]
-        quick: bool,
-    },
-
-    /// Clean build artifacts (node_modules, .next, dist, etc.)
-    Clean {
-        /// Preview what would be deleted without actually deleting
-        #[arg(long)]
-        dry_run: bool,
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Generate deployment bundle (image.tar, artifact.tar.gz, bundle.json)
-    Bundle {
-        /// Target project path (e.g., apps/web)
-        project: String,
-        /// Output directory (default: dist/)
-        #[arg(short, long)]
-        output: Option<std::path::PathBuf>,
-        /// Generate Kubernetes manifests (deployment.yaml, service.yaml)
-        #[arg(long)]
-        k8s: bool,
-    },
-
-    /// Run linting (alias for 'run lint')
-    Lint {
-        /// Extra arguments passed after `--` (forwarded to the underlying command)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run code formatting (alias for 'run format')
-    Format {
-        /// Extra arguments passed after `--` (forwarded to the underlying command)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run type checking (alias for 'run typecheck')
-    Typecheck {
-        /// Extra arguments passed after `--` (forwarded to the underlying command)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Show Docker container status
-    Ps {
-        /// Extra arguments forwarded to docker compose ps
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// View Docker logs
-    Logs {
-        /// Service name (optional, defaults to all services)
-        service: Option<String>,
-        /// Follow log output
-        #[arg(short, long)]
-        follow: bool,
-        /// Number of lines to show from the end
-        #[arg(short = 'n', long)]
-        tail: Option<u32>,
-    },
-
-    /// Execute command in a service container
-    Exec {
-        /// Service name
-        service: String,
-        /// Command to execute
-        #[arg(trailing_var_arg = true)]
-        cmd: Vec<String>,
-    },
-
-    /// Restart Docker services
-    Restart {
-        /// Service name (optional, defaults to all services)
-        service: Option<String>,
-    },
-
-    /// Docker network management
-    Network {
-        #[command(subcommand)]
-        action: NetworkCommands,
-    },
-
-    /// Create new app, service, or library from template
-    New {
-        #[command(subcommand)]
-        template: NewCommands,
-    },
-
-    /// Bump version in manifest.toml and Cargo.toml
-    #[command(name = "bump-version")]
-    BumpVersion {
-        /// Bump type (auto-detected if not specified)
-        #[arg(long)]
-        major: bool,
-        #[arg(long)]
-        minor: bool,
-        #[arg(long)]
-        patch: bool,
-        /// Auto-detect from commit message (default)
-        #[arg(long)]
-        auto: bool,
-    },
-
-    /// Show affected packages based on git changes
-    Affected {
-        /// Base branch/commit to compare against (default: origin/main)
-        #[arg(long, default_value = "origin/main")]
-        base: String,
-        /// Head branch/commit (default: HEAD)
-        #[arg(long, default_value = "HEAD")]
-        head: String,
-    },
-
-    /// Regenerate workspace files from manifest.toml.
-    ///
-    /// Generates: package.json, pnpm-workspace.yaml, compose.yml,
-    /// per-service Dockerfile (multi-stage dev/prod), CI workflows.
-    /// All generated files include DO NOT EDIT markers.
-    /// Safe to run repeatedly — always produces the same output
-    /// from the same manifest.toml.
-    #[command(name = "gen")]
-    Gen {
-        /// Preview what would be generated (dry-run)
-        #[arg(long)]
-        dry_run: bool,
-        /// Force generation even if legacy compose files exist
-        #[arg(long)]
-        force: bool,
-        /// Migrate legacy compose files (docker-compose.yml etc.) to compose.yml
-        #[arg(long)]
-        migrate: bool,
-    },
-
-    /// Generate code and types from various sources
-    Generate {
-        #[command(subcommand)]
-        action: GenerateCommands,
-    },
-
-    /// Policy gates for pre-deployment validation
-    Policy {
-        #[command(subcommand)]
-        action: PolicyCommands,
-    },
-
-    /// Dependency graph visualization and analysis
-    Deps {
-        #[command(subcommand)]
-        action: DepsCommands,
-    },
-
-    /// Preview changes between manifest.toml and generated files
-    Diff {
-        /// Output as JSON (for CI/automation)
-        #[arg(long)]
-        json: bool,
-        /// Show statistics only (file count, line changes)
-        #[arg(long)]
-        stat: bool,
-    },
-
-    /// Upgrade airis to the latest version
-    Upgrade {
-        /// Only check for updates (don't install)
-        #[arg(long)]
-        check: bool,
-        /// Install specific version (e.g., 1.60.0)
-        #[arg(long)]
-        version: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum PolicyCommands {
-    /// Initialize .airis/policies.toml
-    Init,
-    /// Run policy checks
-    Check {
-        /// Target project (optional, checks entire workspace if not specified)
-        project: Option<String>,
-    },
-    /// Enforce policies (fail on violations)
-    Enforce {
-        /// Target project (optional)
-        project: Option<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum DepsCommands {
-    /// Display ASCII dependency tree
-    Tree,
-    /// Output dependency graph as JSON (for LLM/automation)
-    Json,
-    /// Show dependencies for a specific package
-    Show {
-        /// Package path or name (e.g., apps/web, libs/ui)
-        package: String,
-    },
-    /// Check for circular dependencies and architecture violations
-    Check,
-}
-
-#[derive(Subcommand)]
-enum GuardsCommands {
-    /// Install command guards that block package managers on host.
-    ///
-    /// Creates shell scripts in .airis/bin/ (or ~/.airis/bin/ with --global)
-    /// that intercept denied commands. When a blocked command runs, it shows
-    /// an error with the correct airis alternative.
-    /// Guard rules come from manifest.toml [guards] section.
-    Install {
-        /// Install global guards (~/.airis/bin/) that block commands outside airis projects
-        #[arg(long)]
-        global: bool,
-        /// Deprecated: use `airis claude setup` instead
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    /// Check if running inside Docker container
-    #[command(name = "check-docker")]
-    CheckDocker,
-    /// Show guard status
-    Status {
-        /// Show global guards status
-        #[arg(long)]
-        global: bool,
-        /// Deprecated: use `airis claude status` instead
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    /// Uninstall command guards
-    Uninstall {
-        /// Uninstall global guards
-        #[arg(long)]
-        global: bool,
-        /// Deprecated: use `airis claude uninstall` instead
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    /// Verify global guards are properly installed and active
-    Verify,
-    /// Check if a command is allowed in the current repo (used by global guard scripts)
-    #[command(name = "check-allow")]
-    CheckAllow {
-        /// Command name to check
-        cmd: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum ClaudeCommands {
-    /// Sync CLAUDE.md and rules to ~/.claude/, check plugin status
-    Setup,
-    /// Show Claude Code integration status
-    Status,
-    /// Remove airis-managed files from ~/.claude/
-    Uninstall,
-}
-
-#[derive(Subcommand)]
-enum HooksCommands {
-    /// Install Git hooks (pre-commit for version auto-bump)
-    Install,
-}
-
-#[derive(Subcommand)]
-enum ShimCommands {
-    /// Install shims in ./bin (pnpm, npm, node, etc. → Docker)
-    Install,
-    /// List installed shims
-    List,
-    /// Remove all shims
-    Uninstall,
-    /// Execute a command through Docker (manual shim)
-    Exec {
-        /// Command to execute
-        cmd: String,
-        /// Arguments to pass
-        #[arg(trailing_var_arg = true)]
-        args: Vec<String>,
-    },
-}
-
-#[derive(Subcommand)]
-enum DocsCommands {
-    /// Generate a vendor adapter file from shared AI docs
-    Wrap {
-        /// Adapter file to generate (CLAUDE.md, .cursorrules, GEMINI.md, AGENTS.md)
-        target: String,
-    },
-    /// Generate all configured AI documentation adapters
-    Sync,
-    /// List managed documentation files
-    List,
-}
-
-#[derive(Subcommand)]
-enum ManifestCommands {
-    /// Print newline-separated list of dev apps
-    #[command(name = "dev-apps")]
-    DevApps,
-
-    /// Print newline-separated commands registered under [rule.<name>]
-    #[command(name = "rule")]
-    Rule {
-        /// Rule name inside MANIFEST.toml (e.g. verify, ci)
-        name: String,
-    },
-
-    /// Output workspace configuration as JSON for LLM/automation consumption.
-    ///
-    /// Includes: workspace_root, compose_files, compose_command, service,
-    /// workdir, package_manager, recommended_commands.
-    #[command(name = "json")]
-    Json,
-}
-
-#[derive(Subcommand)]
-enum ValidateCommands {
-    /// Validate manifest.toml: syntax, port conflicts, catalog references, guard consistency.
-    Manifest,
-    /// Check for ports: mapping in docker-compose files
-    Ports,
-    /// Check Traefik network wiring
-    Networks,
-    /// Check frontend environment variables
-    Env,
-    /// Check dependency architecture rules (apps -> libs only, no cross-app dependencies)
-    #[command(name = "deps")]
-    Dependencies,
-    /// Check dependency architecture rules (alias for deps)
-    #[command(name = "arch")]
-    Architecture,
-    /// Run all validations
-    All,
-}
-
-#[derive(Subcommand)]
-enum GenerateCommands {
-    /// Generate TypeScript types from Supabase PostgreSQL schema
-    Types {
-        /// Supabase PostgreSQL host (default: localhost)
-        #[arg(long, default_value = "localhost")]
-        host: String,
-        /// Supabase PostgreSQL port (default: 54322)
-        #[arg(long, default_value = "54322")]
-        port: String,
-        /// Database name (default: postgres)
-        #[arg(long, default_value = "postgres")]
-        database: String,
-        /// Output directory (default: libs/types)
-        #[arg(short, long, default_value = "libs/types")]
-        output: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum NetworkCommands {
-    /// Initialize Docker networks for the workspace
-    Init,
-    /// Setup development networks and start Traefik
-    Setup,
-    /// List Docker networks for the workspace
-    List,
-    /// Remove Docker networks for the workspace
-    #[command(name = "rm")]
-    Remove,
-}
-
-#[derive(Subcommand)]
-enum NewCommands {
-    /// Create a new API service
-    Api {
-        /// Name of the new service
-        name: String,
-        /// Runtime/framework (e.g., hono, fastapi, rust-axum)
-        #[arg(short, long, default_value = "hono")]
-        runtime: String,
-    },
-    /// Create a new web application
-    Web {
-        /// Name of the new app
-        name: String,
-        /// Runtime/framework (e.g., nextjs, vite)
-        #[arg(short, long, default_value = "nextjs")]
-        runtime: String,
-    },
-    /// Create a new library
-    Lib {
-        /// Name of the new library
-        name: String,
-        /// Runtime/language (e.g., ts)
-        #[arg(short, long, default_value = "ts")]
-        runtime: String,
-    },
-    /// Create a new Supabase Edge Function
-    Edge {
-        /// Name of the new edge function
-        name: String,
-    },
-    /// Create a new Supabase database trigger
-    #[command(name = "supabase-trigger")]
-    SupabaseTrigger {
-        /// Name of the trigger function
-        name: String,
-    },
-    /// Create a new Supabase Realtime handler
-    #[command(name = "supabase-realtime")]
-    SupabaseRealtime {
-        /// Name of the realtime handler
-        name: String,
-    },
-}
-
-fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Handle version flag
@@ -740,14 +62,6 @@ fn main() -> Result<()> {
 /// Dispatch a parsed CLI command to the appropriate handler.
 fn dispatch(command: Commands) -> Result<()> {
     match command {
-        Commands::Init {
-            snapshot,
-            no_snapshot,
-            write,
-            skip_discovery,
-        } => {
-            commands::init::run(snapshot, no_snapshot, write, skip_discovery)?;
-        }
         Commands::Manifest { action } => {
             use commands::manifest_cmd::{self, ManifestAction};
 
@@ -765,7 +79,11 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
         },
         Commands::Guards { action } => match action {
-            GuardsCommands::Install { global, hooks } => {
+            GuardsCommands::Install {
+                global,
+                preset,
+                hooks,
+            } => {
                 if hooks {
                     eprintln!(
                         "{}: `airis guards install --hooks` is deprecated. Use `airis claude setup` instead.",
@@ -773,12 +91,22 @@ fn dispatch(command: Commands) -> Result<()> {
                     );
                     commands::claude_setup::setup_global()?;
                 } else if global {
-                    commands::guards::install_global()?;
+                    commands::guards::install_global(preset)?;
                 } else {
-                    commands::guards::install()?;
+                    println!("{}", "⚠️  Local guards are deprecated.".yellow());
+                    println!(
+                        "   Use {} instead.",
+                        "airis guards install --global".bright_cyan()
+                    );
                 }
             }
-            GuardsCommands::CheckDocker => commands::guards::check_docker()?,
+            GuardsCommands::CheckDocker => {
+                if std::path::Path::new("/.dockerenv").exists() {
+                    println!("{} Running inside Docker", "✓".green());
+                } else {
+                    println!("{} Running on host", "✗".yellow());
+                }
+            }
             GuardsCommands::Status { global, hooks } => {
                 if hooks {
                     eprintln!(
@@ -789,7 +117,9 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::status_global()?;
                 } else {
-                    commands::guards::status()?;
+                    println!(
+                        "Local guards are no longer recommended. Use 'airis guards status --global'."
+                    );
                 }
             }
             GuardsCommands::Uninstall { global, hooks } => {
@@ -802,24 +132,26 @@ fn dispatch(command: Commands) -> Result<()> {
                 } else if global {
                     commands::guards::uninstall_global()?;
                 } else {
-                    commands::guards::uninstall()?;
+                    commands::workspace::uninstall()?;
                 }
             }
             GuardsCommands::Verify => commands::guards::verify_global()?,
-            GuardsCommands::CheckAllow { cmd } => commands::guards::check_allow(&cmd)?,
+            GuardsCommands::CheckAllow { cmd: _ } => {
+                // Local check_allow is no longer supported
+                println!("check-allow is now handled by global smart-shims.");
+            }
+        },
+        Commands::Host { cmd } => commands::host::run(&cmd)?,
+        Commands::Workspace(args) => match args.action {
+            WorkspaceCommands::Uninstall => commands::workspace::uninstall()?,
         },
         Commands::Hooks { action } => match action {
             HooksCommands::Install => commands::hooks::install()?,
-        },
-        Commands::Shim { action } => match action {
-            ShimCommands::Install => commands::shim::install()?,
-            ShimCommands::List => commands::shim::list()?,
-            ShimCommands::Uninstall => commands::shim::uninstall()?,
-            ShimCommands::Exec { cmd, args } => commands::shim::exec(&cmd, &args)?,
+            HooksCommands::Uninstall => commands::hooks::uninstall()?,
         },
         Commands::Docs { action } => match action {
-            DocsCommands::Wrap { target } => commands::docs::wrap(&target)?,
-            DocsCommands::Sync => commands::docs::sync()?,
+            DocsCommands::Wrap { target, force } => commands::docs::wrap(&target, force)?,
+            DocsCommands::Sync { force } => commands::docs::sync(force)?,
             DocsCommands::List => commands::docs::list()?,
         },
         Commands::Validate { action, json } => {
@@ -852,7 +184,7 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
         Commands::Install { extra_args } => commands::install::run(&extra_args)?,
-        Commands::Down { extra_args } => commands::run::run("down", &extra_args)?,
+        Commands::Down { extra_args } => commands::run::run_down(&extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
             scan,
@@ -926,10 +258,20 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::run::run("build", &[])?;
             }
         }
+        Commands::Status { short } => {
+            commands::status::run(short)?;
+        }
         Commands::Clean {
             dry_run,
+            purge,
+            force,
+            allow_anywhere,
             extra_args: _,
-        } => commands::clean::run(dry_run)?,
+        } => {
+            // dry_run is true by default, force overrides it
+            let actual_dry_run = if force { false } else { dry_run };
+            commands::clean::run(actual_dry_run, purge, allow_anywhere)?;
+        }
         Commands::Bundle {
             project,
             output,
@@ -952,7 +294,11 @@ fn dispatch(command: Commands) -> Result<()> {
             follow,
             tail,
         } => commands::run::run_logs(service.as_deref(), follow, tail)?,
-        Commands::Exec { service, cmd } => commands::run::run_exec(&service, &cmd)?,
+        Commands::Exec {
+            service,
+            no_auto_up,
+            cmd,
+        } => commands::run::run_exec(service.as_deref(), &cmd, !no_auto_up)?,
         Commands::Restart { service } => commands::run::run_restart(service.as_deref())?,
         Commands::Network { action } => match action {
             NetworkCommands::Init => commands::network::init()?,
@@ -1004,7 +350,7 @@ fn dispatch(command: Commands) -> Result<()> {
             major,
             minor,
             patch,
-            auto: _, // unused but kept for clarity
+            auto: _,
         } => {
             use commands::bump_version::{self, BumpMode};
 
@@ -1049,10 +395,22 @@ fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::Upgrade { check, version } => {
             if check {
-                commands::upgrade::run_check()?;
+                // Background check already happened, this just triggers immediate check/report
+                commands::upgrade::spawn_check();
+                println!("Check complete. If an update is found, it will be shown below.");
             } else {
                 commands::upgrade::run(version)?;
             }
+        }
+
+        Commands::InitShell { shell } => {
+            commands::init_shell::run(shell)?;
+        }
+        Commands::Completion { shell } => {
+            commands::completion::run(shell)?;
+        }
+        Commands::Mcp => {
+            commands::mcp::run()?;
         }
     }
 

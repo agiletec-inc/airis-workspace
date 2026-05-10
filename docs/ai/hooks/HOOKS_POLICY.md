@@ -13,9 +13,9 @@ This file defines portable hook intent shared across AI vendors.
 
 | Layer | Owner | What |
 |-------|-------|------|
-| Spec / rules | airis-monorepo (CLI) | CLAUDE.md, rules/*.md → ~/.claude/ |
+| Spec / rules | airis-workspace (CLI) | CLAUDE.md, rules/*.md → ~/.claude/ |
 | Runtime hooks | airis-mcp-gateway (plugin) | hooks.json, *.sh (PreToolUse, Stop) |
-| PATH guards | airis-monorepo (CLI) | ~/.airis/bin/ command wrappers |
+| PATH guards | airis-workspace (CLI) | ~/.airis/bin/ command wrappers |
 | Skills / commands | airis-mcp-gateway (plugin) | skills/, commands/ |
 
 When debugging:

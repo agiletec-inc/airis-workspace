@@ -48,7 +48,7 @@ jobs:
           ls -lh target/package/*.crate
           echo ""
           echo "=== Uncompressed package dir size (top-level breakdown) ==="
-          CRATE_DIR=$(find target/package -maxdepth 1 -type d -name 'airis-monorepo-*' | head -1)
+          CRATE_DIR=$(find target/package -maxdepth 1 -type d -name 'airis-workspace-*' | head -1)
           if [ -n "$CRATE_DIR" ]; then
             du -sh "$CRATE_DIR"
             echo ""

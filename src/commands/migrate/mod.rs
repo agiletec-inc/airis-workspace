@@ -20,11 +20,14 @@ use anyhow::Result;
 use colored::Colorize;
 use std::path::Path;
 
-use super::discover::{ComposeLocation, DiscoveryResult};
+use super::discover::DiscoveryResult;
 use operations::{execute_create_directory, execute_generate_manifest, execute_move_file};
 
+use serde::{Deserialize, Serialize};
+
 /// A single migration task
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum MigrationTask {
     /// Create a new directory
     CreateDirectory { path: String },
@@ -85,41 +88,13 @@ impl MigrationReport {
     }
 }
 
-/// Create a migration plan from discovery results
+/// Create a migration plan from discovery results.
+///
+/// Since 4.0.1 the plan only emits `GenerateManifest`. Legacy compose files
+/// stay at the repo root (or get cleaned via `airis clean --purge`), and
+/// `airis gen` materializes `compose.yaml` afterwards.
 pub fn plan(discovery: DiscoveryResult) -> Result<MigrationPlan> {
-    let mut tasks = Vec::new();
-
-    // Check if workspace/ directory needs to be created
-    let workspace_dir = Path::new("workspace");
-    let need_workspace_dir = !workspace_dir.exists()
-        && discovery
-            .compose_files
-            .iter()
-            .any(|c| c.location == ComposeLocation::Root);
-
-    if need_workspace_dir {
-        tasks.push(MigrationTask::CreateDirectory {
-            path: "workspace".to_string(),
-        });
-    }
-
-    // Plan moves for root docker-compose.yml
-    for compose in &discovery.compose_files {
-        if compose.location == ComposeLocation::Root {
-            let target = "workspace/docker-compose.yml";
-            // Only plan the move if target doesn't already exist
-            if !Path::new(target).exists() {
-                tasks.push(MigrationTask::MoveFile {
-                    from: compose.path.clone(),
-                    to: target.to_string(),
-                });
-            }
-        }
-    }
-
-    // Always generate manifest.toml (this is the main goal)
-    tasks.push(MigrationTask::GenerateManifest);
-
+    let tasks = vec![MigrationTask::GenerateManifest];
     Ok(MigrationPlan { tasks, discovery })
 }
 

@@ -3,16 +3,11 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "baseUrl": ".",
-    "ignoreDeprecations": "6.0"
+    "baseUrl": "."
   },
   "include": [
-    "apps/**/*.ts",
-    "apps/**/*.tsx",
-    "libs/**/*.ts",
-    "libs/**/*.tsx",
-    "packages/**/*.ts",
-    "packages/**/*.tsx"
+    "**/*.ts",
+    "**/*.tsx"
   ],
   "exclude": [
     "node_modules",

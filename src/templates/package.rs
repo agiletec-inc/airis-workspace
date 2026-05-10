@@ -5,40 +5,18 @@ use anyhow::Result;
 use indexmap::IndexMap;
 
 impl TemplateEngine {
-    /// Render root package.json in hybrid mode.
+    /// Render root package.json.
     ///
-    /// Managed fields: name, version, private, type, packageManager, workspaces.
-    /// All other fields (dependencies, scripts, engines, pnpm config) are user-managed.
+    /// Root package.json now uses "catalog:" protocol for shared dependencies,
+    /// delegating actual resolution and locking to pnpm.
+    #[allow(dead_code)]
     pub fn render_package_json(
         &self,
         manifest: &Manifest,
-        _resolved_catalog: &IndexMap<String, String>,
+        resolved_catalog: &IndexMap<String, String>,
     ) -> Result<String> {
-        let managed_fields = [
-            "name",
-            "version",
-            "private",
-            "type",
-            "packageManager",
-            "workspaces",
-        ];
+        let mut obj = serde_json::Map::new();
 
-        // Read existing package.json if it exists
-        let package_json_path = std::path::Path::new("package.json");
-        let mut package_json = if package_json_path.exists() {
-            let existing = std::fs::read_to_string(package_json_path)
-                .context("Failed to read existing root package.json")?;
-            serde_json::from_str::<serde_json::Value>(&existing)
-                .context("Failed to parse existing root package.json")?
-        } else {
-            serde_json::json!({})
-        };
-
-        let obj = package_json
-            .as_object_mut()
-            .ok_or_else(|| anyhow::anyhow!("Root package.json is not a JSON object"))?;
-
-        // Update only managed fields
         obj.insert(
             "name".to_string(),
             serde_json::json!(manifest.workspace.name),
@@ -46,10 +24,13 @@ impl TemplateEngine {
         obj.insert("version".to_string(), serde_json::json!("0.0.0"));
         obj.insert("private".to_string(), serde_json::json!(true));
         obj.insert("type".to_string(), serde_json::json!("module"));
-        obj.insert(
-            "packageManager".to_string(),
-            serde_json::json!(manifest.workspace.package_manager),
-        );
+
+        if !manifest.workspace.package_manager.is_empty() {
+            obj.insert(
+                "packageManager".to_string(),
+                serde_json::json!(manifest.workspace.package_manager),
+            );
+        }
 
         if !manifest.packages.workspaces.is_empty() {
             obj.insert(
@@ -58,45 +39,84 @@ impl TemplateEngine {
             );
         }
 
-        // Update generation marker
-        obj.insert("_generated".to_string(), serde_json::json!({
-            "by": "airis gen",
-            "managed_fields": managed_fields,
-            "warning": "Only the fields listed in managed_fields are updated by airis gen. Everything else is yours."
-        }));
+        // Add root dependencies from manifest.packages.root
+        let root_pkg = &manifest.packages.root;
 
-        // Serialize to pretty JSON
+        if !root_pkg.scripts.is_empty() {
+            obj.insert(
+                "scripts".to_string(),
+                serde_json::to_value(&root_pkg.scripts)?,
+            );
+        }
+
+        if !root_pkg.dependencies.is_empty() {
+            let mut deps = serde_json::Map::new();
+            for (k, v) in &root_pkg.dependencies {
+                // If it's in the manifest catalog, use "catalog:"
+                let version = if resolved_catalog.contains_key(k) {
+                    "catalog:".to_string()
+                } else {
+                    v.clone()
+                };
+                deps.insert(k.clone(), serde_json::json!(version));
+            }
+            obj.insert("dependencies".to_string(), serde_json::Value::Object(deps));
+        }
+
+        if !root_pkg.dev_dependencies.is_empty() {
+            let mut dev_deps = serde_json::Map::new();
+            for (k, v) in &root_pkg.dev_dependencies {
+                let version = if resolved_catalog.contains_key(k) {
+                    "catalog:".to_string()
+                } else {
+                    v.clone()
+                };
+                dev_deps.insert(k.clone(), serde_json::json!(version));
+            }
+            obj.insert(
+                "devDependencies".to_string(),
+                serde_json::Value::Object(dev_deps),
+            );
+        }
+
+        if !root_pkg.engines.is_empty() {
+            obj.insert(
+                "engines".to_string(),
+                serde_json::to_value(&root_pkg.engines)?,
+            );
+        }
+
+        // pnpm specific config
+        if !root_pkg.pnpm.overrides.is_empty()
+            || !root_pkg
+                .pnpm
+                .peer_dependency_rules
+                .ignore_missing
+                .is_empty()
+        {
+            let mut pnpm = serde_json::Map::new();
+            if !root_pkg.pnpm.overrides.is_empty() {
+                pnpm.insert(
+                    "overrides".to_string(),
+                    serde_json::to_value(&root_pkg.pnpm.overrides)?,
+                );
+            }
+            obj.insert("pnpm".to_string(), serde_json::Value::Object(pnpm));
+        }
+
+        // Update generation marker
+        obj.insert(
+            "_generated".to_string(),
+            serde_json::json!({
+                "by": "airis gen",
+                "mode": "full",
+                "warning": "This file is fully generated by airis gen. Do not edit manually."
+            }),
+        );
+
+        let package_json = serde_json::Value::Object(obj);
         let content = serde_json::to_string_pretty(&package_json)
             .context("Failed to serialize package.json")?;
         Ok(format!("{content}\n"))
-    }
-
-    pub fn render_pnpm_workspace(&self, manifest: &Manifest) -> Result<String> {
-        let mut out = String::from(
-            "# Auto-generated by airis init\n\
-             # DO NOT EDIT - change manifest.toml instead.\n\
-             #\n\
-             # NOTE: No catalog section needed!\n\
-             # airis resolves versions from manifest.toml [packages.catalog] and writes\n\
-             # them directly to package.json. This is a superior approach because:\n\
-             # - Works with any package manager (pnpm/npm/yarn/bun)\n\
-             # - Supports \"latest\", \"lts\", \"follow\" policies via airis\n\
-             # - No dependency on pnpm's catalog feature\n\
-             #\n\
-             # Use manifest.toml [packages.catalog] for version management:\n\
-             #   [packages.catalog]\n\
-             #   next = \"latest\"      # airis resolves to ^16.0.3\n\
-             #   react = \"lts\"        # airis resolves to ^18.3.1\n\
-             #\n\
-             # Then reference in dependencies:\n\
-             #   [packages.root.devDependencies]\n\
-             #   next = \"catalog:\"    # → ^16.0.3 in package.json\n\
-             \n\
-             packages:\n",
-        );
-        for pkg in &manifest.packages.workspaces {
-            out.push_str(&format!("  - \"{pkg}\"\n"));
-        }
-        Ok(out)
     }
 }

@@ -45,6 +45,22 @@ pub fn managed_dirs() -> Vec<ManagedDir> {
                 rel_path: "server-access.md",
                 content: include_str!("../../../templates/claude/rules/server-access.md"),
             },
+            TemplateFile {
+                rel_path: "orbstack.md",
+                content: include_str!("../../../templates/claude/rules/orbstack.md"),
+            },
+            TemplateFile {
+                rel_path: "planning.md",
+                content: include_str!("../../../templates/claude/rules/planning.md"),
+            },
+            TemplateFile {
+                rel_path: "bug-fix.md",
+                content: include_str!("../../../templates/claude/rules/bug-fix.md"),
+            },
+            TemplateFile {
+                rel_path: "secrets-tier.md",
+                content: include_str!("../../../templates/claude/rules/secrets-tier.md"),
+            },
         ],
     }]
 }

@@ -2,7 +2,7 @@
 
 **目的**: Agiletec モノレポ全体で `airis` CLI を使い、Docker ワークスペース上で安全に作業するためのガイド。
 
-- **CLI ツール**: [airis-monorepo](https://github.com/agiletec-inc/airis-monorepo)
+- **CLI ツール**: [airis-workspace](https://github.com/agiletec-inc/airis-workspace)
 - **設定ファイル**: `manifest.toml`（唯一の設定ファイル）
 - **読込方式**: `airis` が `manifest.toml` を直接読み込む（Rust TOML パーサー使用）
 
@@ -32,8 +32,10 @@
 ### セットアップ & 起動
 
 ```bash
-airis init                    # 既存プロジェクトを自動検出 + manifest.toml 生成 (dry-run)
-airis init --write            # 実行して manifest.toml を作成
+# manifest.toml の作成は以下のいずれか:
+#   A) Claude Code で /airis:init を実行（MCP ツール workspace_init を呼ぶ）
+#   B) 手書きで manifest.toml を作成（docs/manifest.md 参照）
+airis gen                     # manifest.toml から package.json / pnpm-workspace.yaml / CI 生成
 airis up                      # Docker-First: manifest同期 + 依存インストール + コンテナ起動
 airis down                    # サービスの停止
 airis shell                   # workspace コンテナのシェルに入る (/app)
@@ -68,7 +70,8 @@ airis verify       # システムヘルスチェック
 
 ```bash
 # 1. 初回セットアップ
-airis init
+#    Claude Code で /airis:init を叩く、もしくは手書きで manifest.toml を作成
+airis gen
 
 # 2. Docker スタック起動
 airis up
@@ -108,7 +111,7 @@ autostart = [
 
 - ✅ ルートで `airis` を実行し、`airis shell` 内で `pnpm` を叩く
 - ✅ `airis up` 後に `airis verify` を実行し、Traefik/Kong/Supabase の疎通を確認
-- ✅ 新しいアプリや設定は `manifest.toml` に追加 → `airis init` で再生成
+- ✅ 新しいアプリや設定は `manifest.toml` に追加 → `airis gen` で再生成
 - ✅ `airis clean` でビルドアーティファクトを定期的に掃除
 
 ### DON'T
@@ -139,7 +142,7 @@ airis install
 ### 問題: manifest.toml を更新したのに反映されない
 
 ```bash
-airis init  # 再生成
+airis gen  # 再生成
 ```
 
 ---
@@ -147,7 +150,7 @@ airis init  # 再生成
 ## メンテナンス
 
 1. `manifest.toml` を更新し、新しいアプリや設定を追加
-2. `airis init` でワークスペースファイルを再生成
+2. `airis gen` でワークスペースファイルを再生成
 3. `git diff` で変更内容を確認
 4. バックアップは `.airis/backups/` に自動保存
 
@@ -191,7 +194,7 @@ deny_with_message = { "docker" = "Use 'airis' instead" }
 
 ## 参考
 
-- [airis-monorepo GitHub](https://github.com/agiletec-inc/airis-monorepo)
+- [airis-workspace GitHub](https://github.com/agiletec-inc/airis-workspace)
 - [PNPM Catalog](https://pnpm.io/catalogs)
 - [Docker Compose Spec](https://docs.docker.com/compose/compose-file/)
 - [TOML Spec](https://toml.io/)

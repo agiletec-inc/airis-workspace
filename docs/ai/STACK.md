@@ -17,6 +17,8 @@ cargo fmt --check
 cargo clippy -- -D warnings
 ```
 
+`airis verify` is a convenience wrapper, but it **skips `cargo check`/`clippy`/`fmt --check`/`test` when the workspace container is offline** and still prints a green summary. Before pushing, run the `cargo` commands above directly (or `airis up` first) so CI is not the first thing to catch a regression.
+
 ## Important Paths
 
 - `src/manifest/` for manifest schema and validation

@@ -3,13 +3,13 @@
 # Sync version via `airis bump-version`.
 
 [package]
-name = "airis-monorepo"
-version = "4.0.1"
+name = "airis-workspace"
+version = "3.16.7"
 edition = "2024"
-authors = ["Kazuki Nakai <kazuki.nakai@agiletec.net>"]
+authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
-homepage = "https://github.com/agiletec-inc/airis-monorepo"
-repository = "https://github.com/agiletec-inc/airis-monorepo"
+homepage = "https://github.com/agiletec-inc/airis-workspace"
+repository = "https://github.com/agiletec-inc/airis-workspace"
 license = "MIT"
 keywords = ["monorepo", "docker", "workspace", "cli", "prototyping"]
 categories = ["command-line-utilities", "development-tools"]
@@ -21,7 +21,6 @@ readme = "README.md"
 exclude = [
     "/.github",
     "/.claude",
-    "/.workspace",
     "/.husky",
     "/.cargo",
     "/apps",
@@ -33,7 +32,6 @@ exclude = [
     "/dist",
     "/docs",
     "/scripts",
-    "/npm",
     # Release workflow side-effects: downloaded artifacts and checksums
     # must not be packaged into the crate when cargo publish runs in the
     # same working directory after build artifacts are fetched.
@@ -76,7 +74,7 @@ serde_yml = "0.0"
 toml = { version = "1.1", features = ["preserve_order"] }
 anyhow = "1.0"
 colored = "3.1"
-tokio = { version = "1.50", features = ["macros", "sync", "rt-multi-thread", "net"] }
+tokio = { version = "1.50", features = ["full"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 indexmap = { version = "2.13", features = ["serde"] }
 regex = "1.12"
@@ -89,14 +87,32 @@ tempfile = "3.27"
 dialoguer = "0.12"   # Interactive prompts
 dirs = "6.0"         # Home directory resolution
 ureq = { version = "3.3", features = ["json"] }  # Sync HTTP client for npm registry API
+clap_complete = "4.6.2"
+miette = { version = "7.6.0", features = ["fancy"] }
+indicatif = "0.18.4"
+thiserror = "2.0.18"
 
+# Archive naming follows cargo-dist's default layout
+# (see dist-workspace.toml): airis-workspace-{target}.{ext} under the
+# v{version} release tag.
 [package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.tar.gz"
-pkg-fmt = "tgz"
+pkg-url = "{ repo }/releases/download/v{ version }/airis-workspace-{ target }.tar.xz"
+pkg-fmt = "txz"
 
 [package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-url = "{ repo }/releases/download/v{ version }/airis-{ version }-{ target }.zip"
+pkg-url = "{ repo }/releases/download/v{ version }/airis-workspace-{ target }.zip"
 pkg-fmt = "zip"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
 
 [dev-dependencies]
 assert_cmd = "2.2"

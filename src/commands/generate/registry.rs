@@ -3,7 +3,7 @@ use std::fs;
 use std::path::Path;
 
 /// Load the list of previously generated files from .airis/generated.toml
-pub(super) fn load_generation_registry(path: &Path) -> Vec<String> {
+pub(crate) fn load_generation_registry(path: &Path) -> Vec<String> {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return Vec::new(),

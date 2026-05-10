@@ -1,4 +1,4 @@
-# Project Index: airis-monorepo
+# Project Index: airis-workspace
 
 **Generated**: 2025-11-14
 **Version**: 0.1.0
@@ -9,7 +9,7 @@
 ## 📁 Project Structure
 
 ```
-airis-monorepo/
+airis-workspace/
 ├── src/
 │   ├── main.rs              # CLI entry point
 │   ├── commands/
@@ -19,9 +19,8 @@ airis-monorepo/
 │   ├── config/
 │   │   └── mod.rs           # WorkspaceConfig schema
 │   └── templates/
-│       └── mod.rs           # Handlebars template engine
+│   └── mod.rs           # Handlebars template engine
 ├── templates/
-│   └── justfile-global      # Justfile template
 ├── examples/
 │   └── workspace.yaml       # Example configuration
 ├── Cargo.toml               # Rust package manifest
@@ -161,7 +160,7 @@ airis-monorepo/
 ### `Cargo.toml`
 - **Package**: `airis` 0.1.0
 - **Edition**: 2024 (latest Rust edition)
-- **Binary**: `airis-monorepo` (from src/main.rs)
+- **Binary**: `airis-workspace` (from src/main.rs)
 - **License**: MIT
 - **Keywords**: monorepo, docker, workspace, cli, prototyping
 
@@ -232,8 +231,8 @@ Example configuration with:
 ### Development Setup
 ```bash
 # Clone repository
-git clone https://github.com/agiletec-inc/airis-monorepo.git
-cd airis-monorepo
+git clone https://github.com/agiletec-inc/airis-workspace.git
+cd airis-workspace
 
 # Build debug binary
 cargo build
@@ -251,7 +250,7 @@ cargo install --path .
 mkdir test-workspace && cd test-workspace
 
 # Initialize workspace / sync derived files
-airis-monorepo init
+airis-workspace init
 
 # Verify generated files
 ls -la  # Should see: manifest.toml, workspace.yaml, justfile, package.json, pnpm-workspace.yaml
@@ -267,7 +266,7 @@ just workspace  # Enter container shell
 vim manifest.toml
 
 # Re-sync derived files
-airis-monorepo init
+airis-workspace init
 ```
 
 ---
@@ -337,4 +336,4 @@ airis-monorepo init
 
 **Last Updated**: 2025-11-14
 **Maintainer**: Agile Technology <hello@agiletec.jp>
-**Repository**: https://github.com/agiletec-inc/airis-monorepo
+**Repository**: https://github.com/agiletec-inc/airis-workspace

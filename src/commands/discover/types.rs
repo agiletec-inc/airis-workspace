@@ -2,8 +2,11 @@
 
 use indexmap::IndexMap;
 
+use serde::{Deserialize, Serialize};
+
 /// Detected framework for an app
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Framework {
     NextJs,
     Vite,
@@ -29,7 +32,8 @@ impl std::fmt::Display for Framework {
 }
 
 /// Location category for docker-compose files
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ComposeLocation {
     Root,      // ./compose.yml (should be moved)
     Workspace, // workspace/compose.yml
@@ -52,7 +56,7 @@ impl std::fmt::Display for ComposeLocation {
 
 /// Lightweight project info discovered from workspace patterns.
 /// Used by `airis gen` to auto-discover apps/libs without explicit [[app]] entries.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredProject {
     pub name: String,
     pub path: String,
@@ -60,7 +64,7 @@ pub struct DiscoveredProject {
 }
 
 /// Detected application
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedApp {
     pub name: String,
     pub path: String,
@@ -77,7 +81,7 @@ pub struct DetectedApp {
 }
 
 /// Detected library
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedLib {
     pub name: String,
     pub path: String,
@@ -92,14 +96,14 @@ pub struct DetectedLib {
 }
 
 /// Detected docker-compose file
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectedCompose {
     pub path: String,
     pub location: ComposeLocation,
 }
 
 /// Result of project discovery
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveryResult {
     pub apps: Vec<DetectedApp>,
     pub libs: Vec<DetectedLib>,
@@ -114,7 +118,7 @@ impl DiscoveryResult {
 }
 
 /// Package info extracted from package.json
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PackageInfo {
     pub scripts: IndexMap<String, String>,
     pub deps: IndexMap<String, String>,

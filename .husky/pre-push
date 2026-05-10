@@ -1,5 +1,5 @@
 #!/bin/bash
-# airis-monorepo pre-push hook
+# airis-workspace pre-push hook
 # Recommended checks before pushing to remote.
 # All checks are commented out by default — enable as your project matures.
 

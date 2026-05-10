@@ -164,6 +164,8 @@ pub fn build_affected_docker(base: &str, head: &str, opts: &DockerBuildOpts) -> 
 }
 
 /// Single or multi-target Docker build (--docker).
+///
+/// Multiple targets (e.g. `--targets lts,current`) are built in parallel using tokio.
 pub fn build_docker(project: &str, opts: &DockerBuildOpts) -> Result<()> {
     let build_targets: Vec<String> = if let Some(ref t) = opts.targets {
         t.clone()
@@ -181,98 +183,145 @@ pub fn build_docker(project: &str, opts: &DockerBuildOpts) -> Result<()> {
         .map(|url| remote_cache::Remote::parse(url))
         .transpose()?;
 
-    if build_targets.len() > 1 {
-        println!("{}", "==================================".bright_blue());
+    if build_targets.len() == 1 {
+        return build_single_target(project, &build_targets[0], &root, opts, &remote, false);
+    }
+
+    println!("{}", "==================================".bright_blue());
+    println!(
+        "{}",
+        "airis build --docker (multi-target)".bright_blue().bold()
+    );
+    println!("Project: {}", project.cyan());
+    println!("Targets: {}", build_targets.join(", ").yellow());
+    println!("{}", "==================================".bright_blue());
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let mut join_set: tokio::task::JoinSet<Result<()>> = tokio::task::JoinSet::new();
+
+        for build_channel in build_targets.iter() {
+            let project = project.to_string();
+            let build_channel = build_channel.clone();
+            let root = root.clone();
+            let opts_image = opts.image.clone();
+            let opts_push = opts.push;
+            let opts_no_cache = opts.no_cache;
+            let opts_context_out = opts.context_out.clone();
+            let remote = remote.clone();
+
+            join_set.spawn_blocking(move || {
+                build_single_target(
+                    &project,
+                    &build_channel,
+                    &root,
+                    &DockerBuildOpts {
+                        channel: Some(build_channel.clone()),
+                        targets: None,
+                        parallel: None,
+                        image: opts_image.as_ref().map(|img| {
+                            if img.contains(':') {
+                                format!("{}-{}", img, build_channel)
+                            } else {
+                                format!("{}:{}", img, build_channel)
+                            }
+                        }),
+                        push: opts_push,
+                        context_out: opts_context_out,
+                        no_cache: opts_no_cache,
+                        remote_cache: None,
+                    },
+                    &remote,
+                    true,
+                )
+            });
+        }
+
+        let mut errors: Vec<String> = vec![];
+        while let Some(res) = join_set.join_next().await {
+            match res {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => errors.push(e.to_string()),
+                Err(join_err) => errors.push(format!("task panicked: {join_err}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(errors.join("\n"))
+        }
+    })?;
+
+    println!(
+        "\n{}",
+        format!("✅ Built {} target(s) for {}", build_targets.len(), project)
+            .green()
+            .bold()
+    );
+
+    Ok(())
+}
+
+fn build_single_target(
+    project: &str,
+    build_channel: &str,
+    root: &std::path::Path,
+    opts: &DockerBuildOpts,
+    remote: &Option<remote_cache::Remote>,
+    show_header: bool,
+) -> Result<()> {
+    if show_header {
         println!(
             "{}",
-            "airis build --docker (multi-target)".bright_blue().bold()
+            format!("▶ Building target: {}", build_channel).bright_blue()
         );
-        println!("Project: {}", project.cyan());
-        println!("Targets: {}", build_targets.join(", ").yellow());
-        println!("{}", "==================================".bright_blue());
     }
 
-    for (idx, build_channel) in build_targets.iter().enumerate() {
-        if build_targets.len() > 1 {
-            println!(
-                "\n{}",
-                format!(
-                    "▶ [{}/{}] Building for target: {}",
-                    idx + 1,
-                    build_targets.len(),
-                    build_channel
-                )
-                .bright_blue()
-            );
-        }
+    let base_hash = docker_build::compute_content_hash(root, project)?;
+    let hash = format!("{}-{}", base_hash, build_channel);
+    let final_hash = blake3::hash(hash.as_bytes()).to_hex()[..12].to_string();
 
-        let base_hash = docker_build::compute_content_hash(&root, project)?;
-        let hash = format!("{}-{}", base_hash, build_channel);
-        let final_hash = blake3::hash(hash.as_bytes()).to_hex()[..12].to_string();
-
-        if let Some(artifact) = docker_build::cache_hit(project, &final_hash) {
-            println!(
-                "{}",
-                format!("  ✅ Local cache hit: {}", artifact.image_ref).green()
-            );
-            continue;
-        }
-
-        if let Some(ref remote) = remote
-            && let Some(artifact) = remote_cache::remote_hit(project, &final_hash, remote)?
-        {
-            println!(
-                "{}",
-                format!("  ✅ Remote cache hit: {}", artifact.image_ref).green()
-            );
-            docker_build::cache_store(project, &final_hash, &artifact)?;
-            continue;
-        }
-
-        let target_image_name = if build_targets.len() > 1 {
-            opts.image.as_ref().map(|img| {
-                if img.contains(':') {
-                    format!("{}-{}", img, build_channel)
-                } else {
-                    format!("{}:{}", img, build_channel)
-                }
-            })
-        } else {
-            opts.image.clone()
-        };
-
-        let config = docker_build::BuildConfig {
-            target: project.to_string(),
-            image_name: target_image_name,
-            push: opts.push,
-            no_cache: opts.no_cache,
-            context_out: opts.context_out.clone(),
-            channel: build_channel.clone(),
-            ..Default::default()
-        };
-        let result = docker_build::docker_build(&root, config)?;
-
-        let artifact = docker_build::CachedArtifact {
-            image_ref: result.image_ref.clone(),
-            hash: final_hash.clone(),
-            built_at: chrono::Utc::now().to_rfc3339(),
-            target: project.to_string(),
-        };
-        docker_build::cache_store(project, &final_hash, &artifact)?;
-
-        if let Some(ref remote) = remote {
-            println!("{}", "  📤 Pushing to remote cache...".cyan());
-            remote_cache::remote_store(project, &final_hash, &artifact, remote)?;
-        }
-    }
-
-    if build_targets.len() > 1 {
+    if let Some(artifact) = docker_build::cache_hit(project, &final_hash) {
         println!(
-            "\n{}",
-            format!("✅ Built {} target(s) for {}", build_targets.len(), project)
-                .green()
-                .bold()
+            "{}",
+            format!("  ✅ Local cache hit: {}", artifact.image_ref).green()
         );
+        return Ok(());
+    }
+
+    if let Some(remote) = remote
+        && let Some(artifact) = remote_cache::remote_hit(project, &final_hash, remote)?
+    {
+        println!(
+            "{}",
+            format!("  ✅ Remote cache hit: {}", artifact.image_ref).green()
+        );
+        docker_build::cache_store(project, &final_hash, &artifact)?;
+        return Ok(());
+    }
+
+    let config = docker_build::BuildConfig {
+        target: project.to_string(),
+        image_name: opts.image.clone(),
+        push: opts.push,
+        no_cache: opts.no_cache,
+        context_out: opts.context_out.clone(),
+        channel: build_channel.to_string(),
+        ..Default::default()
+    };
+    let result = docker_build::docker_build(root, config)?;
+
+    let artifact = docker_build::CachedArtifact {
+        image_ref: result.image_ref.clone(),
+        hash: final_hash.clone(),
+        built_at: chrono::Utc::now().to_rfc3339(),
+        target: project.to_string(),
+    };
+    docker_build::cache_store(project, &final_hash, &artifact)?;
+
+    if let Some(remote) = remote {
+        println!("{}", "  📤 Pushing to remote cache...".cyan());
+        remote_cache::remote_store(project, &final_hash, &artifact, remote)?;
     }
 
     Ok(())

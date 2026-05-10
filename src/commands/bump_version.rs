@@ -52,8 +52,7 @@ pub fn run(mode: BumpMode) -> Result<()> {
                     bump_version_string(&current_version, "minor")?
                 }
                 VersioningStrategy::ConventionalCommits => {
-                    // Get last commit message
-                    let commit_msg = get_last_commit_message()?;
+                    let commit_msg = get_pending_commit_message()?;
                     detect_bump_type_from_conventional_commit(&commit_msg, &current_version)?
                 }
             }
@@ -71,9 +70,13 @@ pub fn run(mode: BumpMode) -> Result<()> {
 
     // Update Cargo.toml only (manifest.toml is NEVER touched)
     update_cargo_toml(&new_version)?;
+    let lock_updated = update_cargo_lock(&new_version)?;
 
     println!("✅ Version bumped successfully!");
     println!("   Cargo.toml: {}", new_version.green());
+    if lock_updated {
+        println!("   Cargo.lock: {}", new_version.green());
+    }
 
     Ok(())
 }
@@ -121,8 +124,26 @@ fn bump_version_string(current: &str, bump_type: &str) -> Result<String> {
     Ok(new_version)
 }
 
-/// Get the last commit message
-fn get_last_commit_message() -> Result<String> {
+/// Get the commit message to analyze for conventional-commit bump detection.
+///
+/// When invoked from a git pre-commit hook, `.git/COMMIT_EDITMSG` already
+/// contains the message that is about to be committed, so we read that
+/// first. Outside of a hook (manual `airis bump-version --auto`), that file
+/// holds a stale value from the previous commit — in that case we fall back
+/// to `git log -1`, which reflects the user's latest intent.
+fn get_pending_commit_message() -> Result<String> {
+    // Prefer COMMIT_EDITMSG when it looks fresh (pre-commit hook context).
+    let edit_msg_path = resolve_git_dir()?.join("COMMIT_EDITMSG");
+    if edit_msg_path.exists()
+        && let Ok(raw) = fs::read_to_string(&edit_msg_path)
+    {
+        let cleaned = strip_commit_comments(&raw);
+        if !cleaned.is_empty() {
+            return Ok(cleaned);
+        }
+    }
+
+    // Fallback: last committed message (for manual invocation after commit).
     let output = Command::new("git")
         .args(["log", "-1", "--pretty=%B"])
         .output()
@@ -140,32 +161,73 @@ fn get_last_commit_message() -> Result<String> {
     Ok(msg)
 }
 
-/// Detect version bump type from Conventional Commits message
+/// Resolve the `.git` directory (handles worktrees via `git rev-parse`).
+fn resolve_git_dir() -> Result<std::path::PathBuf> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--git-dir"])
+        .output()
+        .with_context(|| "Failed to resolve git dir")?;
+
+    if !output.status.success() {
+        bail!("Failed to resolve git dir");
+    }
+
+    let dir = String::from_utf8(output.stdout)
+        .with_context(|| "Invalid UTF-8 from git rev-parse")?
+        .trim()
+        .to_string();
+
+    Ok(std::path::PathBuf::from(dir))
+}
+
+/// Strip comment lines (starting with `#`) and trim the result.
+fn strip_commit_comments(raw: &str) -> String {
+    raw.lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
+
+/// Detect version bump type from a Conventional Commits message.
+///
+/// Only the subject line is inspected for the type prefix and `!` marker,
+/// so quoted `feat!:` examples inside commit bodies do not trigger bumps.
+/// `BREAKING CHANGE` footers (anywhere in the message) still force a major bump.
 fn detect_bump_type_from_conventional_commit(
     commit_msg: &str,
     current_version: &str,
 ) -> Result<String> {
-    // BREAKING CHANGE or feat!: → major
-    if commit_msg.contains("BREAKING CHANGE") || commit_msg.contains("!:") {
+    let subject = commit_msg.lines().next().unwrap_or("").trim();
+
+    // BREAKING CHANGE footer anywhere, or `!` before the colon in the subject.
+    let has_breaking_footer = commit_msg.contains("BREAKING CHANGE");
+    let subject_is_breaking = subject
+        .split_once(':')
+        .map(|(prefix, _)| prefix.ends_with('!'))
+        .unwrap_or(false);
+
+    if has_breaking_footer || subject_is_breaking {
         return bump_version_string(current_version, "major");
     }
 
     // feat: → minor
-    if commit_msg.starts_with("feat:") || commit_msg.starts_with("feat(") {
+    if subject.starts_with("feat:") || subject.starts_with("feat(") {
         return bump_version_string(current_version, "minor");
     }
 
     // fix: → patch
-    if commit_msg.starts_with("fix:") || commit_msg.starts_with("fix(") {
+    if subject.starts_with("fix:") || subject.starts_with("fix(") {
         return bump_version_string(current_version, "patch");
     }
 
     // chore:, docs:, style:, refactor:, test: → patch
-    if commit_msg.starts_with("chore:")
-        || commit_msg.starts_with("docs:")
-        || commit_msg.starts_with("style:")
-        || commit_msg.starts_with("refactor:")
-        || commit_msg.starts_with("test:")
+    if subject.starts_with("chore:")
+        || subject.starts_with("docs:")
+        || subject.starts_with("style:")
+        || subject.starts_with("refactor:")
+        || subject.starts_with("test:")
     {
         return bump_version_string(current_version, "patch");
     }
@@ -192,6 +254,66 @@ fn update_cargo_toml(new_version: &str) -> Result<()> {
     fs::write(cargo_path, updated.as_ref()).with_context(|| "Failed to write Cargo.toml")?;
 
     Ok(())
+}
+
+/// Read the package name from `[package]` in Cargo.toml.
+fn read_cargo_package_name() -> Result<Option<String>> {
+    let cargo_path = Path::new("Cargo.toml");
+    if !cargo_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(cargo_path).with_context(|| "Failed to read Cargo.toml")?;
+
+    let mut in_package = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix('[') {
+            in_package = rest.trim_end_matches(']').trim() == "package";
+            continue;
+        }
+        if in_package && let Some(value) = trimmed.strip_prefix("name") {
+            return Ok(value
+                .trim_start()
+                .strip_prefix('=')
+                .map(|v| v.trim().trim_matches('"').to_string()));
+        }
+    }
+    Ok(None)
+}
+
+/// Sync this package's version in Cargo.lock.
+///
+/// The pre-commit hook bumps Cargo.toml on every commit; if Cargo.lock is left
+/// stale, every follow-up commit produces another mismatch and the hook keeps
+/// re-bumping forever. We update only the package block whose `name` matches
+/// Cargo.toml so unrelated packages in the lockfile stay untouched.
+fn update_cargo_lock(new_version: &str) -> Result<bool> {
+    let lock_path = Path::new("Cargo.lock");
+    if !lock_path.exists() {
+        return Ok(false);
+    }
+    let pkg_name = match read_cargo_package_name()? {
+        Some(name) => name,
+        None => return Ok(false),
+    };
+
+    let content = fs::read_to_string(lock_path).with_context(|| "Failed to read Cargo.lock")?;
+    let updated = replace_lock_version(&content, &pkg_name, new_version)?;
+    if updated == content {
+        return Ok(false);
+    }
+    fs::write(lock_path, &updated).with_context(|| "Failed to write Cargo.lock")?;
+    Ok(true)
+}
+
+/// Replace the `version = "..."` line that immediately follows the named
+/// package's `name = "..."` line. Pure function so it can be unit-tested.
+fn replace_lock_version(content: &str, pkg_name: &str, new_version: &str) -> Result<String> {
+    let escaped = regex::escape(pkg_name);
+    let pattern = Regex::new(&format!(r#"(name = "{escaped}"\nversion = ")[^"]+(")"#))?;
+    Ok(pattern
+        .replace(content, format!(r#"${{1}}{}${{2}}"#, new_version).as_str())
+        .into_owned())
 }
 
 #[cfg(test)]
@@ -223,11 +345,62 @@ mod tests {
         let result = detect_bump_type_from_conventional_commit("fix: bug fix", "1.1.0");
         assert_eq!(result.unwrap(), "1.1.1");
 
-        // BREAKING CHANGE → major
-        let result = detect_bump_type_from_conventional_commit(
-            "feat!: BREAKING CHANGE: api change",
-            "1.1.1",
-        );
+        // feat! subject → major
+        let result = detect_bump_type_from_conventional_commit("feat!: api change", "1.1.1");
         assert_eq!(result.unwrap(), "2.0.0");
+
+        // BREAKING CHANGE footer → major
+        let result = detect_bump_type_from_conventional_commit(
+            "feat: add api\n\nBREAKING CHANGE: rename endpoint",
+            "2.0.0",
+        );
+        assert_eq!(result.unwrap(), "3.0.0");
+    }
+
+    #[test]
+    fn test_breaking_marker_only_matches_subject() {
+        // A `fix:` commit whose body happens to contain `feat!:` as an
+        // example must NOT trigger a major bump (this is the bug that
+        // caused the runaway version history).
+        let body_quoting_breaking =
+            "fix: remove dead code\n\nThe previous feat!: change left dead resolvers behind.";
+        let result = detect_bump_type_from_conventional_commit(body_quoting_breaking, "4.0.1");
+        assert_eq!(result.unwrap(), "4.0.2");
+    }
+
+    #[test]
+    fn test_scoped_breaking_marker() {
+        // `feat(scope)!:` must be recognized as breaking.
+        let result = detect_bump_type_from_conventional_commit("feat(api)!: redesign", "1.2.3");
+        assert_eq!(result.unwrap(), "2.0.0");
+    }
+
+    #[test]
+    fn test_strip_commit_comments() {
+        let raw = "fix: something\n# please enter the commit message\n\n# Changes to be committed:";
+        assert_eq!(strip_commit_comments(raw), "fix: something");
+    }
+
+    #[test]
+    fn test_replace_lock_version_targets_named_package_only() {
+        let lock = "[[package]]\n\
+                    name = \"other-thing\"\n\
+                    version = \"1.0.0\"\n\
+                    \n\
+                    [[package]]\n\
+                    name = \"airis-workspace\"\n\
+                    version = \"3.3.2\"\n\
+                    dependencies = []\n";
+        let updated = replace_lock_version(lock, "airis-workspace", "3.4.0").unwrap();
+        assert!(updated.contains("name = \"airis-workspace\"\nversion = \"3.4.0\""));
+        // Untouched neighbour package.
+        assert!(updated.contains("name = \"other-thing\"\nversion = \"1.0.0\""));
+    }
+
+    #[test]
+    fn test_replace_lock_version_noop_when_package_absent() {
+        let lock = "[[package]]\nname = \"only-other\"\nversion = \"1.0.0\"\n";
+        let updated = replace_lock_version(lock, "airis-workspace", "9.9.9").unwrap();
+        assert_eq!(updated, lock);
     }
 }

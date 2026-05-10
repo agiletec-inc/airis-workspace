@@ -4,7 +4,7 @@
 
 ### 前提条件
 
-- GitHub リポジトリ: `agiletec-inc/airis-monorepo`
+- GitHub リポジトリ: `agiletec-inc/airis-workspace`
 - Homebrew Tap リポジトリ: `agiletec-inc/homebrew-tap`
 - GitHub Personal Access Token（`repo` スコープ付き）
 
@@ -21,7 +21,7 @@
 
 ### 2. GitHub Secrets に追加
 
-1. `agiletec-inc/airis-monorepo` リポジトリにアクセス
+1. `agiletec-inc/airis-workspace` リポジトリにアクセス
 2. Settings → Secrets and variables → Actions
 3. "New repository secret" をクリック
 4. Name: `HOMEBREW_TAP_TOKEN`
@@ -59,7 +59,7 @@ git push origin main
 
 GitHub の Actions タブから手動で実行できます：
 
-1. `agiletec-inc/airis-monorepo` の Actions タブにアクセス
+1. `agiletec-inc/airis-workspace` の Actions タブにアクセス
 2. "Release to Homebrew" ワークフローを選択
 3. "Run workflow" → "Run workflow" をクリック
 

@@ -5,16 +5,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Workspace mode (docker-first, hybrid, strict)
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-#[serde(rename_all = "kebab-case")]
-pub enum Mode {
-    #[default]
-    DockerFirst,
-    Hybrid,
-    Strict,
-}
-
 fn default_version() -> u32 {
     1
 }
@@ -27,8 +17,6 @@ pub(crate) fn schema_default_version() -> u32 {
 pub struct Manifest {
     #[serde(default = "default_version")]
     pub version: u32,
-    #[serde(default)]
-    pub mode: Mode,
     /// Project metadata (SoT for Cargo.toml, Homebrew, etc.)
     #[serde(default)]
     pub project: MetaSection,
@@ -76,6 +64,9 @@ pub struct Manifest {
     /// Documentation management (CLAUDE.md, .cursorrules, etc.)
     #[serde(default)]
     pub docs: DocsSection,
+    /// AI tool configuration (CLAUDE.md, etc.) SSOT
+    #[serde(default)]
+    pub ai: AISection,
     /// CI/CD configuration
     #[serde(default)]
     pub ci: CiSection,
@@ -94,6 +85,10 @@ pub struct Manifest {
     /// TypeScript configuration for tsconfig generation
     #[serde(default)]
     pub typescript: TypescriptSection,
+
+    /// User-defined technology stacks (artifacts, verify commands, images)
+    #[serde(default)]
+    pub stack: IndexMap<String, StackDefinition>,
 
     /// Reusable dependency groups (e.g., shadcn radix-ui components)
     #[serde(default)]
@@ -132,7 +127,7 @@ pub struct Manifest {
 /// Project metadata - Source of Truth for Cargo.toml, Homebrew formula, etc.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct MetaSection {
-    /// Project ID (e.g., "airis-monorepo")
+    /// Project ID (e.g., "airis-workspace")
     #[serde(default)]
     pub id: String,
     /// CLI binary name (e.g., "airis")
@@ -354,18 +349,36 @@ fn default_apps_pattern() -> String {
     "apps/*/compose.yml".to_string()
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct AppConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
     pub app_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub scripts: IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub deps: IndexMap<String, String>,
+    #[serde(
+        rename = "devDeps",
+        default,
+        skip_serializing_if = "IndexMap::is_empty"
+    )]
+    pub dev_deps: IndexMap<String, String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone, PartialEq)]
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub struct LibConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub framework: Option<String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub scripts: IndexMap<String, String>,
+    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
+    pub deps: IndexMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
@@ -940,8 +953,26 @@ pub struct K8sResources {
     pub limits: Option<ResourceSpec>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct StackDefinition {
+    /// Docker image (e.g., "node:24-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Artifact directories to isolate in named volumes
+    #[serde(default)]
+    pub artifacts: Vec<String>,
+    /// Quality check commands for airis verify
+    #[serde(default)]
+    pub verify: Vec<String>,
+    /// Whether this stack needs NVIDIA GPU access
+    #[serde(default)]
+    pub gpu: bool,
+    /// Default scripts to inject into package.json
+    #[serde(default)]
+    pub scripts: IndexMap<String, String>,
+}
+
 /// Project definition for package.json management.
-/// In hybrid mode, airis manages only name/version/private/type.
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ProjectDefinition {
     pub name: String,
@@ -949,6 +980,9 @@ pub struct ProjectDefinition {
     pub kind: Option<String>, // "app" | "lib" | "service"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// Reference to a [stack.*] definition
+    #[serde(rename = "use", skip_serializing_if = "Option::is_none")]
+    pub use_stack: Option<String>,
     /// Package name scope (e.g., "@agiletec"). Overrides default @workspace scope.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
@@ -989,7 +1023,13 @@ pub struct ProjectDefinition {
     #[serde(default)]
     pub files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub framework: Option<String>, // "react-vite" | "nextjs" | "node" | "rust"
+    pub framework: Option<String>, // "react-vite" | "nextjs" | "node" | "rust" | "python"
+    /// Python version (e.g., "3.12")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub python: Option<String>,
+    /// CUDA version (e.g., "12.4")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cuda: Option<String>,
     /// Runtime configuration for Docker builds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runner: Option<RuntimeConfig>,
@@ -1187,25 +1227,18 @@ impl ProjectDefinition {
 
         // Lib-specific conventions
         if self.kind.as_deref() == Some("lib") {
-            // main
+            // main — point directly at TypeScript source for internal packages
             if self.main.is_none() {
-                self.main = Some("./dist/index.js".to_string());
+                self.main = Some("./src/index.ts".to_string());
             }
 
-            // exports
+            // exports — source export pattern: consumers resolve .ts directly, no build needed
             if self.exports.is_none() {
-                // Default: "." = { types = "./dist/index.d.ts", import = "./dist/index.js" }
                 let mut export_map = toml::map::Map::new();
-                let mut dot_export = toml::map::Map::new();
-                dot_export.insert(
-                    "types".to_string(),
-                    toml::Value::String("./dist/index.d.ts".to_string()),
+                export_map.insert(
+                    ".".to_string(),
+                    toml::Value::String("./src/index.ts".to_string()),
                 );
-                dot_export.insert(
-                    "import".to_string(),
-                    toml::Value::String("./dist/index.js".to_string()),
-                );
-                export_map.insert(".".to_string(), toml::Value::Table(dot_export));
                 self.exports = Some(toml::Value::Table(export_map));
             }
 
@@ -1412,6 +1445,53 @@ pub enum DocsVendor {
     Gemini,
 }
 
+/// AI tool configuration — Single Source of Truth for AI rules.
+/// Feeds into CLAUDE.md, AGENTS.md, GEMINI.md, and .cursor/rules/ generation.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct AISection {
+    /// Shared rule files used as the source of truth (e.g., ["docs/ai/PROJECT_RULES.md"])
+    #[serde(default)]
+    pub shared_rules: Vec<String>,
+    /// Claude Code configuration
+    #[serde(default)]
+    pub claude: Option<ClaudeAIConfig>,
+    /// Codex configuration
+    #[serde(default)]
+    pub codex: Option<CodexAIConfig>,
+    /// Gemini configuration
+    #[serde(default)]
+    pub gemini: Option<GeminiAIConfig>,
+    /// Cursor configuration
+    #[serde(default)]
+    pub cursor: Option<CursorAIConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ClaudeAIConfig {
+    /// Target file path (e.g., ".claude/CLAUDE.md")
+    pub target: String,
+    /// Directory for generated individual rules (e.g., ".claude/rules/generated/")
+    pub rules_dir: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CodexAIConfig {
+    /// Target file path (e.g., "AGENTS.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct GeminiAIConfig {
+    /// Target file path (e.g., "GEMINI.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CursorAIConfig {
+    /// Directory for generated individual rules (e.g., ".cursor/rules/")
+    pub rules_dir: String,
+}
+
 /// CI/CD configuration
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CiSection {
@@ -1452,9 +1532,6 @@ pub struct CiSection {
     /// Runner label for Cloudflare Workers deploy jobs. Default: "ubuntu-latest"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_runner: Option<String>,
-    /// GitHub Actions versions (checkout, pnpm, setup-node, cache)
-    #[serde(default)]
-    pub actions: ActionsVersions,
     /// CI validate job timeout in minutes. Default: 5
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub validate_timeout: Option<u8>,
@@ -1482,7 +1559,6 @@ impl Default for CiSection {
             cache: true,
             pnpm_store_path: None,
             worker_runner: None,
-            actions: ActionsVersions::default(),
             validate_timeout: None,
             jobs: default_ci_jobs(),
             e2e: E2eSection::default(),
@@ -1513,58 +1589,6 @@ pub struct E2eSection {
     /// Trigger workflow name (workflow_run). Default: "Deploy"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_workflow: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct ActionsVersions {
-    /// actions/checkout version. Default: "v6"
-    #[serde(default = "default_v6")]
-    pub checkout: String,
-    /// pnpm/action-setup version. Default: "v5"
-    #[serde(default = "default_v5")]
-    pub pnpm: String,
-    /// actions/setup-node version. Default: "v6"
-    #[serde(default = "default_v6")]
-    pub setup_node: String,
-    /// actions/cache version. Default: "v5"
-    #[serde(default = "default_v5")]
-    pub cache: String,
-    /// dopplerhq/cli-action version. Default: "v3"
-    #[serde(default = "default_v3")]
-    pub doppler: String,
-    /// actions/upload-artifact version. Default: "v7"
-    #[serde(default = "default_v7")]
-    pub upload_artifact: String,
-    /// actions/download-artifact version. Default: "v7"
-    #[serde(default = "default_v7")]
-    pub download_artifact: String,
-}
-
-fn default_v7() -> String {
-    "v7".to_string()
-}
-fn default_v6() -> String {
-    "v6".to_string()
-}
-fn default_v5() -> String {
-    "v5".to_string()
-}
-fn default_v3() -> String {
-    "v3".to_string()
-}
-
-impl Default for ActionsVersions {
-    fn default() -> Self {
-        ActionsVersions {
-            checkout: default_v6(),
-            pnpm: default_v5(),
-            setup_node: default_v6(),
-            cache: default_v5(),
-            doppler: default_v3(),
-            upload_artifact: default_v7(),
-            download_artifact: default_v7(),
-        }
-    }
 }
 
 fn default_ci_enabled() -> bool {
@@ -1848,12 +1872,94 @@ pub struct TemplateConfig {
     pub package_config: String,
 }
 
-/// Runtime aliases configuration
+/// Runtime declarations.
+///
+/// Two responsibilities live here:
+/// 1. `alias` — short aliases consumed by `airis new` (e.g., "py" -> "fastapi").
+/// 2. `node` / `python` / `rust` — declarative runtime versions consumed by
+///    workspace Dockerfile generation and `airis exec` cmd→service routing
+///    (Phase 1 onward; see docs/ai/IDEAL_STATE.md §2 and the eager-floating-book plan).
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RuntimesSection {
-    /// Short aliases for runtimes (e.g., "py" -> "fastapi", "ts" -> "hono")
+    /// Short aliases for `airis new` templates (e.g., "py" -> "fastapi", "ts" -> "hono")
     #[serde(default)]
     pub alias: IndexMap<String, String>,
+    /// Node runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<RuntimeSpec>,
+    /// Python runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<RuntimeSpec>,
+    /// Rust toolchain to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust: Option<RuntimeSpec>,
+}
+
+/// A runtime declaration. Accepts either a bare version string or a detailed table.
+///
+/// ```toml
+/// [runtimes]
+/// node = "24"                     # short form
+///
+/// [runtimes.python]
+/// version = "3.13"
+/// package_manager = "uv"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum RuntimeSpec {
+    /// Bare version string, e.g., `node = "24"`
+    Short(String),
+    /// Detailed table with version + optional image / package_manager / components
+    Detailed(RuntimeDetail),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct RuntimeDetail {
+    pub version: String,
+    /// Override the resolved base image (e.g., `python:3.13-slim`). Default: derived from version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Package manager hint for ecosystems with multiple options (Python: uv|pip|poetry).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_manager: Option<String>,
+    /// Toolchain components (e.g., Rust: ["clippy", "rustfmt"]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub toolchain_components: Vec<String>,
+}
+
+impl RuntimeSpec {
+    /// Returns the version string for this runtime spec.
+    pub fn version(&self) -> &str {
+        match self {
+            RuntimeSpec::Short(v) => v.as_str(),
+            RuntimeSpec::Detailed(d) => d.version.as_str(),
+        }
+    }
+
+    /// Returns the explicitly overridden image, if any.
+    pub fn image_override(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.image.as_deref(),
+        }
+    }
+
+    /// Returns the explicit package manager hint, if any.
+    pub fn package_manager(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.package_manager.as_deref(),
+        }
+    }
+
+    /// Returns toolchain components (empty for `Short`).
+    pub fn toolchain_components(&self) -> &[String] {
+        match self {
+            RuntimeSpec::Short(_) => &[],
+            RuntimeSpec::Detailed(d) => &d.toolchain_components,
+        }
+    }
 }
 
 // =============================================================================
@@ -1974,6 +2080,17 @@ pub struct PolicySection {
     /// Security policy — banned env vars, secret scanning
     #[serde(default)]
     pub security: SecurityPolicy,
+}
+
+impl Manifest {
+    /// Check if the manifest contains explicit orchestration or application configuration
+    /// that warrants generating a compose.yaml file.
+    pub fn has_orchestration_config(&self) -> bool {
+        !self.app.is_empty()
+            || self.orchestration.dev.is_some()
+            || self.docker.workspace.is_some()
+            || !self.service.is_empty()
+    }
 }
 
 /// Security policy for source code governance.

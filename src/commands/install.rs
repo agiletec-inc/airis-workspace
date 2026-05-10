@@ -11,8 +11,8 @@ pub fn run(extra_args: &[String]) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
     if !manifest_path.exists() {
         bail!(
-            "❌ manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 

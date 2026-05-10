@@ -67,8 +67,8 @@ pub fn init() -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 
@@ -122,8 +122,8 @@ pub fn list() -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 
@@ -188,8 +188,8 @@ pub fn setup() -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 
@@ -286,8 +286,8 @@ pub fn remove() -> Result<()> {
 
     if !manifest_path.exists() {
         bail!(
-            "manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 

@@ -25,20 +25,11 @@ pub(super) fn generate_package_json(
 }
 
 pub(super) fn generate_pnpm_workspace(
-    manifest: &Manifest,
-    engine: &TemplateEngine,
+    _manifest: &Manifest,
+    _engine: &TemplateEngine,
     _force: bool,
 ) -> Result<()> {
-    let path = Path::new("pnpm-workspace.yaml");
-    let content = engine.render_pnpm_workspace(manifest)?;
-
-    // pnpm-workspace.yaml is Tool-owned — always overwrite from manifest.toml
-    write_with_backup(path, &content)?;
-    if path.exists() {
-        println!(
-            "   {} pnpm-workspace.yaml (synced from manifest.toml)",
-            "✓".green()
-        );
-    }
+    // pnpm-workspace.yaml is now user-owned.
+    // airis no longer overwrites it from manifest.toml to prevent accidental data loss.
     Ok(())
 }

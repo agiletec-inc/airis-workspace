@@ -19,15 +19,7 @@ if [ -f "package.json" ]; then
     echo "✅ Updated Node: package.json"
 fi
 
-# 3. NPM Distributions (npm/*/package.json)
-for f in npm/*/package.json; do
-    if [ -f "$f" ]; then
-        sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$f" && rm "$f.bak"
-        echo "✅ Updated NPM Dist: $f"
-    fi
-done
-
-# 4. Workspace packages (apps/*, libs/*, packages/*)
+# 3. Workspace packages (apps/*, libs/*, packages/*)
 for f in {apps,libs,packages}/*/package.json; do
     if [ -e "$f" ]; then
         sed -i.bak "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" "$f" && rm "$f.bak"

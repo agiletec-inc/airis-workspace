@@ -1,6 +1,11 @@
+use std::sync::LazyLock;
+
 use anyhow::{Result, bail};
 
 use super::*;
+
+static GUARD_CMD_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
 impl Manifest {
     /// Validate manifest consistency.
@@ -16,6 +21,26 @@ impl Manifest {
     pub fn validate(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
+
+        // 0. Base Metadata Validation
+        if self.project.id.is_empty() {
+            errors.push("project.id is required".to_string());
+        }
+
+        // 0b. Workspace Validation
+        let known_pms = ["pnpm", "npm", "yarn", "bun"];
+        let pm_base = self
+            .workspace
+            .package_manager
+            .split('@')
+            .next()
+            .unwrap_or("");
+        if !self.workspace.package_manager.is_empty() && !known_pms.contains(&pm_base) {
+            errors.push(format!(
+                "workspace.package_manager \"{}\" is unknown. Supported: pnpm, npm, yarn, bun",
+                self.workspace.package_manager
+            ));
+        }
 
         // 1. Check for duplicate ports in service entries
         {
@@ -56,16 +81,15 @@ impl Manifest {
         }
 
         // 3b. Validate guard command names (shell metacharacter prevention)
-        let cmd_re = regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").unwrap();
         for cmd in &self.guards.deny {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
             }
         }
         for cmd in self.guards.wrap.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.wrap contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
@@ -82,7 +106,7 @@ impl Manifest {
             }
         }
         for cmd in self.guards.deny_with_message.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny_with_message contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
@@ -91,6 +115,9 @@ impl Manifest {
 
         // 4. Validate dep_group / env_group references
         self.validate_group_references(&mut errors);
+
+        // 4b. Validate app/lib names and paths
+        self.validate_projects(&mut errors);
 
         // 5. Detect cycles in catalog follow chains
         self.validate_catalog_cycles(&mut errors);
@@ -234,8 +261,8 @@ impl Manifest {
         }
     }
 
-    /// Emit warnings for catalog version strings that look like typos of "latest" or "lts".
-    fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
+    /// Detect likely typos of "latest" / "lts" in catalog versions (warning)
+    pub(crate) fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
         const KNOWN_POLICIES: &[&str] = &["latest", "lts"];
 
         for (key, entry) in &self.packages.catalog {
@@ -257,6 +284,31 @@ impl Manifest {
                         ));
                         break;
                     }
+                }
+            }
+        }
+    }
+
+    /// Validate app/lib consistency (names, paths, uniqueness)
+    fn validate_projects(&self, errors: &mut Vec<String>) {
+        let mut names = std::collections::HashSet::new();
+        let mut paths = std::collections::HashSet::new();
+
+        for app in &self.app {
+            if app.name.is_empty() && app.path.is_none() {
+                errors.push("[[app]] entry must have at least a name or a path".to_string());
+                continue;
+            }
+
+            if !app.name.is_empty() && !names.insert(app.name.clone()) {
+                errors.push(format!("Duplicate app/lib name: \"{}\"", app.name));
+            }
+
+            if let Some(ref path) = app.path {
+                if path.is_empty() {
+                    errors.push(format!("[[app]] \"{}\": path cannot be empty", app.name));
+                } else if !paths.insert(path.clone()) {
+                    errors.push(format!("Duplicate project path: \"{}\"", path));
                 }
             }
         }

@@ -12,8 +12,8 @@ Complete reference for the `manifest.toml` file used by the airis CLI -- a Docke
 - [\[project\]](#project)
 - [\[workspace\]](#workspace)
 - [\[dev\]](#dev)
-- [\[apps.\<name\>\]](#appsname)
-- [\[libs.\<name\>\]](#libsname)
+- [\[\[app\]\]](#app)
+- [\[stack.\<name\>\]](#stackname)
 - [\[service.\<name\>\]](#servicename)
 - [\[docker\]](#docker)
 - [\[packages\]](#packages)
@@ -57,7 +57,7 @@ Project metadata. Acts as the source of truth for `Cargo.toml`, Homebrew formula
 
 | Field          | Type     | Default | Description                                    |
 |----------------|----------|---------|------------------------------------------------|
-| `id`           | string   | `""`    | Project identifier (e.g., `"airis-monorepo"`). |
+| `id`           | string   | `""`    | Project identifier (e.g., `"airis-workspace"`). |
 | `binary_name`  | string   | `""`    | CLI binary name (e.g., `"airis"`).             |
 | `version`      | string   | `""`    | Semantic version (e.g., `"1.56.0"`).           |
 | `description`  | string   | `""`    | Short project description.                     |
@@ -71,14 +71,14 @@ Project metadata. Acts as the source of truth for `Cargo.toml`, Homebrew formula
 
 ```toml
 [project]
-id = "airis-monorepo"
+id = "airis-workspace"
 binary_name = "airis"
 version = "1.56.0"
 description = "Docker-first monorepo workspace manager"
 authors = ["Agile Technology <hello@agiletec.jp>"]
 license = "MIT"
-homepage = "https://github.com/agiletec-inc/airis-monorepo"
-repository = "https://github.com/agiletec-inc/airis-monorepo"
+homepage = "https://github.com/agiletec-inc/airis-workspace"
+repository = "https://github.com/agiletec-inc/airis-workspace"
 keywords = ["monorepo", "docker", "workspace", "cli"]
 categories = ["command-line-utilities", "development-tools"]
 rust_edition = "2024"
@@ -166,41 +166,59 @@ apps = [
 
 ---
 
-## [apps.\<name\>]
+## [[app]]
 
-Declare application projects in the monorepo. Each key is the app name.
+Declare application and library projects in the monorepo.
 
-| Field  | Type    | Default | Description                          |
-|--------|---------|---------|--------------------------------------|
-| `path` | string? | `null`  | App directory path (e.g., `"apps/web"`). |
-| `type` | string? | `null`  | Framework type (e.g., `"nextjs"`, `"vite"`, `"hono"`). |
+| Field       | Type    | Default | Description                                                                 |
+|-------------|---------|---------|-----------------------------------------------------------------------------|
+| `name`      | string  | --      | Project name.                                                               |
+| `path`      | string? | `null`  | Project directory path (e.g., `"apps/web"`).                                |
+| `use`       | string? | `null`  | Reference to a `[stack]` definition for automatic configuration.            |
+| `framework` | string? | `null`  | Legacy framework type (e.g., `"nextjs"`, `"vite"`). Prefer `use`.           |
+| `python`    | string? | `null`  | Python version constraint (e.g., `"3.12"`).                                 |
+| `cuda`      | string? | `null`  | CUDA version for GPU support (e.g., `"12.4"`). Triggers GPU resource setup. |
 
 ```toml
-[apps.dashboard]
+[[app]]
+name = "dashboard"
 path = "apps/dashboard"
-type = "nextjs"
+use = "nextjs"
 
-[apps.api]
-path = "apps/api"
-type = "hono"
+[[app]]
+name = "ai-model"
+path = "apps/ai-model"
+use = "python-ml"
+python = "3.12"
+cuda = "12.4"
 ```
 
 ---
 
-## [libs.\<name\>]
+## [stack.\<name\>]
 
-Declare shared library projects in the monorepo.
+Define reusable technology stacks. Stacks automate Docker volume isolation, environment variables, and quality verification.
 
-| Field  | Type    | Default | Description                           |
-|--------|---------|---------|---------------------------------------|
-| `path` | string? | `null`  | Library directory path (e.g., `"libs/ui"`). |
+| Field       | Type                 | Default | Description                                                |
+|-------------|----------------------|---------|------------------------------------------------------------|
+| `image`     | string?              | `null`  | Base Docker image for this stack.                          |
+| `artifacts` | string[]             | `[]`    | Local directories to isolate in named volumes (e.g., `.next`). |
+| `volumes`   | map<string,string>   | `{}`    | Global cache volumes (e.g., `pnpm-store`).                 |
+| `verify`    | string[]             | `[]`    | Verification commands for `airis verify`.                  |
+| `gpu`       | bool                 | `false` | Enable NVIDIA GPU resource reservation.                    |
+| `scripts`   | map<string,string>   | `{}`    | npm scripts to inject into `package.json`.                 |
 
 ```toml
-[libs.ui]
-path = "libs/ui"
+[stack.python-ml]
+image = "nvidia/cuda:12.4-runtime-ubuntu22.04"
+artifacts = [".venv", "__pycache__", ".pytest_cache"]
+volumes = { "uv-cache" = "/root/.cache/uv" }
+verify = ["pytest", "ruff check ."]
+gpu = true
 
-[libs.shared]
-path = "libs/shared"
+[stack.nextjs]
+artifacts = [".next", ".turbo", "node_modules/.cache"]
+verify = ["tsc --noEmit", "next build"]
 ```
 
 ---

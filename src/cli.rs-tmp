@@ -1,0 +1,12 @@
+#[derive(Subcommand)]
+pub enum HooksCommands {
+    Install,
+    Uninstall,
+}
+
+#[derive(Subcommand)]
+pub enum DocsCommands {
+    Wrap { target: String },
+    Sync,
+    List,
+}

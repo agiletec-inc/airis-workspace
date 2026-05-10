@@ -456,20 +456,25 @@ impl SafeFS {
     }
 }
 
-/// Recursively copy a directory
+/// Recursively copy a directory without following symlinks.
+///
+/// `DirEntry::metadata()` uses `lstat` on Unix, so symlinks are not dereferenced.
+/// Symlink entries are skipped entirely to prevent backing up files outside the workspace.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     fs::create_dir_all(dst)?;
 
     for entry in fs::read_dir(src)? {
         let entry = entry?;
+        let meta = entry.metadata()?; // lstat — does not follow symlinks
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
-        if src_path.is_dir() {
+        if meta.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
+        } else if meta.is_file() {
             fs::copy(&src_path, &dst_path)?;
         }
+        // symlinks are intentionally skipped
     }
 
     Ok(())
@@ -484,7 +489,7 @@ mod tests {
         let dir = tempdir().unwrap();
         fs::write(
             dir.path().join("manifest.toml"),
-            "version = 1\n[workspace]\nname = \"test\"",
+            "version = 1\n[project]\nid = \"test\"\n[workspace]\nname = \"test\"",
         )
         .unwrap();
         dir

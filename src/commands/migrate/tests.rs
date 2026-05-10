@@ -54,28 +54,27 @@ fn create_test_discovery() -> DiscoveryResult {
 }
 
 #[test]
-fn test_plan_creates_workspace_dir_task() {
+fn test_plan_does_not_move_root_compose() {
+    // Since 4.0.1 the plan keeps compose.yaml at the repo root and lets
+    // `airis gen` / the user manage it. It must NOT create a workspace/
+    // directory or move root compose files.
     let discovery = create_test_discovery();
     let plan = plan(discovery).unwrap();
 
-    // Should have CreateDirectory task for workspace/
-    assert!(plan.tasks.iter().any(|t| matches!(
-        t,
-        MigrationTask::CreateDirectory { path } if path == "workspace"
-    )));
-}
-
-#[test]
-fn test_plan_creates_move_task_for_root_compose() {
-    let discovery = create_test_discovery();
-    let plan = plan(discovery).unwrap();
-
-    // Should have MoveFile task
-    assert!(plan.tasks.iter().any(|t| matches!(
-        t,
-        MigrationTask::MoveFile { from, to }
-        if from == "docker-compose.yml" && to == "workspace/docker-compose.yml"
-    )));
+    assert!(
+        !plan
+            .tasks
+            .iter()
+            .any(|t| matches!(t, MigrationTask::CreateDirectory { .. })),
+        "plan should not create directories"
+    );
+    assert!(
+        !plan
+            .tasks
+            .iter()
+            .any(|t| matches!(t, MigrationTask::MoveFile { .. })),
+        "plan should not move files"
+    );
 }
 
 #[test]

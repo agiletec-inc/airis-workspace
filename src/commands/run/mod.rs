@@ -1,5 +1,6 @@
 mod build_ops;
 pub(crate) mod compose;
+pub(crate) mod exec;
 mod hooks;
 mod monitoring;
 mod services;
@@ -24,7 +25,17 @@ use services::{display_compose_urls, display_service_urls};
 
 // Re-export public API
 pub use build_ops::{run_build_prod, run_build_quick, run_test_coverage};
-pub use monitoring::{run_exec, run_logs, run_ps, run_restart};
+pub use exec::run_exec;
+pub use monitoring::{run_logs, run_ps, run_restart};
+
+/// Wrapper for `airis down` that drops a down-marker before stopping
+/// containers, so a racing `airis exec` in another shell skips its
+/// auto-up rather than relaunching the stack the user just tore down.
+pub fn run_down(extra_args: &[String]) -> Result<()> {
+    let manifest = Manifest::load_loose(Path::new(crate::manifest::MANIFEST_FILE)).ok();
+    exec::write_down_marker(manifest.as_ref());
+    run("down", extra_args)
+}
 
 // Internal timing constants for health probes
 const TCP_CONNECT_TIMEOUT_MS: u64 = 200;
@@ -180,50 +191,120 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
     let manifest_path = Path::new("manifest.toml");
 
     if !manifest_path.exists() {
-        if matches!(task, "up" | "down")
-            && let Some(compose_file) = find_compose_file()
-        {
-            if task == "up" {
-                ensure_env_file();
-            }
-            let action = if task == "up" {
-                "up -d --build --remove-orphans"
-            } else {
-                "down"
-            };
-            let extra = if extra_args.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", extra_args.join(" "))
-            };
-            let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
+        if let Some(compose_file) = find_compose_file() {
+            if matches!(task, "up" | "down") {
+                if task == "up" {
+                    ensure_env_file();
+                }
+                let action = if task == "up" {
+                    "up -d --build --remove-orphans"
+                } else {
+                    "down"
+                };
+                let extra = if extra_args.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", extra_args.join(" "))
+                };
+                let cmd = format!("docker compose -f {} {}{}", compose_file, action, extra);
 
-            println!("🚀 Running: {}", cmd.cyan());
+                println!("🚀 Running: {}", cmd.cyan());
 
-            let status = if cfg!(target_os = "windows") {
-                Command::new("cmd").args(["/C", &cmd]).status()
+                let status = if cfg!(target_os = "windows") {
+                    Command::new("cmd").args(["/C", &cmd]).status()
+                } else {
+                    Command::new("sh").arg("-c").arg(&cmd).status()
+                }
+                .with_context(|| format!("Failed to execute: {}", cmd))?;
+
+                if !status.success() {
+                    bail!("Command failed with exit code: {:?}", status.code());
+                }
+                if task == "up" {
+                    println!("\n{}", "✅ All services started!".green().bold());
+                    display_compose_urls(&[compose_file.to_string()]);
+                }
+                return Ok(());
             } else {
-                Command::new("sh").arg("-c").arg(&cmd).status()
-            }
-            .with_context(|| format!("Failed to execute: {}", cmd))?;
+                // Delegate to docker compose exec
+                let services_output = Command::new("docker")
+                    .args(["compose", "-f", compose_file, "ps", "--services"])
+                    .output()?;
 
-            if !status.success() {
-                bail!("Command failed with exit code: {:?}", status.code());
+                let services = String::from_utf8_lossy(&services_output.stdout);
+                let service_list: Vec<&str> = services
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+
+                if service_list.is_empty() {
+                    bail!("No services found in {}", compose_file);
+                }
+
+                // Pick "workspace" if it exists, otherwise the first one
+                let target_service = if service_list.contains(&"workspace") {
+                    "workspace"
+                } else {
+                    service_list[0]
+                };
+
+                let extra = if extra_args.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", extra_args.join(" "))
+                };
+
+                let cmd = format!(
+                    "docker compose -f {} exec -it {} {} {}",
+                    compose_file, target_service, task, extra
+                );
+                println!("🚀 Delegating to Docker: {}", cmd.cyan());
+
+                let status = if cfg!(target_os = "windows") {
+                    Command::new("cmd").args(["/C", &cmd]).status()
+                } else {
+                    Command::new("sh").arg("-c").arg(&cmd).status()
+                }
+                .with_context(|| format!("Failed to execute: {}", cmd))?;
+
+                if !status.success() {
+                    // Try 'run' if 'exec' fails (container might be stopped)
+                    let run_cmd = format!(
+                        "docker compose -f {} run --rm {} {} {}",
+                        compose_file, target_service, task, extra
+                    );
+                    println!("⚠️  Exec failed, trying run: {}", run_cmd.yellow());
+
+                    let status = if cfg!(target_os = "windows") {
+                        Command::new("cmd").args(["/C", &run_cmd]).status()
+                    } else {
+                        Command::new("sh").arg("-c").arg(&run_cmd).status()
+                    }
+                    .with_context(|| format!("Failed to execute: {}", run_cmd))?;
+
+                    if !status.success() {
+                        bail!("Command failed with exit code: {:?}", status.code());
+                    }
+                }
+                return Ok(());
             }
-            if task == "up" {
-                println!("\n{}", "✅ All services started!".green().bold());
-                display_compose_urls(&[compose_file.to_string()]);
-            }
-            return Ok(());
         }
 
         bail!(
-            "❌ manifest.toml not found. Run {} first.",
-            "airis init".bold()
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code via {}.",
+            "/airis:init".bold()
         );
     }
 
-    let manifest = Manifest::load(manifest_path).with_context(|| "Failed to load manifest.toml")?;
+    let manifest = match Manifest::load(manifest_path) {
+        Ok(m) => m,
+        Err(_) => {
+            // If strict load fails, try loose load and continue with a warning
+            Manifest::load_loose(manifest_path)
+                .with_context(|| "Critical failure loading manifest.toml")?
+        }
+    };
 
     // Auto-converge: Ensure workspace is ready before starting Docker-First environment
     if task == "up" {
@@ -236,7 +317,10 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
 
         // 1. Sync manifest -> generated files (gen)
         println!("   {} Syncing workspace configuration...", "🔄".cyan());
-        crate::commands::generate::sync_from_manifest(&manifest)?;
+        if let Err(e) = crate::commands::generate::sync_from_manifest(&manifest) {
+            eprintln!("\n{} Workspace sync partially failed: {}", "⚠️".yellow(), e);
+            eprintln!("   Continuing to start environment anyway...\n");
+        }
 
         // 2. Sync dependencies inside Docker (install)
         println!(

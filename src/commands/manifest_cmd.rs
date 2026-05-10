@@ -147,7 +147,9 @@ impl WorkspaceTruth {
 pub fn run(action: ManifestAction) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
     if !manifest_path.exists() {
-        anyhow::bail!("❌ manifest.toml not found. Run `airis init` to create it first.");
+        anyhow::bail!(
+            "❌ manifest.toml not found. Create one (see docs/manifest.md) or ask Claude Code to run /airis:init."
+        );
     }
 
     let manifest = Manifest::load(manifest_path)?;
@@ -200,6 +202,8 @@ mod tests {
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test-workspace"
@@ -246,6 +250,8 @@ compose = "compose.yml"
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test"
@@ -281,6 +287,8 @@ name = "test"
         let _guard = DIR_LOCK.lock().unwrap();
         let manifest_content = r#"
 version = 1
+[project]
+id = "test"
 
 [workspace]
 name = "test"

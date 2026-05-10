@@ -26,7 +26,7 @@ fn test_help_flag() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "Docker-first monorepo manager for the vibe coding era",
+            "The Docker-first environment orchestrator for the vibe coding era",
         ));
 }
 
