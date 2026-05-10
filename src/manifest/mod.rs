@@ -1,6 +1,5 @@
-mod schema;
-// pub(crate) so tests submodule can reach validation::levenshtein_distance
 mod global_config;
+mod schema;
 pub(crate) mod validation;
 
 #[cfg(test)]
@@ -388,47 +387,6 @@ impl Manifest {
             },
         );
 
-        // Catalog with common TypeScript/React dependencies
-        let mut catalog = IndexMap::new();
-        catalog.insert(
-            "react".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "react-dom".to_string(),
-            CatalogEntry::Follow(FollowConfig {
-                follow: "react".to_string(),
-            }),
-        );
-        catalog.insert(
-            "next".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "typescript".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "tailwindcss".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "zod".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "vitest".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "eslint".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-        catalog.insert(
-            "prettier".to_string(),
-            CatalogEntry::Policy(VersionPolicy::Latest),
-        );
-
         // Packages section
         let packages = PackagesSection {
             workspaces: vec![
@@ -436,8 +394,6 @@ impl Manifest {
                 "libs/*".to_string(),
                 "packages/*".to_string(),
             ],
-            default_policy: None,
-            catalog,
             root: PackageDefinition {
                 dependencies: IndexMap::new(),
                 dev_dependencies: IndexMap::new(),
@@ -535,7 +491,6 @@ impl Manifest {
                 volumes: vec![format!("{}-node-modules:/app/node_modules", name)],
                 clean: CleanSection::default(),
             },
-            catalog: IndexMap::new(),
             workspaces: WorkspacesSection::default(),
             dev: HooksSection::default(),
             apps: IndexMap::new(),

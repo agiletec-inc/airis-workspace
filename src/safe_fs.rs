@@ -529,12 +529,12 @@ mod tests {
         let workspace = create_test_workspace();
         let safe_fs = SafeFS::new(workspace.path(), false).unwrap();
 
-        // Use a tool-owned file (pnpm-workspace.yaml) so it can be overwritten
-        let test_file = workspace.path().join("pnpm-workspace.yaml");
+        // Use a tool-owned file (package.json) so it can be overwritten
+        let test_file = workspace.path().join("package.json");
         fs::write(&test_file, "original content").unwrap();
 
         // Overwrite with SafeFS
-        let result = safe_fs.write("pnpm-workspace.yaml", "new content").unwrap();
+        let result = safe_fs.write("package.json", "new content").unwrap();
 
         // Should have created a backup
         assert!(matches!(result.action, SafeAction::Overwritten));
@@ -555,12 +555,12 @@ mod tests {
         let workspace = create_test_workspace();
         let safe_fs = SafeFS::new(workspace.path(), true).unwrap();
 
-        // Use a tool-owned file (pnpm-workspace.yaml)
-        let test_file = workspace.path().join("pnpm-workspace.yaml");
+        // Use a tool-owned file (package.json)
+        let test_file = workspace.path().join("package.json");
         fs::write(&test_file, "original content").unwrap();
 
         // Try to overwrite in dry-run mode
-        let result = safe_fs.write("pnpm-workspace.yaml", "new content").unwrap();
+        let result = safe_fs.write("package.json", "new content").unwrap();
 
         // Should report would-overwrite but not actually change anything
         assert!(matches!(result.action, SafeAction::WouldOverwrite));

@@ -23,13 +23,3 @@ pub(super) fn generate_package_json(
     );
     Ok(())
 }
-
-pub(super) fn generate_pnpm_workspace(
-    _manifest: &Manifest,
-    _engine: &TemplateEngine,
-    _force: bool,
-) -> Result<()> {
-    // pnpm-workspace.yaml is now user-owned.
-    // airis no longer overwrites it from manifest.toml to prevent accidental data loss.
-    Ok(())
-}

@@ -7,26 +7,16 @@ use super::*;
 static GUARD_CMD_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
-// https://docs.npmjs.com/cli/v10/configuring-npm/package-json#name
-static NPM_PKG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"^(@[a-z0-9][a-z0-9\-._~]*/)?[a-z0-9][a-z0-9\-._~]*$")
-        .expect("npm package name regex")
-});
-
 impl Manifest {
     /// Validate manifest consistency.
     ///
     /// Checks:
     /// 1. No duplicate ports across service entries
-    /// 2. Catalog keys are valid npm package names; follow references point to existing catalog keys
-    /// 3. No command appears in both guards.deny and guards.wrap
-    /// 4. dep_group / env_group references resolve to defined groups
-    /// 5. Catalog follow chains have no cycles
-    /// 6. env.validation keys exist in env.required or env.optional
-    /// 7. Catalog version strings that look like typos of "latest" / "lts" (warning only)
+    /// 2. No command appears in both guards.deny and guards.wrap
+    /// 3. dep_group / env_group references resolve to defined groups
+    /// 4. env.validation keys exist in env.required or env.optional
     pub fn validate(&self) -> Result<()> {
         let mut errors: Vec<String> = Vec::new();
-        let mut warnings: Vec<String> = Vec::new();
 
         // 0. Base Metadata Validation
         if self.project.id.is_empty() {
@@ -64,26 +54,7 @@ impl Manifest {
             }
         }
 
-        // 2. Validate catalog follow references (skip if default_policy can resolve the target)
-        // Also validate catalog keys as npm package names to prevent URL path manipulation.
-        for (key, entry) in &self.packages.catalog {
-            if !NPM_PKG_RE.is_match(key) {
-                errors.push(format!(
-                    "packages.catalog key \"{key}\" is not a valid npm package name (use lowercase letters, digits, hyphens, dots; scoped names like @scope/pkg are allowed)"
-                ));
-            }
-            if let CatalogEntry::Follow(f) = entry
-                && !self.packages.catalog.contains_key(&f.follow)
-                && self.packages.default_policy.is_none()
-            {
-                errors.push(format!(
-                        "Catalog entry \"{key}\" follows \"{}\", which does not exist in packages.catalog (add it or set default_policy)",
-                        f.follow
-                    ));
-            }
-        }
-
-        // 3. Check for commands in both guards.deny and guards.wrap
+        // 2. Check for commands in both guards.deny and guards.wrap
         for cmd in &self.guards.deny {
             if self.guards.wrap.contains_key(cmd) {
                 errors.push(format!(
@@ -125,30 +96,21 @@ impl Manifest {
             }
         }
 
-        // 4. Validate dep_group / env_group references
+        // 3. Validate dep_group / env_group references
         self.validate_group_references(&mut errors);
 
-        // 4b. Validate app/lib names and paths
+        // 3b. Validate app/lib names and paths
         self.validate_projects(&mut errors);
 
-        // 5. Detect cycles in catalog follow chains
-        self.validate_catalog_cycles(&mut errors);
-
-        // 6. Detect orphaned env.validation keys
+        // 4. Detect orphaned env.validation keys
         self.validate_env_validation_keys(&mut errors);
 
-        // 7. Detect likely typos of "latest" / "lts" in catalog versions (warning)
-        self.detect_catalog_typos(&mut warnings);
-        // 8. Reject host bind mounts in manifest-defined volumes
+        // 5. Reject host bind mounts in manifest-defined volumes
         self.validate_no_host_bind_mounts(&mut errors);
-        // 9. Validate forbidden_patterns are valid regex
+        // 6. Validate forbidden_patterns are valid regex
         self.validate_testing_patterns(&mut errors);
-        // 10. Validate policy section
+        // 7. Validate policy section
         self.validate_policy(&mut errors);
-
-        for w in &warnings {
-            eprintln!("\u{26a0}\u{fe0f}  {w}");
-        }
 
         if !errors.is_empty() {
             bail!("Manifest validation failed:\n{}", errors.join("\n"));
@@ -230,30 +192,6 @@ impl Manifest {
         }
     }
 
-    /// Detect cycles in catalog follow chains (e.g. A→B→C→A).
-    fn validate_catalog_cycles(&self, errors: &mut Vec<String>) {
-        for key in self.packages.catalog.keys() {
-            let mut visited = std::collections::HashSet::new();
-            let mut current = key.as_str();
-            visited.insert(current);
-
-            while let Some(CatalogEntry::Follow(f)) = self.packages.catalog.get(current) {
-                let next = f.follow.as_str();
-                if !visited.insert(next) {
-                    // Cycle detected — build readable chain
-                    let chain: Vec<&str> = visited.iter().copied().collect();
-                    errors.push(format!(
-                        "Catalog follow cycle detected: {} → {}",
-                        chain.join(" → "),
-                        next
-                    ));
-                    break;
-                }
-                current = next;
-            }
-        }
-    }
-
     /// Warn when env.validation defines rules for variables not in env.required or env.optional.
     fn validate_env_validation_keys(&self, errors: &mut Vec<String>) {
         let declared: std::collections::HashSet<&str> = self
@@ -269,34 +207,6 @@ impl Manifest {
                 errors.push(format!(
                     "[env.validation.{key}] defines rules but \"{key}\" is not listed in env.required or env.optional"
                 ));
-            }
-        }
-    }
-
-    /// Detect likely typos of "latest" / "lts" in catalog versions (warning)
-    pub(crate) fn detect_catalog_typos(&self, warnings: &mut Vec<String>) {
-        const KNOWN_POLICIES: &[&str] = &["latest", "lts"];
-
-        for (key, entry) in &self.packages.catalog {
-            if let CatalogEntry::Version(v) = entry {
-                let lower = v.to_lowercase();
-                // Skip semver-like strings (start with digit or caret/tilde/comparison)
-                if lower.starts_with(|c: char| c.is_ascii_digit() || "^~<>=".contains(c)) {
-                    continue;
-                }
-                // Skip exact matches
-                if KNOWN_POLICIES.contains(&lower.as_str()) {
-                    continue;
-                }
-                // Check Levenshtein distance against known policies
-                for policy in KNOWN_POLICIES {
-                    if levenshtein_distance(&lower, policy) <= 2 {
-                        warnings.push(format!(
-                            "Catalog \"{key}\" = \"{v}\" looks like a typo of \"{policy}\""
-                        ));
-                        break;
-                    }
-                }
             }
         }
     }
@@ -442,21 +352,4 @@ impl Manifest {
             }
         }
     }
-}
-
-/// Simple Levenshtein distance for short strings (catalog typo detection).
-pub(crate) fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let b_len = b.len();
-    let mut prev: Vec<usize> = (0..=b_len).collect();
-    let mut curr = vec![0; b_len + 1];
-
-    for (i, ca) in a.chars().enumerate() {
-        curr[0] = i + 1;
-        for (j, cb) in b.chars().enumerate() {
-            let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-    prev[b_len]
 }

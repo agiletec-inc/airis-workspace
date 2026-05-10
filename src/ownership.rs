@@ -23,8 +23,8 @@ pub fn get_ownership(path: &Path) -> Ownership {
     match path_str.as_ref() {
         // Tool-owned: fully generated from manifest
         "package.json" => Ownership::Tool,
-        "pnpm-workspace.yaml" => Ownership::Tool,
         // CI/CD workflows, Dockerfile, compose.yml, and .env.example are project-owned
+        // pnpm-workspace.yaml is user-owned (removed from tool ownership by this refactor)
         "tsconfig.json" => Ownership::Tool,
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
@@ -44,6 +44,7 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "Dockerfile" => Ownership::User,
         ".env.example" => Ownership::User,
         "manifest.toml" => Ownership::User,
+        "pnpm-workspace.yaml" => Ownership::User,
         "pnpm-lock.yaml" => Ownership::User,
         "tsconfig.build.json" => Ownership::User,
         "eslint.config.mjs" => Ownership::User,
@@ -107,10 +108,6 @@ mod tests {
     #[test]
     fn test_tool_owned_files() {
         assert_eq!(get_ownership(Path::new("package.json")), Ownership::Tool);
-        assert_eq!(
-            get_ownership(Path::new("pnpm-workspace.yaml")),
-            Ownership::Tool
-        );
         assert_eq!(get_ownership(Path::new("tsconfig.json")), Ownership::Tool);
         assert_eq!(
             get_ownership(Path::new("tsconfig.base.json")),
@@ -132,6 +129,10 @@ mod tests {
     #[test]
     fn test_user_owned_files() {
         assert_eq!(get_ownership(Path::new("manifest.toml")), Ownership::User);
+        assert_eq!(
+            get_ownership(Path::new("pnpm-workspace.yaml")),
+            Ownership::User
+        );
         assert_eq!(get_ownership(Path::new("pnpm-lock.yaml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("Dockerfile")), Ownership::User);
         assert_eq!(get_ownership(Path::new("compose.yml")), Ownership::User);

@@ -23,8 +23,6 @@ pub struct Manifest {
     #[serde(default)]
     pub workspace: WorkspaceSection,
     #[serde(default)]
-    pub catalog: IndexMap<String, String>,
-    #[serde(default)]
     pub workspaces: WorkspacesSection,
     #[serde(default)]
     pub dev: HooksSection,
@@ -539,63 +537,10 @@ pub struct HookCache {
 pub struct PackagesSection {
     #[serde(default)]
     pub workspaces: Vec<String>,
-    /// Default version policy for packages not explicitly listed in catalog.
-    /// When set (e.g., "latest"), import-scanned packages that don't match
-    /// any catalog entry or wildcard pattern will use this policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_policy: Option<String>,
-    #[serde(default)]
-    pub catalog: IndexMap<String, CatalogEntry>,
     #[serde(default)]
     pub root: PackageDefinition,
     #[serde(rename = "app", default)]
     pub app: Vec<AppPackageDefinition>,
-}
-
-/// Catalog entry can be:
-/// - "latest" → resolve to latest npm version
-/// - "lts" → resolve to LTS version (treated same as latest for npm packages)
-/// - {} → empty table, treated as "latest" (shorthand for just registering a key)
-/// - "^5.0.0" → specific semver (used as-is)
-/// - { follow = "react" } → follow another package's version
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum CatalogEntry {
-    Follow(FollowConfig),
-    Policy(VersionPolicy),
-    Empty(EmptyTable),
-    Version(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FollowConfig {
-    pub follow: String,
-}
-
-/// Empty table `{}` — treated as "latest"
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmptyTable {}
-
-impl Default for CatalogEntry {
-    fn default() -> Self {
-        CatalogEntry::Policy(VersionPolicy::Latest)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum VersionPolicy {
-    Latest,
-    Lts,
-}
-
-impl VersionPolicy {
-    pub fn as_str(&self) -> &str {
-        match self {
-            VersionPolicy::Latest => "latest",
-            VersionPolicy::Lts => "lts",
-        }
-    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
