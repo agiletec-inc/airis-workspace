@@ -18,3 +18,4 @@ pub mod templates;
 #[cfg(test)]
 pub mod test_lock;
 pub mod version_resolver;
+pub mod workspace;
