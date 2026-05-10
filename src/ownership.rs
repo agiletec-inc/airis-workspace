@@ -24,6 +24,7 @@ pub fn get_ownership(path: &Path) -> Ownership {
         // Tool-owned: fully generated from manifest
         "package.json" => Ownership::Tool,
         "pnpm-workspace.yaml" => Ownership::Tool,
+        // CI/CD workflows, Dockerfile, compose.yml, and .env.example are project-owned
         "tsconfig.json" => Ownership::Tool,
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
@@ -133,6 +134,8 @@ mod tests {
         assert_eq!(get_ownership(Path::new("manifest.toml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("pnpm-lock.yaml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("Dockerfile")), Ownership::User);
+        assert_eq!(get_ownership(Path::new("compose.yml")), Ownership::User);
+        assert_eq!(get_ownership(Path::new(".env.example")), Ownership::User);
         assert_eq!(get_ownership(Path::new("CLAUDE.md")), Ownership::User);
     }
 

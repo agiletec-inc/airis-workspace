@@ -38,6 +38,7 @@ Replace any scripted `airis init` or `airis init --write` invocation with one of
 - Scripted: author `manifest.toml` by hand (see `docs/manifest.md`) and run
   `airis gen`.
 
+
 ## [4.0.1] - 2026-04-13
 
 ### Breaking Changes
