@@ -76,6 +76,11 @@ find_airis_context() {{
 
 REAL_CMD=$(find_real_cmd {cmd})
 
+# 0. Explicit bypass: AIRIS_BYPASS=1 or `airis host <cmd>`
+if [[ "${{AIRIS_BYPASS:-}}" == "1" ]]; then
+    if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+fi
+
 # 1. Inside Docker/CI: always allow host command
 if [[ -f /.dockerenv ]] || grep -qsE 'docker|containerd' /proc/1/cgroup 2>/dev/null || [[ "${{DOCKER_CONTAINER:-}}" == "true" ]] || [[ "${{CI:-}}" == "true" ]]; then
     if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
@@ -83,30 +88,32 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
-    # We are in an airis project or docker-first directory. Execute through airis (Docker-First).
+    # PRE-CHECK: Prevent host pollution
+    # If node_modules or other artifacts exist on host, refuse to run
+    # and demand 'airis clean'.
+    for artifact in "node_modules" ".next" "dist" "build" "target" ".venv"; do
+        if [[ -d "$artifact" ]]; then
+            echo "❌ AIRIS: Host pollution detected! '$artifact' exists on host." >&2
+            echo "   This is forbidden in Docker-First architecture." >&2
+            echo "   Run 'airis clean' to restore hygiene before continuing." >&2
+            exit 125
+        fi
+    done
+
+    # We are in an airis project. `airis exec <cmd>` auto-routes by command
+    # name (Phase 1b): pnpm/npm/node→workspace, python/uv→workspace, cargo→workspace.
     if command -v airis &>/dev/null; then
         exec airis exec {cmd} "$@"
     else
-        echo "⚠️  Airis context detected but 'airis' command not found."
+        echo "❌ AIRIS: Context detected but 'airis' command not found." >&2
+        echo "   Cannot route to Docker. Host execution is blocked for hygiene." >&2
+        exit 124
     fi
 fi
 
-# 3. Not in airis workspace or airis missing: Apply Policy
-case "$LEVEL" in
-    warn)
-        echo "⚠️  AIRIS: '{cmd}' is being run on the host. Consider using 'airis run' or 'airis shell'."
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-    enforce)
-        # Only enforce if we are actually in a project that *could* be using airis 
-        # but doesn't have a manifest, or if the user wants strict host-wide blocking.
-        # For now, we allow it if no manifest is found (Standard behavior).
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-    *)
-        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
-        ;;
-esac
+# 3. Not in any airis workspace — pass through unconditionally.
+#    Guards only enforce Docker-first hygiene *inside* a workspace.
+if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
 "#,
         GLOBAL_GUARD_MARKER = GLOBAL_GUARD_MARKER,
         level = level_str,

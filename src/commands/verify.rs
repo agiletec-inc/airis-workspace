@@ -93,8 +93,9 @@ pub fn run() -> Result<()> {
                     );
                     continue;
                 }
-                // Execute in the app's directory
-                let full_cmd = format!("cd {} && {}", app_path, cmd);
+                // Execute in the app's directory.
+                // shell_quote prevents injection when app_path contains spaces or metacharacters.
+                let full_cmd = format!("cd {} && {}", shell_quote(app_path), cmd);
                 if !run_verify_command(&container_name, &full_cmd)? {
                     failures += 1;
                 }
@@ -144,6 +145,11 @@ fn run_verify_command(container: &str, cmd: &str) -> Result<bool> {
         );
         Ok(false)
     }
+}
+
+/// Wrap a shell argument in single quotes, escaping any embedded single quotes.
+fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 /// Find the workspace container name (e.g., airis-workspace-workspace-1)

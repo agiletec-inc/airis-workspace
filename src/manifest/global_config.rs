@@ -15,7 +15,7 @@ pub enum GuardLevel {
     Off,
     /// Warn the user but proceed with original command
     Warn,
-    /// Warn and block if inside an airis project or specific conditions met
+    /// Force Docker routing inside an airis workspace; pass through outside
     Enforce,
 }
 

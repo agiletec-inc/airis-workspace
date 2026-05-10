@@ -1,13 +1,24 @@
+use std::sync::LazyLock;
+
 use anyhow::{Result, bail};
 
 use super::*;
+
+static GUARD_CMD_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
+
+// https://docs.npmjs.com/cli/v10/configuring-npm/package-json#name
+static NPM_PKG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^(@[a-z0-9][a-z0-9\-._~]*/)?[a-z0-9][a-z0-9\-._~]*$")
+        .expect("npm package name regex")
+});
 
 impl Manifest {
     /// Validate manifest consistency.
     ///
     /// Checks:
     /// 1. No duplicate ports across service entries
-    /// 2. Catalog follow references point to existing catalog keys
+    /// 2. Catalog keys are valid npm package names; follow references point to existing catalog keys
     /// 3. No command appears in both guards.deny and guards.wrap
     /// 4. dep_group / env_group references resolve to defined groups
     /// 5. Catalog follow chains have no cycles
@@ -54,7 +65,13 @@ impl Manifest {
         }
 
         // 2. Validate catalog follow references (skip if default_policy can resolve the target)
+        // Also validate catalog keys as npm package names to prevent URL path manipulation.
         for (key, entry) in &self.packages.catalog {
+            if !NPM_PKG_RE.is_match(key) {
+                errors.push(format!(
+                    "packages.catalog key \"{key}\" is not a valid npm package name (use lowercase letters, digits, hyphens, dots; scoped names like @scope/pkg are allowed)"
+                ));
+            }
             if let CatalogEntry::Follow(f) = entry
                 && !self.packages.catalog.contains_key(&f.follow)
                 && self.packages.default_policy.is_none()
@@ -76,16 +93,15 @@ impl Manifest {
         }
 
         // 3b. Validate guard command names (shell metacharacter prevention)
-        let cmd_re = regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").unwrap();
         for cmd in &self.guards.deny {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
             }
         }
         for cmd in self.guards.wrap.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.wrap contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));
@@ -102,7 +118,7 @@ impl Manifest {
             }
         }
         for cmd in self.guards.deny_with_message.keys() {
-            if !cmd_re.is_match(cmd) {
+            if !GUARD_CMD_RE.is_match(cmd) {
                 errors.push(format!(
                     "guards.deny_with_message contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
                 ));

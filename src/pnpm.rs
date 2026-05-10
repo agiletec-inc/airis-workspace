@@ -3,6 +3,7 @@
 //! Parses pnpm-lock.yaml to extract workspace dependencies for DAG construction.
 
 use anyhow::{Context, Result};
+use indexmap::IndexMap;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -53,7 +54,7 @@ impl PnpmLock {
             .with_context(|| format!("Failed to read {}", path.display()))?;
 
         let lock: PnpmLock =
-            serde_yml::from_str(&content).with_context(|| "Failed to parse pnpm-lock.yaml")?;
+            serde_yaml_ng::from_str(&content).with_context(|| "Failed to parse pnpm-lock.yaml")?;
 
         if !lock.lockfile_version.starts_with("9.") {
             anyhow::bail!(
@@ -155,6 +156,40 @@ pub fn build_workspace_map(lock: &PnpmLock) -> HashMap<String, WorkspacePackage>
     }
 
     map
+}
+
+/// Read the catalog from pnpm-workspace.yaml.
+///
+/// Returns every package name mapped to `"catalog:"` so callers can identify
+/// which packages belong to the shared catalog without needing version strings.
+/// Returns an empty map if pnpm-workspace.yaml is absent or has no catalog section.
+pub fn read_workspace_catalog() -> IndexMap<String, String> {
+    let path = Path::new("pnpm-workspace.yaml");
+    if !path.exists() {
+        return IndexMap::new();
+    }
+
+    #[derive(serde::Deserialize)]
+    struct PnpmWorkspace {
+        #[serde(default)]
+        catalog: IndexMap<String, serde_yaml_ng::Value>,
+    }
+
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return IndexMap::new(),
+    };
+
+    let workspace: PnpmWorkspace = match serde_yaml_ng::from_str(&content) {
+        Ok(w) => w,
+        Err(_) => return IndexMap::new(),
+    };
+
+    workspace
+        .catalog
+        .into_keys()
+        .map(|pkg| (pkg, "catalog:".to_string()))
+        .collect()
 }
 
 #[cfg(test)]

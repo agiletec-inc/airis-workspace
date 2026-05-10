@@ -1,36 +1,26 @@
 //! Diff computation: compare manifest-generated content with current files
 
 use anyhow::{Context, Result};
-use indexmap::IndexMap;
 use std::fs;
 use std::path::Path;
 
-use crate::manifest::{CatalogEntry, Manifest};
+use crate::manifest::Manifest;
 use crate::templates::TemplateEngine;
-use crate::version_resolver::resolve_version;
 
 use super::{DiffResult, DiffSummary, FileDiff, FileStatus};
 
 /// Compute diff between manifest-generated content and current files
 pub(super) fn compute_diff(manifest: &Manifest) -> Result<DiffResult> {
     let engine = TemplateEngine::new()?;
-    let resolved_catalog = resolve_catalog_versions_quiet(&manifest.packages.catalog)?;
-
-    let mut files = Vec::new();
+    let resolved_catalog = crate::pnpm::read_workspace_catalog();
 
     // Check package.json
-    files.push(check_file_with_content(
+    let files = vec![check_file_with_content(
         "package.json",
         engine.render_package_json(manifest, &resolved_catalog)?,
-    )?);
+    )?];
 
-    // Check pnpm-workspace.yaml if workspaces exist
-    if !manifest.packages.workspaces.is_empty() {
-        files.push(check_file_with_content(
-            "pnpm-workspace.yaml",
-            engine.render_pnpm_workspace(manifest)?,
-        )?);
-    }
+    // pnpm-workspace.yaml is user-owned — not checked by airis diff
 
     // CI/CD workflows are project-owned — not checked by airis diff
 
@@ -232,42 +222,4 @@ pub(super) fn compute_unified_diff(
     }
 
     (additions, deletions, output)
-}
-
-/// Resolve catalog versions without printing (for diff command)
-pub(super) fn resolve_catalog_versions_quiet(
-    catalog: &IndexMap<String, CatalogEntry>,
-) -> Result<IndexMap<String, String>> {
-    if catalog.is_empty() {
-        return Ok(IndexMap::new());
-    }
-
-    let mut resolved: IndexMap<String, String> = IndexMap::new();
-
-    for (package, entry) in catalog {
-        let version = match entry {
-            CatalogEntry::Policy(policy) => {
-                let policy_str = policy.as_str();
-                resolve_version(package, policy_str)?
-            }
-            CatalogEntry::Empty(_) => resolve_version(package, "latest")?,
-            CatalogEntry::Version(version) => version.clone(),
-            CatalogEntry::Follow(follow_config) => {
-                let target = &follow_config.follow;
-                if let Some(target_version) = resolved.get(target) {
-                    target_version.clone()
-                } else {
-                    anyhow::bail!(
-                        "Cannot resolve '{}': follow target '{}' not found",
-                        package,
-                        target
-                    );
-                }
-            }
-        };
-
-        resolved.insert(package.clone(), version);
-    }
-
-    Ok(resolved)
 }

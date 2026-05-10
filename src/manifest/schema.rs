@@ -64,6 +64,9 @@ pub struct Manifest {
     /// Documentation management (CLAUDE.md, .cursorrules, etc.)
     #[serde(default)]
     pub docs: DocsSection,
+    /// AI tool configuration (CLAUDE.md, etc.) SSOT
+    #[serde(default)]
+    pub ai: AISection,
     /// CI/CD configuration
     #[serde(default)]
     pub ci: CiSection,
@@ -952,7 +955,7 @@ pub struct K8sResources {
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct StackDefinition {
-    /// Docker image (e.g., "node:22-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
+    /// Docker image (e.g., "node:24-bookworm", "nvidia/cuda:12.4-runtime-ubuntu22.04")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
     /// Artifact directories to isolate in named volumes
@@ -1224,25 +1227,18 @@ impl ProjectDefinition {
 
         // Lib-specific conventions
         if self.kind.as_deref() == Some("lib") {
-            // main
+            // main — point directly at TypeScript source for internal packages
             if self.main.is_none() {
-                self.main = Some("./dist/index.js".to_string());
+                self.main = Some("./src/index.ts".to_string());
             }
 
-            // exports
+            // exports — source export pattern: consumers resolve .ts directly, no build needed
             if self.exports.is_none() {
-                // Default: "." = { types = "./dist/index.d.ts", import = "./dist/index.js" }
                 let mut export_map = toml::map::Map::new();
-                let mut dot_export = toml::map::Map::new();
-                dot_export.insert(
-                    "types".to_string(),
-                    toml::Value::String("./dist/index.d.ts".to_string()),
+                export_map.insert(
+                    ".".to_string(),
+                    toml::Value::String("./src/index.ts".to_string()),
                 );
-                dot_export.insert(
-                    "import".to_string(),
-                    toml::Value::String("./dist/index.js".to_string()),
-                );
-                export_map.insert(".".to_string(), toml::Value::Table(dot_export));
                 self.exports = Some(toml::Value::Table(export_map));
             }
 
@@ -1447,6 +1443,53 @@ pub enum DocsVendor {
     Codex,
     Claude,
     Gemini,
+}
+
+/// AI tool configuration — Single Source of Truth for AI rules.
+/// Feeds into CLAUDE.md, AGENTS.md, GEMINI.md, and .cursor/rules/ generation.
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct AISection {
+    /// Shared rule files used as the source of truth (e.g., ["docs/ai/PROJECT_RULES.md"])
+    #[serde(default)]
+    pub shared_rules: Vec<String>,
+    /// Claude Code configuration
+    #[serde(default)]
+    pub claude: Option<ClaudeAIConfig>,
+    /// Codex configuration
+    #[serde(default)]
+    pub codex: Option<CodexAIConfig>,
+    /// Gemini configuration
+    #[serde(default)]
+    pub gemini: Option<GeminiAIConfig>,
+    /// Cursor configuration
+    #[serde(default)]
+    pub cursor: Option<CursorAIConfig>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct ClaudeAIConfig {
+    /// Target file path (e.g., ".claude/CLAUDE.md")
+    pub target: String,
+    /// Directory for generated individual rules (e.g., ".claude/rules/generated/")
+    pub rules_dir: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CodexAIConfig {
+    /// Target file path (e.g., "AGENTS.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct GeminiAIConfig {
+    /// Target file path (e.g., "GEMINI.md")
+    pub target: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct CursorAIConfig {
+    /// Directory for generated individual rules (e.g., ".cursor/rules/")
+    pub rules_dir: String,
 }
 
 /// CI/CD configuration
@@ -1829,12 +1872,94 @@ pub struct TemplateConfig {
     pub package_config: String,
 }
 
-/// Runtime aliases configuration
+/// Runtime declarations.
+///
+/// Two responsibilities live here:
+/// 1. `alias` — short aliases consumed by `airis new` (e.g., "py" -> "fastapi").
+/// 2. `node` / `python` / `rust` — declarative runtime versions consumed by
+///    workspace Dockerfile generation and `airis exec` cmd→service routing
+///    (Phase 1 onward; see docs/ai/IDEAL_STATE.md §2 and the eager-floating-book plan).
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RuntimesSection {
-    /// Short aliases for runtimes (e.g., "py" -> "fastapi", "ts" -> "hono")
+    /// Short aliases for `airis new` templates (e.g., "py" -> "fastapi", "ts" -> "hono")
     #[serde(default)]
     pub alias: IndexMap<String, String>,
+    /// Node runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub node: Option<RuntimeSpec>,
+    /// Python runtime to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub python: Option<RuntimeSpec>,
+    /// Rust toolchain to provision inside the workspace container.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rust: Option<RuntimeSpec>,
+}
+
+/// A runtime declaration. Accepts either a bare version string or a detailed table.
+///
+/// ```toml
+/// [runtimes]
+/// node = "24"                     # short form
+///
+/// [runtimes.python]
+/// version = "3.13"
+/// package_manager = "uv"
+/// ```
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(untagged)]
+pub enum RuntimeSpec {
+    /// Bare version string, e.g., `node = "24"`
+    Short(String),
+    /// Detailed table with version + optional image / package_manager / components
+    Detailed(RuntimeDetail),
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, Default)]
+pub struct RuntimeDetail {
+    pub version: String,
+    /// Override the resolved base image (e.g., `python:3.13-slim`). Default: derived from version.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<String>,
+    /// Package manager hint for ecosystems with multiple options (Python: uv|pip|poetry).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package_manager: Option<String>,
+    /// Toolchain components (e.g., Rust: ["clippy", "rustfmt"]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub toolchain_components: Vec<String>,
+}
+
+impl RuntimeSpec {
+    /// Returns the version string for this runtime spec.
+    pub fn version(&self) -> &str {
+        match self {
+            RuntimeSpec::Short(v) => v.as_str(),
+            RuntimeSpec::Detailed(d) => d.version.as_str(),
+        }
+    }
+
+    /// Returns the explicitly overridden image, if any.
+    pub fn image_override(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.image.as_deref(),
+        }
+    }
+
+    /// Returns the explicit package manager hint, if any.
+    pub fn package_manager(&self) -> Option<&str> {
+        match self {
+            RuntimeSpec::Short(_) => None,
+            RuntimeSpec::Detailed(d) => d.package_manager.as_deref(),
+        }
+    }
+
+    /// Returns toolchain components (empty for `Short`).
+    pub fn toolchain_components(&self) -> &[String] {
+        match self {
+            RuntimeSpec::Short(_) => &[],
+            RuntimeSpec::Detailed(d) => &d.toolchain_components,
+        }
+    }
 }
 
 // =============================================================================

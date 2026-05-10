@@ -28,15 +28,17 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
 
+        // compose.yaml is the canonical Docker Compose V2 name — always Tool-owned.
+        // Legacy variants are User-owned; use `airis gen --force` to migrate them.
+        "compose.yaml" | "workspace/compose.yaml" => Ownership::Tool,
+        "compose.yml"
+        | "docker-compose.yaml"
+        | "docker-compose.yml"
+        | "workspace/compose.yml"
+        | "workspace/docker-compose.yaml"
+        | "workspace/docker-compose.yml" => Ownership::User,
+
         // User-owned: never touch
-        // compose.yaml / Dockerfile / .env.example moved to User in 4.0.1 —
-        // compose schema diverged too far from any one-size template.
-        "compose.yml" => Ownership::User,
-        "compose.yaml" => Ownership::User,
-        "docker-compose.yml" => Ownership::User,
-        "workspace/compose.yml" => Ownership::User,
-        "workspace/compose.yaml" => Ownership::User,
-        "workspace/docker-compose.yml" => Ownership::User,
         "Dockerfile" => Ownership::User,
         ".env.example" => Ownership::User,
         "manifest.toml" => Ownership::User,
@@ -113,7 +115,7 @@ mod tests {
             Ownership::Tool
         );
         assert_eq!(get_ownership(Path::new("airis.lock")), Ownership::Tool);
-        // compose.yml / docker-compose.yml are NO LONGER Tool-owned (changed in 4.0.1)
+        assert_eq!(get_ownership(Path::new("compose.yaml")), Ownership::Tool);
 
         // App package.json files are now tool-owned
         assert_eq!(
@@ -127,8 +129,33 @@ mod tests {
         assert_eq!(get_ownership(Path::new("manifest.toml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("pnpm-lock.yaml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("Dockerfile")), Ownership::User);
-        assert_eq!(get_ownership(Path::new("compose.yml")), Ownership::User);
         assert_eq!(get_ownership(Path::new("CLAUDE.md")), Ownership::User);
+    }
+
+    #[test]
+    fn test_compose_yaml_variants_ownership() {
+        // compose.yaml is the Docker Compose V2 canonical name — always Tool-owned (airis manages it).
+        assert_eq!(get_ownership(Path::new("compose.yaml")), Ownership::Tool);
+        assert_eq!(
+            get_ownership(Path::new("workspace/compose.yaml")),
+            Ownership::Tool
+        );
+
+        // Legacy variants are always User-owned — airis never touches them.
+        for name in &[
+            "compose.yml",
+            "docker-compose.yaml",
+            "docker-compose.yml",
+            "workspace/compose.yml",
+            "workspace/docker-compose.yaml",
+            "workspace/docker-compose.yml",
+        ] {
+            assert_eq!(
+                get_ownership(Path::new(name)),
+                Ownership::User,
+                "{name} should be User-owned (legacy)"
+            );
+        }
     }
 
     #[test]
