@@ -287,8 +287,9 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
 
     let content = serde_yaml_ng::to_string(&compose)?;
 
-    // Standardize on compose.yaml (Docker Compose V2) at the project root
-    let target_path = Path::new("compose.yaml");
+    // Output workspace dev containers to .airis/ so they don't conflict with the
+    // user-owned runtime compose.yaml at the project root.
+    let target_path = Path::new(".airis/workspace-compose.yaml");
     if let Some(parent) = target_path.parent()
         && !parent.as_os_str().is_empty()
     {
