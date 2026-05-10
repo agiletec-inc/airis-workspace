@@ -400,3 +400,25 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+  # === MANUAL CUSTOMIZATION ===
+  # Notify airis-mcp-gateway to bump AIRIS_VERSION after a successful release.
+  # Requires AIRIS_DISPATCH_TOKEN org-level secret: fine-grained PAT with
+  # `contents: write` on agiletec-inc/airis-mcp-gateway.
+  notify-gateway:
+    needs:
+      - plan
+      - host
+      - announce
+    if: ${{ always() && needs.host.result == 'success' && !fromJson(needs.plan.outputs.val).announcement_is_prerelease }}
+    runs-on: "ubuntu-22.04"
+    env:
+      GH_TOKEN: ${{ secrets.AIRIS_DISPATCH_TOKEN }}
+    steps:
+      - name: Dispatch AIRIS_VERSION bump to airis-mcp-gateway
+        run: |
+          VERSION=$(echo '${{ needs.plan.outputs.val }}' | jq -r '.releases[0].app_version')
+          gh api repos/agiletec-inc/airis-mcp-gateway/dispatches \
+            --method POST \
+            --field event_type=airis-workspace-released \
+            --field "client_payload[version]=$VERSION"
