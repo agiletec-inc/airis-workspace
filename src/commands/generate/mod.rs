@@ -7,12 +7,12 @@ use crate::manifest::{MANIFEST_FILE, Manifest};
 use crate::ownership::{Ownership, get_ownership};
 use crate::templates::TemplateEngine;
 
+mod ai_gen;
 mod catalog;
 mod compose_gen;
 pub(crate) mod registry;
 mod tsconfig_gen;
 
-use catalog::resolve_catalog_versions;
 use compose_gen::generate_workspace_compose;
 use registry::{load_generation_registry, save_generation_registry};
 use tsconfig_gen::generate_tsconfig;
@@ -21,7 +21,7 @@ use tsconfig_gen::generate_tsconfig;
 mod tests;
 
 /// CLI entry point for `airis gen`
-pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
+pub fn run(dry_run: bool, force: bool, _migrate: bool) -> Result<()> {
     let manifest_path = Path::new(MANIFEST_FILE);
 
     if !manifest_path.exists() {
@@ -34,11 +34,36 @@ pub fn run(dry_run: bool, _force: bool, _migrate: bool) -> Result<()> {
     if dry_run {
         preview_from_manifest(&manifest)?;
     } else {
+        if force {
+            remove_legacy_compose_files();
+        }
         println!("{}", "🧩 Regenerating workspace files...".bright_blue());
         sync_from_manifest(&manifest)?;
     }
 
     Ok(())
+}
+
+/// Delete legacy compose file variants, leaving only `compose.yaml`.
+fn remove_legacy_compose_files() {
+    let legacy = [
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+        "workspace/compose.yml",
+        "workspace/docker-compose.yaml",
+        "workspace/docker-compose.yml",
+    ];
+
+    for name in legacy {
+        let path = Path::new(name);
+        if path.exists() {
+            match fs::remove_file(path) {
+                Ok(()) => println!("   {} removed legacy {}", "✓".green(), name),
+                Err(e) => println!("   {} could not remove {}: {}", "✗".red(), name, e),
+            }
+        }
+    }
 }
 
 pub(super) fn backup_file(path: &Path) -> Result<()> {
@@ -106,7 +131,7 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
     let previous_paths: Vec<String> = load_generation_registry(registry_path);
 
     if manifest.has_workspace() {
-        let resolved_catalog = resolve_catalog_versions(&manifest.packages.catalog)?;
+        let resolved_catalog = crate::pnpm::read_workspace_catalog();
 
         // Always generate Docker Compose to ensure environment isolation (Hygiene).
         // Convention-based discovery ensures projects are managed even if not in manifest.toml.
@@ -119,6 +144,9 @@ pub fn sync_from_manifest(manifest: &Manifest) -> Result<()> {
             generated_paths.extend(["tsconfig.base.json".into(), "tsconfig.json".into()]);
         }
     }
+
+    // Generate AI instructions (Issue #203)
+    ai_gen::sync_ai_rules(manifest, &mut generated_paths)?;
 
     // Clean up orphaned files that are no longer being generated (e.g. package.json, hooks)
     crate::commands::clean::remove_orphaned_files(&previous_paths, &generated_paths, false);

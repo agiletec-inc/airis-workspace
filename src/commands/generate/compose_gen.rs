@@ -7,9 +7,22 @@ use std::path::Path;
 use super::write_with_backup;
 use crate::manifest::Manifest;
 
+/// Resolve the Docker image for a dev workspace service based on its framework.
+///
+/// Each framework needs a runtime that can execute its build tools (uv, cargo, npm).
+/// Falls back to the manifest workspace image (typically node:24-alpine) for Node apps.
+fn resolve_service_image(framework: Option<&str>, workspace_image: &str) -> String {
+    match framework.unwrap_or("node") {
+        "python" => "python:3.12-slim".to_string(),
+        "rust" => "rust:1-slim".to_string(),
+        _ => workspace_image.to_string(),
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 struct ComposeFile {
-    version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    version: Option<String>,
     services: IndexMap<String, ComposeService>,
     #[serde(skip_serializing_if = "IndexMap::is_empty")]
     volumes: IndexMap<String, ComposeVolume>,
@@ -98,7 +111,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
     // Identify global stacks to apply based on manifest (pnpm, cargo, etc.)
     let global_stacks = ["pnpm", "rust", "python"];
 
-    // Apply global stack conventions (Caches and Env)
+    // Apply global stack conventions (Caches, Env, and root-level isolation)
     for stack_name in global_stacks {
         let defaults = crate::conventions::framework_defaults(stack_name);
         for (cache_id, mount_path) in defaults.global_caches {
@@ -108,6 +121,14 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         }
         for (key, val) in defaults.docker_env {
             workspace_env.insert(key.to_string(), val.to_string());
+        }
+        // Isolate root-level artifact dirs so host is never polluted by workspace-wide
+        // package manager output (e.g. /app/node_modules from pnpm install at the root).
+        for dir in defaults.isolated_dirs {
+            let mount_point = format!("/app/{}", dir);
+            if !workspace_volumes.contains(&mount_point) {
+                workspace_volumes.push(mount_point);
+            }
         }
     }
 
@@ -124,9 +145,11 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
 
             // Add project-local isolation volumes (Anonymous volumes to hide host junk)
             for dir in defaults.isolated_dirs {
-                // By providing only the container path, Docker creates an anonymous volume
-                // that masks the host's directory at this location.
-                app_volumes.push(format!("/app/{}/{}", path, dir));
+                let mount_point = format!("/app/{}/{}", path, dir);
+                app_volumes.push(mount_point.clone());
+                if !workspace_volumes.contains(&mount_point) {
+                    workspace_volumes.push(mount_point);
+                }
             }
 
             // Also add global caches for this specific service
@@ -151,7 +174,11 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
                         dir.replace('.', "").replace('/', "-")
                     );
                     volumes.insert(volume_name.clone(), ComposeVolume::default());
-                    app_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
+                    let mount_point = format!("{}:/app/{}/{}", volume_name, path, dir);
+                    app_volumes.push(mount_point.clone());
+                    if !workspace_volumes.contains(&mount_point) {
+                        workspace_volumes.push(mount_point);
+                    }
                 }
                 if stack_def.gpu {
                     use_gpu = true;
@@ -175,15 +202,63 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
                 None
             };
 
+            let image = resolve_service_image(app.framework.as_deref(), &manifest.workspace.image);
             services.insert(
                 app.name.clone(),
                 ComposeService {
-                    image: manifest.workspace.image.clone(),
+                    image,
                     container_name: Some(format!("{}-{}", project_name, app.name)),
                     volumes: app_volumes,
                     environment: app_env,
                     working_dir: Some(format!("/app/{}", path)),
                     deploy,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    // Process apps defined in [apps.X] table format (IndexMap, newer convention)
+    for (name, app) in &manifest.apps {
+        if services.contains_key(name) {
+            continue; // already handled via [[app]] entries
+        }
+        if let Some(ref path) = app.path {
+            let mut app_env = IndexMap::new();
+            let mut app_volumes = vec![format!("{}:/app/{}", ".", path)];
+
+            let framework = app
+                .framework
+                .as_deref()
+                .or(app.app_type.as_deref())
+                .unwrap_or("node");
+            let defaults = crate::conventions::framework_defaults(framework);
+
+            for dir in defaults.isolated_dirs {
+                let mount_point = format!("/app/{}/{}", path, dir);
+                app_volumes.push(mount_point.clone());
+                if !workspace_volumes.contains(&mount_point) {
+                    workspace_volumes.push(mount_point);
+                }
+            }
+            for (cache_id, mount_path) in defaults.global_caches {
+                let volume_name = format!("{}-{}", project_name, cache_id);
+                volumes.insert(volume_name.clone(), ComposeVolume::default());
+                app_volumes.push(format!("{}:{}", volume_name, mount_path));
+            }
+            for (key, val) in defaults.docker_env {
+                app_env.insert(key.to_string(), val.to_string());
+            }
+
+            let image = resolve_service_image(Some(framework), &manifest.workspace.image);
+            services.insert(
+                name.clone(),
+                ComposeService {
+                    image,
+                    container_name: Some(format!("{}-{}", project_name, name)),
+                    volumes: app_volumes,
+                    environment: app_env,
+                    working_dir: Some(format!("/app/{}", path)),
                     ..Default::default()
                 },
             );
@@ -204,15 +279,13 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
     );
 
     let compose = ComposeFile {
-        version: "3.8".into(),
+        version: None,
         services,
         volumes,
         networks,
     };
 
     let content = serde_yml::to_string(&compose)?;
-    let header = "# Generated by airis-workspace\n# Mode: Docker-First (Artifacts isolated in named volumes)\n\n";
-    let full_content = format!("{}{}", header, content);
 
     // Standardize on compose.yaml (Docker Compose V2) at the project root
     let target_path = Path::new("compose.yaml");
@@ -222,7 +295,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    write_with_backup(target_path, &full_content)?;
+    write_with_backup(target_path, &content)?;
 
     Ok(())
 }
