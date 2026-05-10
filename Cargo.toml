@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "3.16.6"
+version = "3.17.1"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Docker-first monorepo workspace manager for rapid prototyping"
@@ -70,7 +70,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.6", features = ["derive", "cargo", "env"] }
 serde = { version = "1.0", features = ["derive"] }
-serde_yml = "0.0"
+serde_yaml_ng = "0.10"
 toml = { version = "1.1", features = ["preserve_order"] }
 anyhow = "1.0"
 colored = "3.1"
