@@ -88,7 +88,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_init",
                     "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). After applying the proposed manifest with 'manifest_apply', it is highly recommended to run 'airis clean --purge --force' via shell to remove the legacy configuration files and complete the consolidation.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -96,7 +96,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_cleanup",
                     "description": "Scan the workspace for legacy artifacts, orphaned backups, and unneeded temporary files. Use this to maintain environment hygiene after migrations or structural changes. It returns a list of files that should be cleaned up.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -104,7 +104,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_discover",
                     "description": "Scan the workspace to detect current structural facts. Useful for gathering context before proposing manual manifest changes.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -113,7 +113,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "manifest_validate",
                     "description": "Validate a proposed manifest.toml content without writing it to disk.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "manifest": {
@@ -127,7 +127,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "manifest_apply",
                     "description": "Write manifest.toml to disk and optionally run 'airis gen' to update the environment.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "manifest": {
@@ -146,7 +146,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "migration_execute",
                     "description": "Execute a list of physical migration tasks (moving files, creating directories).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "tasks": {
@@ -172,7 +172,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_gen",
                     "description": "Regenerate workspace files (package.json, pnpm-workspace.yaml, compose.yaml, CI workflows) from manifest.toml. Run after manifest_apply or manifest.toml edits to propagate changes. Equivalent to the 'airis gen' CLI command.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "dry_run": {
@@ -186,7 +186,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_validate_all",
                     "description": "Run all workspace validation checks (manifest syntax, ports, Traefik networks, env vars, dependency architecture). Use to confirm manifest consistency after changes.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -194,7 +194,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_doctor",
                     "description": "Diagnose workspace health and configuration drift. Read-only; returns actionable hints. Use when the user reports unexpected behavior before editing anything.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -202,7 +202,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_verify",
                     "description": "Execute verification rules defined in manifest.toml [rule.verify] and app-specific stack rules inside the Docker workspace. Call after manifest changes, dependency updates, or when asked to confirm environment health.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -210,7 +210,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_status",
                     "description": "Show running Docker services (equivalent to 'docker compose ps'). Use to confirm which containers are up before further actions.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -218,7 +218,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_up",
                     "description": "Start the Docker workspace (airis up). Builds images if needed and starts all services. Call before any exec/run/test commands when the workspace is not running.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -226,7 +226,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_down",
                     "description": "Stop all Docker services in the workspace (airis down).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -234,7 +234,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_restart",
                     "description": "Restart one or all Docker services (airis restart [service]).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "service": {
@@ -247,7 +247,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_logs",
                     "description": "Fetch Docker service logs (airis logs [service]). Use to debug runtime errors.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "service": {
@@ -265,7 +265,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_install",
                     "description": "Install dependencies inside the Docker workspace (airis install). Run after adding packages to package.json.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -273,7 +273,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_run",
                     "description": "Run a task defined in manifest.toml [commands] or delegate to the Docker workspace (airis run <task>).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "task": {
@@ -292,7 +292,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_exec",
                     "description": "Execute an arbitrary command inside the Docker workspace container (airis exec <cmd>). Auto-routes to the correct service based on the command's runtime.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "cmd": {
@@ -307,7 +307,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_test",
                     "description": "Run the test suite inside Docker (airis test). Equivalent to the project's test script.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "extra_args": {
@@ -321,7 +321,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_build",
                     "description": "Build one or all projects inside Docker (airis build [project]). Use --docker to build a Docker image.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "project": {
@@ -334,7 +334,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_lint",
                     "description": "Run linting inside Docker (airis lint).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -342,7 +342,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_typecheck",
                     "description": "Run type checking inside Docker (airis typecheck).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {}
                     }
@@ -350,7 +350,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_clean",
                     "description": "Remove build artifacts from the workspace (airis clean). Defaults to dry-run; pass force=true to actually delete.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "force": {
@@ -369,7 +369,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "workspace_affected",
                     "description": "List packages affected by changes relative to origin/main (airis affected). Use in CI to scope test/build runs.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "base": {
@@ -383,7 +383,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "guards_install",
                     "description": "Install airis command shims (airis guards install). With global=true installs global shims in ~/.airis/bin that intercept pnpm/npm/python outside Docker.",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "global": {
@@ -397,7 +397,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "guards_status",
                     "description": "Show current airis guard shim status (airis guards status).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "global": {
@@ -411,7 +411,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 {
                     "name": "guards_uninstall",
                     "description": "Remove airis guard shims (airis guards uninstall).",
-                    "input_schema": {
+                    "inputSchema": {
                         "type": "object",
                         "properties": {
                             "global": {
