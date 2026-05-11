@@ -214,6 +214,213 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                         "type": "object",
                         "properties": {}
                     }
+                },
+                {
+                    "name": "workspace_up",
+                    "description": "Start the Docker workspace (airis up). Builds images if needed and starts all services. Call before any exec/run/test commands when the workspace is not running.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_down",
+                    "description": "Stop all Docker services in the workspace (airis down).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_restart",
+                    "description": "Restart one or all Docker services (airis restart [service]).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "service": {
+                                "type": "string",
+                                "description": "Service name to restart. Omit to restart all services."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_logs",
+                    "description": "Fetch Docker service logs (airis logs [service]). Use to debug runtime errors.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "service": {
+                                "type": "string",
+                                "description": "Service name. Omit for all services."
+                            },
+                            "tail": {
+                                "type": "integer",
+                                "description": "Number of log lines to return (default: 50).",
+                                "default": 50
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_install",
+                    "description": "Install dependencies inside the Docker workspace (airis install). Run after adding packages to package.json.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_run",
+                    "description": "Run a task defined in manifest.toml [commands] or delegate to the Docker workspace (airis run <task>).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "task": {
+                                "type": "string",
+                                "description": "Task name (e.g. build, migrate, seed)"
+                            },
+                            "extra_args": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Additional arguments forwarded to the task"
+                            }
+                        },
+                        "required": ["task"]
+                    }
+                },
+                {
+                    "name": "workspace_exec",
+                    "description": "Execute an arbitrary command inside the Docker workspace container (airis exec <cmd>). Auto-routes to the correct service based on the command's runtime.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "cmd": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Command and arguments to run inside the container (e.g. [\"pnpm\", \"add\", \"zod\"])"
+                            }
+                        },
+                        "required": ["cmd"]
+                    }
+                },
+                {
+                    "name": "workspace_test",
+                    "description": "Run the test suite inside Docker (airis test). Equivalent to the project's test script.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "extra_args": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Additional arguments forwarded to the test runner"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_build",
+                    "description": "Build one or all projects inside Docker (airis build [project]). Use --docker to build a Docker image.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "project": {
+                                "type": "string",
+                                "description": "Target project path (e.g. apps/api). Omit to build all."
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_lint",
+                    "description": "Run linting inside Docker (airis lint).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_typecheck",
+                    "description": "Run type checking inside Docker (airis typecheck).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {}
+                    }
+                },
+                {
+                    "name": "workspace_clean",
+                    "description": "Remove build artifacts from the workspace (airis clean). Defaults to dry-run; pass force=true to actually delete.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "force": {
+                                "type": "boolean",
+                                "description": "Actually execute deletions (default: false = dry-run preview)",
+                                "default": false
+                            },
+                            "purge": {
+                                "type": "boolean",
+                                "description": "Also remove legacy compose files and orphaned configs (requires manifest.toml)",
+                                "default": false
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "workspace_affected",
+                    "description": "List packages affected by changes relative to origin/main (airis affected). Use in CI to scope test/build runs.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "base": {
+                                "type": "string",
+                                "description": "Base ref to compare against (default: origin/main)",
+                                "default": "origin/main"
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "guards_install",
+                    "description": "Install airis command shims (airis guards install). With global=true installs global shims in ~/.airis/bin that intercept pnpm/npm/python outside Docker.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "global": {
+                                "type": "boolean",
+                                "description": "Install global shims in ~/.airis/bin (default: false = project-local)",
+                                "default": false
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "guards_status",
+                    "description": "Show current airis guard shim status (airis guards status).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "global": {
+                                "type": "boolean",
+                                "description": "Check global shims (~/.airis/bin) instead of project-local",
+                                "default": false
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "guards_uninstall",
+                    "description": "Remove airis guard shims (airis guards uninstall).",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "global": {
+                                "type": "boolean",
+                                "description": "Remove global shims from ~/.airis/bin",
+                                "default": false
+                            }
+                        }
+                    }
                 }
             ]
         })),
@@ -234,6 +441,22 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 "workspace_doctor" => handle_workspace_doctor()?,
                 "workspace_verify" => handle_workspace_verify()?,
                 "workspace_status" => handle_workspace_status()?,
+                "workspace_up" => handle_workspace_up()?,
+                "workspace_down" => handle_workspace_down()?,
+                "workspace_restart" => handle_workspace_restart(arguments)?,
+                "workspace_logs" => handle_workspace_logs(arguments)?,
+                "workspace_install" => handle_workspace_install()?,
+                "workspace_run" => handle_workspace_run(arguments)?,
+                "workspace_exec" => handle_workspace_exec(arguments)?,
+                "workspace_test" => handle_workspace_test(arguments)?,
+                "workspace_build" => handle_workspace_build(arguments)?,
+                "workspace_lint" => handle_workspace_lint()?,
+                "workspace_typecheck" => handle_workspace_typecheck()?,
+                "workspace_clean" => handle_workspace_clean(arguments)?,
+                "workspace_affected" => handle_workspace_affected(arguments)?,
+                "guards_install" => handle_guards_install(arguments)?,
+                "guards_status" => handle_guards_status(arguments)?,
+                "guards_uninstall" => handle_guards_uninstall(arguments)?,
                 _ => json!({
                     "content": [
                         {
@@ -498,6 +721,11 @@ fn run_airis_subprocess(args: &[&str]) -> Result<Value> {
     }))
 }
 
+fn run_airis_subprocess_dyn(args: Vec<String>) -> Result<Value> {
+    let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    run_airis_subprocess(&str_args)
+}
+
 fn handle_workspace_gen(arguments: &Value) -> Result<Value> {
     let dry_run = arguments["dry_run"].as_bool().unwrap_or(false);
     let mut args: Vec<&str> = vec!["gen"];
@@ -505,6 +733,138 @@ fn handle_workspace_gen(arguments: &Value) -> Result<Value> {
         args.push("--dry-run");
     }
     run_airis_subprocess(&args)
+}
+
+fn handle_workspace_up() -> Result<Value> {
+    run_airis_subprocess(&["up"])
+}
+
+fn handle_workspace_down() -> Result<Value> {
+    run_airis_subprocess(&["down"])
+}
+
+fn handle_workspace_restart(arguments: &Value) -> Result<Value> {
+    let mut args = vec!["restart".to_string()];
+    if let Some(service) = arguments["service"].as_str() {
+        args.push(service.to_string());
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_logs(arguments: &Value) -> Result<Value> {
+    let tail = arguments["tail"].as_u64().unwrap_or(50);
+    let tail_str = tail.to_string();
+    let mut args = vec!["logs", "--tail", &tail_str];
+    let service_owned;
+    if let Some(service) = arguments["service"].as_str() {
+        service_owned = service.to_string();
+        args.push(&service_owned);
+    }
+    run_airis_subprocess(&args)
+}
+
+fn handle_workspace_install() -> Result<Value> {
+    run_airis_subprocess(&["install"])
+}
+
+fn handle_workspace_run(arguments: &Value) -> Result<Value> {
+    let task = arguments["task"].as_str().context("Missing task name")?;
+    let mut args = vec!["run".to_string(), task.to_string()];
+    if let Some(extra) = arguments["extra_args"].as_array() {
+        for v in extra {
+            if let Some(s) = v.as_str() {
+                args.push(s.to_string());
+            }
+        }
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_exec(arguments: &Value) -> Result<Value> {
+    let cmd = arguments["cmd"].as_array().context("Missing cmd array")?;
+    let mut args = vec!["exec".to_string()];
+    for v in cmd {
+        if let Some(s) = v.as_str() {
+            args.push(s.to_string());
+        }
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_test(arguments: &Value) -> Result<Value> {
+    let mut args = vec!["test".to_string()];
+    if let Some(extra) = arguments["extra_args"].as_array() {
+        for v in extra {
+            if let Some(s) = v.as_str() {
+                args.push(s.to_string());
+            }
+        }
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_build(arguments: &Value) -> Result<Value> {
+    let mut args = vec!["build".to_string()];
+    if let Some(project) = arguments["project"].as_str() {
+        args.push(project.to_string());
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_lint() -> Result<Value> {
+    run_airis_subprocess(&["lint"])
+}
+
+fn handle_workspace_typecheck() -> Result<Value> {
+    run_airis_subprocess(&["typecheck"])
+}
+
+fn handle_workspace_clean(arguments: &Value) -> Result<Value> {
+    let force = arguments["force"].as_bool().unwrap_or(false);
+    let purge = arguments["purge"].as_bool().unwrap_or(false);
+    let mut args = vec!["clean".to_string()];
+    if force {
+        args.push("--force".to_string());
+    }
+    if purge {
+        args.push("--purge".to_string());
+    }
+    run_airis_subprocess_dyn(args)
+}
+
+fn handle_workspace_affected(arguments: &Value) -> Result<Value> {
+    let base = arguments["base"]
+        .as_str()
+        .unwrap_or("origin/main")
+        .to_string();
+    run_airis_subprocess_dyn(vec!["affected".to_string(), "--base".to_string(), base])
+}
+
+fn handle_guards_install(arguments: &Value) -> Result<Value> {
+    let global = arguments["global"].as_bool().unwrap_or(false);
+    if global {
+        run_airis_subprocess(&["guards", "install", "--global"])
+    } else {
+        run_airis_subprocess(&["guards", "install"])
+    }
+}
+
+fn handle_guards_status(arguments: &Value) -> Result<Value> {
+    let global = arguments["global"].as_bool().unwrap_or(false);
+    if global {
+        run_airis_subprocess(&["guards", "status", "--global"])
+    } else {
+        run_airis_subprocess(&["guards", "status"])
+    }
+}
+
+fn handle_guards_uninstall(arguments: &Value) -> Result<Value> {
+    let global = arguments["global"].as_bool().unwrap_or(false);
+    if global {
+        run_airis_subprocess(&["guards", "uninstall", "--global"])
+    } else {
+        run_airis_subprocess(&["guards", "uninstall"])
+    }
 }
 
 fn handle_workspace_validate_all() -> Result<Value> {
