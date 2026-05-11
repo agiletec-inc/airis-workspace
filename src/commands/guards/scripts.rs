@@ -95,6 +95,12 @@ fi
 if find_airis_context >/dev/null; then
     # We are in an airis docker-first project. Route to Docker via airis exec.
     if command -v airis &>/dev/null; then
+        # Non-interactive (no TTY on stdout): disable auto-up so that background
+        # scripts such as statusline commands and hooks don't trigger a full
+        # Docker stack launch when the container happens to be stopped.
+        if [[ ! -t 1 ]]; then
+            export AIRIS_NO_AUTO_UP=1
+        fi
         exec airis exec {cmd} "$@"
     else
         echo "❌ AIRIS: Context detected but 'airis' command not found." >&2
