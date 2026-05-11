@@ -117,28 +117,27 @@ impl Manifest {
 
     /// Apply convention-based defaults and discover projects from disk.
     ///
-    /// Implements 'Thin Manifest + Strong Convention' philosophy:
-    /// 1. Discover projects matching convention patterns (apps/*, libs/*, products/*).
-    /// 2. Merge explicit overrides from [apps.xxx] and [libs.xxx] table formats.
-    /// 3. Merge explicit entries from [[app]] list.
+    /// Workspace patterns are resolved from authoritative sources, in priority
+    /// (see `crate::workspace::resolve_patterns`):
+    /// 1. `manifest.toml [packages].workspaces` (explicit override)
+    /// 2. `pnpm-workspace.yaml` `packages:` field
+    /// 3. `Cargo.toml [workspace] members`
+    ///
+    /// If none declare workspaces and the repo root has a project file
+    /// (`package.json`/`Cargo.toml`/`pyproject.toml`), the root itself is
+    /// treated as a single project. Otherwise nothing is discovered (no
+    /// hardcoded `apps/*` fallback).
     fn resolve_conventions(&mut self) {
         let workspace = self.workspace.clone();
         let mut normalized = IndexMap::new();
 
         // Step 1: Discover from disk (Repo Convention)
         let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        let patterns = if !self.packages.workspaces.is_empty() {
-            self.packages.workspaces.clone()
-        } else {
-            vec![
-                "apps/*".to_string(),
-                "libs/*".to_string(),
-                "products/*".to_string(),
-            ]
-        };
+        let patterns = crate::workspace::resolve_patterns(&root, &self.packages.workspaces);
 
-        if let Ok(discovered) =
-            crate::commands::discover::discover_from_workspaces(&patterns, &root)
+        if !patterns.is_empty()
+            && let Ok(discovered) =
+                crate::commands::discover::discover_from_workspaces(&patterns, &root)
         {
             for disc in discovered {
                 let kind = if disc.path.starts_with("libs/") {
@@ -156,6 +155,23 @@ impl Manifest {
                 project.resolve(&workspace);
                 normalized.insert(project.name.clone(), project);
             }
+        } else if patterns.is_empty() && crate::workspace::is_single_project_root(&root) {
+            // Single-project repository: derive a single app from the root itself.
+            let framework = crate::commands::discover::detect_framework(&root).to_string();
+            let name = root
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&self.project.id)
+                .to_string();
+            let mut project = ProjectDefinition {
+                name: name.clone(),
+                path: Some(".".to_string()),
+                framework: Some(framework),
+                kind: Some("app".to_string()),
+                ..Default::default()
+            };
+            project.resolve(&workspace);
+            normalized.insert(name, project);
         }
 
         // Step 2: Merge Map-based overrides ([apps.xxx], [libs.xxx])

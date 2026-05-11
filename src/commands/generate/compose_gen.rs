@@ -1,13 +1,12 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use super::write_with_backup;
 use crate::manifest::Manifest;
 
-/// Resolve the Docker image for a dev workspace service based on its framework.
+/// Resolve the Docker image for a service based on its framework.
 ///
 /// Each framework needs a runtime that can execute its build tools (uv, cargo, npm).
 /// Falls back to the manifest workspace image (typically node:24-alpine) for Node apps.
@@ -19,55 +18,90 @@ fn resolve_service_image(framework: Option<&str>, workspace_image: &str) -> Stri
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 struct ComposeFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<String>,
+    #[serde(default)]
     services: IndexMap<String, ComposeService>,
-    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
     volumes: IndexMap<String, ComposeVolume>,
-    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
     networks: IndexMap<String, ComposeNetwork>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeService {
-    image: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    image: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     container_name: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     volumes: Vec<String>,
-    #[serde(skip_serializing_if = "IndexMap::is_empty")]
+    #[serde(skip_serializing_if = "IndexMap::is_empty", default)]
     environment: IndexMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     working_dir: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     user: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     networks: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    ports: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    expose: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    restart: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    healthcheck: Option<ComposeHealthcheck>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    profiles: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy: Option<ComposeDeploy>,
+    /// Marker indicating this service is managed by `airis gen` and may be
+    /// regenerated. Services without this marker are preserved verbatim.
+    #[serde(rename = "x-airis-managed", skip_serializing_if = "is_false", default)]
+    airis_managed: bool,
+    /// Catch-all for any compose fields we don't model explicitly. Preserves
+    /// user-written services when merging.
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_yaml_ng::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+struct ComposeHealthcheck {
+    test: Vec<String>,
+    interval: String,
+    timeout: String,
+    retries: u32,
+    start_period: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeDeploy {
     #[serde(skip_serializing_if = "Option::is_none")]
     resources: Option<ComposeResources>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeResources {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     reservations: Vec<ComposeReservation>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeReservation {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     devices: Vec<ComposeDevice>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeDevice {
     #[serde(skip_serializing_if = "Option::is_none")]
     driver: Option<String>,
@@ -77,42 +111,78 @@ struct ComposeDevice {
     capabilities: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeVolume {
     #[serde(skip_serializing_if = "Option::is_none")]
     name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     external: Option<bool>,
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_yaml_ng::Value>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeNetwork {
     #[serde(skip_serializing_if = "Option::is_none")]
     external: Option<bool>,
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_yaml_ng::Value>,
 }
 
-/// Generate workspace/docker-compose.yml from manifest.toml
+/// Convert a path component to a volume name slug:
+/// "apps/api" + ".next" -> "apps-api-next"
+fn slug(s: &str) -> String {
+    s.replace('/', "-")
+        .replace('.', "")
+        .replace('_', "-")
+        .trim_matches('-')
+        .to_string()
+}
+
+/// Find an existing compose file at the project root, in Docker's official
+/// priority order: compose.yaml > compose.yml > docker-compose.yaml > docker-compose.yml.
+fn find_existing_compose() -> Option<PathBuf> {
+    for name in [
+        "compose.yaml",
+        "compose.yml",
+        "docker-compose.yaml",
+        "docker-compose.yml",
+    ] {
+        let p = Path::new(name);
+        if p.exists() {
+            return Some(p.to_path_buf());
+        }
+    }
+    None
+}
+
+/// Generate the project-root compose.yaml from manifest.toml.
+///
+/// Behavior:
+/// - Writes to existing `compose.yaml`/`.yml`/`docker-compose.yaml`/`.yml` if
+///   present (preserving the file name); otherwise creates `compose.yaml`.
+/// - Services are emitted with production-ready fields (restart, healthcheck,
+///   ports) derived from `crate::conventions`.
+/// - Each generated service gets `x-airis-managed: true`. On regeneration,
+///   user-added services (without that marker) are preserved verbatim.
+/// - Build artifact dirs (`.next`, `.turbo`, `node_modules`, etc.) are mounted
+///   as named volumes so they never leak to the host.
 pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
-    let mut services = IndexMap::new();
-    let mut volumes = IndexMap::new();
-    let networks = IndexMap::new();
+    let mut services: IndexMap<String, ComposeService> = IndexMap::new();
+    let mut volumes: IndexMap<String, ComposeVolume> = IndexMap::new();
+    let networks: IndexMap<String, ComposeNetwork> = IndexMap::new();
 
     let project_name = &manifest.project.id;
 
-    // Workspace-wide global environment variables
+    // Workspace-wide environment variables
     let mut workspace_env = IndexMap::new();
     workspace_env.insert("NODE_ENV".to_string(), "development".to_string());
 
-    // Workspace-wide global volumes
-    let mut workspace_volumes = vec![
-        ".:/app".to_string(), // Source bind mount (for human/AI editing)
-    ];
+    // Workspace-wide volumes (shared by the workspace runner)
+    let mut workspace_volumes = vec![".:/app".to_string()];
 
-    // Identify global stacks to apply based on manifest (pnpm, cargo, etc.)
-    let global_stacks = ["pnpm", "rust", "python"];
-
-    // Apply global stack conventions (Caches, Env, and root-level isolation)
-    for stack_name in global_stacks {
+    // Apply global stack conventions (caches, env, root-level isolation)
+    for stack_name in ["pnpm", "rust", "python"] {
         let defaults = crate::conventions::framework_defaults(stack_name);
         for (cache_id, mount_path) in defaults.global_caches {
             let volume_name = format!("{}-{}", project_name, cache_id);
@@ -122,181 +192,373 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         for (key, val) in defaults.docker_env {
             workspace_env.insert(key.to_string(), val.to_string());
         }
-        // Isolate root-level artifact dirs so host is never polluted by workspace-wide
-        // package manager output (e.g. /app/node_modules from pnpm install at the root).
+        // Root-level isolated dirs as named volumes (host pollution guard).
         for dir in defaults.isolated_dirs {
-            let mount_point = format!("/app/{}", dir);
-            if !workspace_volumes.contains(&mount_point) {
-                workspace_volumes.push(mount_point);
+            let volume_name = format!("{}-root-{}", project_name, slug(dir));
+            volumes.entry(volume_name.clone()).or_default();
+            let mount_str = format!("{}:/app/{}", volume_name, dir);
+            if !workspace_volumes.contains(&mount_str) {
+                workspace_volumes.push(mount_str);
             }
         }
     }
 
-    // Process each application
+    // Per-app services (from [[app]] entries)
     for app in &manifest.app {
-        if let Some(ref path) = app.path {
-            let mut app_env = IndexMap::new();
-            let mut app_volumes = vec![format!("{}:/app/{}", ".", path)];
-            let mut use_gpu = app.cuda.is_some();
-
-            // 1. Get conventions from framework
-            let framework = app.framework.as_deref().unwrap_or("node");
-            let defaults = crate::conventions::framework_defaults(framework);
-
-            // Add project-local isolation volumes (Anonymous volumes to hide host junk)
-            for dir in defaults.isolated_dirs {
-                let mount_point = format!("/app/{}/{}", path, dir);
-                app_volumes.push(mount_point.clone());
-                if !workspace_volumes.contains(&mount_point) {
-                    workspace_volumes.push(mount_point);
-                }
-            }
-
-            // Also add global caches for this specific service
-            for (cache_id, mount_path) in defaults.global_caches {
-                let volume_name = format!("{}-{}", project_name, cache_id);
-                volumes.insert(volume_name.clone(), ComposeVolume::default());
-                app_volumes.push(format!("{}:{}", volume_name, mount_path));
-            }
-            for (key, val) in defaults.docker_env {
-                app_env.insert(key.to_string(), val.to_string());
-            }
-
-            // 2. Override/Extend with user-defined Stack definition
-            if let Some(ref stack_name) = app.use_stack
-                && let Some(stack_def) = manifest.stack.get(stack_name)
-            {
-                for dir in &stack_def.artifacts {
-                    let volume_name = format!(
-                        "{}-{}-{}",
-                        project_name,
-                        path.replace('/', "-"),
-                        dir.replace('.', "").replace('/', "-")
-                    );
-                    volumes.insert(volume_name.clone(), ComposeVolume::default());
-                    let mount_point = format!("{}:/app/{}/{}", volume_name, path, dir);
-                    app_volumes.push(mount_point.clone());
-                    if !workspace_volumes.contains(&mount_point) {
-                        workspace_volumes.push(mount_point);
-                    }
-                }
-                if stack_def.gpu {
-                    use_gpu = true;
-                }
-            }
-
-            // GPU Support
-            let deploy = if use_gpu {
-                Some(ComposeDeploy {
-                    resources: Some(ComposeResources {
-                        reservations: vec![ComposeReservation {
-                            devices: vec![ComposeDevice {
-                                driver: Some("nvidia".to_string()),
-                                count: Some(serde_json::json!("all")),
-                                capabilities: vec!["gpu".to_string()],
-                            }],
-                        }],
-                    }),
-                })
-            } else {
-                None
-            };
-
-            let image = resolve_service_image(app.framework.as_deref(), &manifest.workspace.image);
-            services.insert(
-                app.name.clone(),
-                ComposeService {
-                    image,
-                    container_name: Some(format!("{}-{}", project_name, app.name)),
-                    volumes: app_volumes,
-                    environment: app_env,
-                    working_dir: Some(format!("/app/{}", path)),
-                    deploy,
-                    ..Default::default()
-                },
-            );
-        }
+        let Some(path) = app.path.as_deref() else {
+            continue;
+        };
+        let framework = app.framework.as_deref().unwrap_or("node");
+        let stack_def = app
+            .use_stack
+            .as_deref()
+            .and_then(|name| manifest.stack.get(name));
+        let use_gpu = app.cuda.is_some() || stack_def.is_some_and(|s| s.gpu);
+        let extra_artifacts: Vec<&str> = stack_def
+            .map(|s| s.artifacts.iter().map(|s| s.as_str()).collect())
+            .unwrap_or_default();
+        let svc = build_app_service(
+            project_name,
+            &app.name,
+            path,
+            framework,
+            use_gpu,
+            &extra_artifacts,
+            &manifest.workspace.image,
+            &mut volumes,
+        );
+        services.insert(app.name.clone(), svc);
     }
 
-    // Process apps defined in [apps.X] table format (IndexMap, newer convention)
+    // Per-app services from [apps.X] map (skip duplicates)
     for (name, app) in &manifest.apps {
         if services.contains_key(name) {
-            continue; // already handled via [[app]] entries
+            continue;
         }
-        if let Some(ref path) = app.path {
-            let mut app_env = IndexMap::new();
-            let mut app_volumes = vec![format!("{}:/app/{}", ".", path)];
-
-            let framework = app
-                .framework
-                .as_deref()
-                .or(app.app_type.as_deref())
-                .unwrap_or("node");
-            let defaults = crate::conventions::framework_defaults(framework);
-
-            for dir in defaults.isolated_dirs {
-                let mount_point = format!("/app/{}/{}", path, dir);
-                app_volumes.push(mount_point.clone());
-                if !workspace_volumes.contains(&mount_point) {
-                    workspace_volumes.push(mount_point);
-                }
-            }
-            for (cache_id, mount_path) in defaults.global_caches {
-                let volume_name = format!("{}-{}", project_name, cache_id);
-                volumes.insert(volume_name.clone(), ComposeVolume::default());
-                app_volumes.push(format!("{}:{}", volume_name, mount_path));
-            }
-            for (key, val) in defaults.docker_env {
-                app_env.insert(key.to_string(), val.to_string());
-            }
-
-            let image = resolve_service_image(Some(framework), &manifest.workspace.image);
-            services.insert(
-                name.clone(),
-                ComposeService {
-                    image,
-                    container_name: Some(format!("{}-{}", project_name, name)),
-                    volumes: app_volumes,
-                    environment: app_env,
-                    working_dir: Some(format!("/app/{}", path)),
-                    ..Default::default()
-                },
-            );
-        }
+        let Some(path) = app.path.as_deref() else {
+            continue;
+        };
+        let framework = app
+            .framework
+            .as_deref()
+            .or(app.app_type.as_deref())
+            .unwrap_or("node");
+        let svc = build_app_service(
+            project_name,
+            name,
+            path,
+            framework,
+            false,
+            &[],
+            &manifest.workspace.image,
+            &mut volumes,
+        );
+        services.insert(name.clone(), svc);
     }
 
-    // Main workspace container (for airis run/exec)
+    // Workspace runner (for `airis run`/`airis exec`)
     services.insert(
         "workspace".to_string(),
         ComposeService {
-            image: manifest.workspace.image.clone(),
+            image: Some(manifest.workspace.image.clone()),
             container_name: Some(format!("{}-workspace", project_name)),
             volumes: workspace_volumes,
             environment: workspace_env,
             working_dir: Some("/app".to_string()),
+            restart: Some("unless-stopped".to_string()),
+            airis_managed: true,
             ..Default::default()
         },
     );
 
-    let compose = ComposeFile {
+    let generated = ComposeFile {
         version: None,
         services,
         volumes,
         networks,
     };
 
-    let content = serde_yaml_ng::to_string(&compose)?;
+    // Merge with any existing root compose to preserve user-authored services.
+    let target_path = find_existing_compose().unwrap_or_else(|| PathBuf::from("compose.yaml"));
+    let final_compose = if target_path.exists() {
+        merge_with_existing(generated, &target_path)?
+    } else {
+        generated
+    };
 
-    // Output workspace dev containers to .airis/ so they don't conflict with the
-    // user-owned runtime compose.yaml at the project root.
-    let target_path = Path::new(".airis/workspace-compose.yaml");
-    if let Some(parent) = target_path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
+    let header = "# Auto-merged by `airis gen`. Services without `x-airis-managed: true`\n\
+                  # are user-owned and will not be touched on regeneration.\n";
+    let body =
+        serde_yaml_ng::to_string(&final_compose).context("failed to serialize compose.yaml")?;
+    let content = format!("{}{}", header, body);
 
-    write_with_backup(target_path, &content)?;
+    fs::write(&target_path, content)
+        .with_context(|| format!("failed to write {}", target_path.display()))?;
 
     Ok(())
+}
+
+/// Build a single app service with production-ready fields and named volumes
+/// for all isolated dirs.
+#[allow(clippy::too_many_arguments)]
+fn build_app_service(
+    project_name: &str,
+    name: &str,
+    path: &str,
+    framework: &str,
+    use_gpu_override: bool,
+    stack_artifacts: &[&str],
+    workspace_image: &str,
+    volumes: &mut IndexMap<String, ComposeVolume>,
+) -> ComposeService {
+    let defaults = crate::conventions::framework_defaults(framework);
+    let mut env = IndexMap::new();
+    let mut svc_volumes = vec![format!(".:/app/{}", path)];
+
+    // Named volumes for every isolated dir (no anonymous-volume leaks).
+    let isolated: Vec<&str> = defaults
+        .isolated_dirs
+        .iter()
+        .copied()
+        .chain(stack_artifacts.iter().copied())
+        .collect();
+    for dir in isolated {
+        let volume_name = format!("{}-{}-{}", project_name, slug(name), slug(dir));
+        volumes.entry(volume_name.clone()).or_default();
+        svc_volumes.push(format!("{}:/app/{}/{}", volume_name, path, dir));
+    }
+    for (cache_id, mount_path) in defaults.global_caches {
+        let volume_name = format!("{}-{}", project_name, cache_id);
+        volumes.entry(volume_name.clone()).or_default();
+        svc_volumes.push(format!("{}:{}", volume_name, mount_path));
+    }
+    for (key, val) in defaults.docker_env {
+        env.insert(key.to_string(), val.to_string());
+    }
+
+    let healthcheck = defaults.healthcheck_test().map(|test| ComposeHealthcheck {
+        test,
+        interval: "30s".to_string(),
+        timeout: "10s".to_string(),
+        retries: 3,
+        start_period: "10s".to_string(),
+    });
+
+    let ports = if defaults.port > 0 {
+        vec![format!("{0}:{0}", defaults.port)]
+    } else {
+        Vec::new()
+    };
+
+    let deploy = if use_gpu_override {
+        Some(ComposeDeploy {
+            resources: Some(ComposeResources {
+                reservations: vec![ComposeReservation {
+                    devices: vec![ComposeDevice {
+                        driver: Some("nvidia".to_string()),
+                        count: Some(serde_json::json!("all")),
+                        capabilities: vec!["gpu".to_string()],
+                    }],
+                }],
+            }),
+        })
+    } else {
+        None
+    };
+
+    ComposeService {
+        image: Some(resolve_service_image(Some(framework), workspace_image)),
+        container_name: Some(format!("{}-{}", project_name, name)),
+        volumes: svc_volumes,
+        environment: env,
+        working_dir: Some(format!("/app/{}", path)),
+        ports,
+        restart: Some("unless-stopped".to_string()),
+        healthcheck,
+        deploy,
+        airis_managed: true,
+        ..Default::default()
+    }
+}
+
+/// Merge generated services with the existing compose file:
+/// - Existing services with `x-airis-managed: true` are replaced by the new
+///   generated version (or removed if no longer generated).
+/// - Existing services without the marker are preserved verbatim.
+/// - New generated services are appended.
+/// - Existing volumes/networks are preserved; generated ones are added if absent.
+fn merge_with_existing(generated: ComposeFile, existing_path: &Path) -> Result<ComposeFile> {
+    let raw = fs::read_to_string(existing_path)
+        .with_context(|| format!("failed to read {}", existing_path.display()))?;
+    let existing: ComposeFile = if raw.trim().is_empty() {
+        ComposeFile::default()
+    } else {
+        serde_yaml_ng::from_str(&raw)
+            .with_context(|| format!("failed to parse {} as YAML", existing_path.display()))?
+    };
+
+    let mut merged = ComposeFile {
+        version: existing.version.clone(),
+        services: IndexMap::new(),
+        volumes: existing.volumes.clone(),
+        networks: existing.networks.clone(),
+    };
+
+    // 1. Walk existing services in order; replace airis-managed ones.
+    for (name, svc) in &existing.services {
+        if svc.airis_managed {
+            if let Some(new_svc) = generated.services.get(name) {
+                merged.services.insert(name.clone(), new_svc.clone());
+            }
+            // If the generated set no longer includes this name, drop it.
+        } else {
+            // User-authored: preserve as-is.
+            merged.services.insert(name.clone(), svc.clone());
+        }
+    }
+
+    // 2. Append any generated services that didn't already exist.
+    for (name, svc) in &generated.services {
+        if !merged.services.contains_key(name) {
+            merged.services.insert(name.clone(), svc.clone());
+        }
+    }
+
+    // 3. Merge volumes/networks (existing wins, additions appended).
+    for (k, v) in generated.volumes {
+        merged.volumes.entry(k).or_insert(v);
+    }
+    for (k, v) in generated.networks {
+        merged.networks.entry(k).or_insert(v);
+    }
+
+    Ok(merged)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn slug_normalizes_paths_and_dots() {
+        assert_eq!(slug("apps/api"), "apps-api");
+        assert_eq!(slug(".next"), "next");
+        assert_eq!(slug("node_modules"), "node-modules");
+        assert_eq!(slug(".pytest_cache"), "pytest-cache");
+    }
+
+    #[test]
+    fn merge_preserves_user_services() {
+        let dir = tempdir().unwrap();
+        let existing_path = dir.path().join("compose.yaml");
+        fs::write(
+            &existing_path,
+            "services:\n  postgres:\n    image: postgres:16\n    ports: [5432:5432]\n",
+        )
+        .unwrap();
+
+        let mut generated_services = IndexMap::new();
+        generated_services.insert(
+            "api".to_string(),
+            ComposeService {
+                image: Some("node:24-alpine".to_string()),
+                airis_managed: true,
+                ..Default::default()
+            },
+        );
+        let generated = ComposeFile {
+            version: None,
+            services: generated_services,
+            volumes: IndexMap::new(),
+            networks: IndexMap::new(),
+        };
+
+        let merged = merge_with_existing(generated, &existing_path).unwrap();
+        assert!(merged.services.contains_key("postgres"));
+        assert!(merged.services.contains_key("api"));
+        // postgres preserved verbatim (no airis-managed marker)
+        assert!(!merged.services["postgres"].airis_managed);
+    }
+
+    #[test]
+    fn merge_replaces_airis_managed_services() {
+        let dir = tempdir().unwrap();
+        let existing_path = dir.path().join("compose.yaml");
+        fs::write(
+            &existing_path,
+            "services:\n  api:\n    image: stale:1\n    x-airis-managed: true\n",
+        )
+        .unwrap();
+
+        let mut generated_services = IndexMap::new();
+        generated_services.insert(
+            "api".to_string(),
+            ComposeService {
+                image: Some("node:24-alpine".to_string()),
+                airis_managed: true,
+                ..Default::default()
+            },
+        );
+        let generated = ComposeFile {
+            version: None,
+            services: generated_services,
+            volumes: IndexMap::new(),
+            networks: IndexMap::new(),
+        };
+
+        let merged = merge_with_existing(generated, &existing_path).unwrap();
+        assert_eq!(
+            merged.services["api"].image.as_deref(),
+            Some("node:24-alpine")
+        );
+    }
+
+    #[test]
+    fn merge_drops_airis_managed_services_no_longer_generated() {
+        let dir = tempdir().unwrap();
+        let existing_path = dir.path().join("compose.yaml");
+        fs::write(
+            &existing_path,
+            "services:\n  removed-app:\n    image: foo:1\n    x-airis-managed: true\n  user-svc:\n    image: bar:1\n",
+        )
+        .unwrap();
+
+        let generated = ComposeFile {
+            version: None,
+            services: IndexMap::new(),
+            volumes: IndexMap::new(),
+            networks: IndexMap::new(),
+        };
+
+        let merged = merge_with_existing(generated, &existing_path).unwrap();
+        assert!(!merged.services.contains_key("removed-app"));
+        assert!(merged.services.contains_key("user-svc"));
+    }
+
+    #[test]
+    fn build_app_service_has_production_fields() {
+        let mut volumes = IndexMap::new();
+        let svc = build_app_service(
+            "myproj",
+            "api",
+            "apps/api",
+            "nextjs",
+            false,
+            &[],
+            "node:24-alpine",
+            &mut volumes,
+        );
+        assert_eq!(svc.restart.as_deref(), Some("unless-stopped"));
+        assert!(svc.healthcheck.is_some());
+        assert_eq!(svc.ports, vec!["3000:3000"]);
+        assert!(svc.airis_managed);
+        // .next must be a named volume, not a bind mount or anonymous.
+        assert!(volumes.contains_key("myproj-api-next"));
+        assert!(
+            svc.volumes
+                .iter()
+                .any(|v| v.starts_with("myproj-api-next:"))
+        );
+    }
 }

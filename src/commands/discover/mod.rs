@@ -24,6 +24,7 @@ pub use types::{
 };
 
 // Re-export public functions
+pub use detection::detect_framework;
 pub use scanning::discover_from_workspaces;
 
 use crate::manifest::Manifest;

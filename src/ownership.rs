@@ -29,8 +29,11 @@ pub fn get_ownership(path: &Path) -> Ownership {
         "tsconfig.base.json" => Ownership::Tool,
         "airis.lock" => Ownership::Tool,
 
-        // All compose variants are user-owned: airis gen writes to .airis/workspace-compose.yaml
-        // instead of the project root, so it never conflicts with the user's runtime compose.yaml.
+        // Root compose files are merge-managed by `airis gen`: the generator
+        // writes them directly via `fs::write` (bypassing `write_with_backup`),
+        // preserving any service without `x-airis-managed: true`. We still
+        // report them as `User` so generic backup/regen helpers don't touch
+        // them — the merge logic in compose_gen owns the write path.
         "compose.yaml"
         | "compose.yml"
         | "docker-compose.yaml"
@@ -115,7 +118,7 @@ mod tests {
         );
         assert_eq!(get_ownership(Path::new("airis.lock")), Ownership::Tool);
         assert_eq!(
-            get_ownership(Path::new(".airis/workspace-compose.yaml")),
+            get_ownership(Path::new(".airis/internal-state.toml")),
             Ownership::Tool
         );
 
@@ -142,8 +145,8 @@ mod tests {
 
     #[test]
     fn test_compose_yaml_variants_ownership() {
-        // All compose variants at the project root are user-owned.
-        // airis gen writes to .airis/workspace-compose.yaml instead.
+        // Root compose files report as `User` so generic helpers leave them
+        // alone; `airis gen` performs merge writes directly via `fs::write`.
         for name in &[
             "compose.yaml",
             "compose.yml",

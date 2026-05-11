@@ -201,6 +201,23 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
     }
 }
 
+impl FrameworkDefaults {
+    /// Build a curl-based healthcheck command for `docker compose`.
+    /// Returns `None` when the framework has no port or no health endpoint
+    /// (e.g. workspace-only stacks like `pnpm`).
+    pub fn healthcheck_test(&self) -> Option<Vec<String>> {
+        if self.port == 0 || self.health_path.is_empty() {
+            return None;
+        }
+        Some(vec![
+            "CMD".to_string(),
+            "curl".to_string(),
+            "-f".to_string(),
+            format!("http://localhost:{}{}", self.port, self.health_path),
+        ])
+    }
+}
+
 /// Derive name from directory path (last component).
 /// "apps/corporate" → "corporate"
 /// "products/airis/voice-gateway" → "voice-gateway"
@@ -318,6 +335,21 @@ mod tests {
                 .iter()
                 .any(|(k, _)| *k == "CHOKIDAR_USEPOLLING")
         );
+    }
+
+    #[test]
+    fn test_healthcheck_for_nextjs() {
+        let d = framework_defaults("nextjs");
+        let test = d.healthcheck_test().unwrap();
+        assert_eq!(test[0], "CMD");
+        assert_eq!(test[1], "curl");
+        assert_eq!(test[3], "http://localhost:3000/api/health");
+    }
+
+    #[test]
+    fn test_healthcheck_none_for_pnpm_stack() {
+        let d = framework_defaults("pnpm");
+        assert!(d.healthcheck_test().is_none());
     }
 
     #[test]
