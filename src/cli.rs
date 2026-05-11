@@ -24,9 +24,10 @@ QUICK REFERENCE:
   airis doctor              Diagnose and fix workspace issues
 
 SMART SHIMS:
-  Run `airis guards install --global` to enable transparent redirection for
-  pnpm, npm, uv, python, and more. When a compose.yml is detected, these
-  commands automatically execute inside Docker.
+  Run `airis guards install` inside a project to enable transparent redirection
+  for pnpm, npm, uv, python, and more. Commands are automatically routed to
+  Docker when a compose.yml is detected. Global shims (~/.airis/bin) are
+  intentionally not recommended — use project-local guards instead.
 
 CONVENTIONS:
   airis automatically discovers projects in apps/* and libs/*. Use manifest.toml
