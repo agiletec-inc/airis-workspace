@@ -90,13 +90,16 @@ cargo binstall airis-workspace
 cargo install airis-workspace
 ```
 
-### Enable Guard Shims (Recommended)
+### Enable Guard Shims (Recommended — Project-Local)
 
 ```bash
-airis guards install --global
+# Run inside a project that has a compose.yml
+airis guards install
 ```
 
-This adds `~/.airis/bin` to your `PATH`. Guard shims intercept commands like `pnpm`, `npm`, `python`, `uv`, and `cargo`, redirecting them into the workspace container if a Compose file is detected.
+This generates project-local shims under `.airis/bin/` and adds an `init-shell` snippet so guarded commands (`pnpm`, `npm`, `python`, `uv`, `cargo`, …) route into the workspace container when you are inside the project.
+
+> **Note:** `airis guards install --global` (shims under `~/.airis/bin`) still exists, but **global shims are no longer recommended** — they leak across unrelated projects. Prefer project-local guards.
 
 Guard shims work by:
 1. Detecting if you are in an AIRIS workspace (`manifest.toml` or `.airis/` directory)
@@ -230,43 +233,78 @@ airis shell               # Enter the workspace container interactive shell
 ### Guards
 
 ```bash
-airis guards install --global    # Install global guard shims in ~/.airis/bin
-airis guards status --global     # Show installed guards and their status
-airis guards uninstall --global  # Remove all global guards
+airis guards install             # Install project-local shims (.airis/bin) — recommended
+airis guards install --global    # Install global shims (~/.airis/bin) — not recommended
+airis guards status              # Show installed guards and their status
+airis guards uninstall           # Remove project-local guards
 airis guards verify              # Verify guard functionality
 airis guards check-docker        # Check if running inside Docker
+airis guards check-allow         # Show allow/deny policy for the current workspace
 ```
 
 ### Claude & AI Integration
 
 ```bash
-airis claude setup      # Sync Claude Code configuration to ~/.claude/
-airis claude status     # Check Claude Code integration status
-airis claude uninstall  # Remove Claude Code configuration
+airis claude setup       # Sync Claude Code configuration to ~/.claude/
+airis claude status      # Check Claude Code integration status
+airis claude uninstall   # Remove Claude Code configuration
+airis mcp                # Start the MCP server (used by airis-mcp-gateway)
 ```
 
 ### Configuration & Diagnostics
 
 ```bash
-airis gen               # Generate compose.yaml and derived files from manifest.toml
-airis manifest json     # Print manifest.toml as JSON
-airis validate <type>   # Validate configuration (manifest, ports, networks, env, dependencies, architecture, all)
-airis verify            # Run system health checks
-airis doctor            # Diagnose workspace issues
-airis doctor --fix      # Auto-repair issues
+airis gen                # Generate compose.yaml and derived files from manifest.toml
+airis manifest json      # Print manifest.toml as JSON
+airis validate <type>    # Validate manifest, ports, networks, env, dependencies, architecture, or all
+airis verify             # Run system health checks
+airis doctor             # Diagnose workspace issues
+airis doctor --fix       # Auto-repair issues
+airis doctor --truth     # Print the resolved startup truth (where each setting came from)
+airis status             # Show current workspace and guard status
+airis ps                 # Show Docker container status
+airis logs [service]     # Tail Docker logs
 ```
 
-### Build & Test
+### Build, Test & Release
 
 ```bash
-airis build [project]   # Build all or specific projects
-airis test [--level unit|integration|e2e|smoke]  # Run tests at specified level
+airis build [project]    # Build all or specific projects
+airis build --affected   # Build only what changed (uses src/dag.rs)
+airis test [--level unit|integration|e2e|smoke]
+airis lint               # Run linting
+airis format             # Run code formatting
+airis typecheck          # Run type checking
+airis affected           # List packages affected by current changes
+airis deps               # Visualize the dependency graph
+airis diff               # Preview changes before applying gen
+airis bundle             # Generate a deployment bundle (image.tar + artifact.tar.gz + bundle.json)
+airis bump-version       # Bump the package version (pre-commit auto-runs `--auto`)
+airis upgrade            # Upgrade the airis binary
 ```
 
-### Workspace Cleanup
+### Workspace Lifecycle
 
 ```bash
+airis new <kind> <name>    # Create a new app, service, or library
 airis workspace uninstall  # Remove AIRIS hooks and generated files from a repo
+airis hooks install        # Install native git hooks (.git/hooks/{pre-commit,pre-push,post-commit})
+airis hooks uninstall      # Remove the airis-workspace blocks from .git/hooks/
+airis docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
+airis docs list            # List managed adapter files
+airis init-shell           # Print the shell-integration snippet (prompt + project-local guards)
+airis completion <shell>   # Generate shell completion scripts
+```
+
+### Direct Container Access
+
+```bash
+airis shell                  # Open an interactive shell in the workspace container
+airis exec <cmd>             # Run any command in the resolved service (auto-up if down)
+airis host <cmd>             # Bypass guards; run on the host (sets AIRIS_BYPASS=1)
+airis run <task>             # Run a task defined in manifest.toml [commands]
+airis restart [service]      # Restart Docker services
+airis network <subcommand>   # Manage Docker networks
 ```
 
 ---
