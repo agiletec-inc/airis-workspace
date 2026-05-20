@@ -79,7 +79,7 @@ find_airis_context() {{
     return 1
 }}
 
-REAL_CMD=$(find_real_cmd {cmd})
+REAL_CMD=$(find_real_cmd '{cmd}')
 
 # 0. Explicit bypass: AIRIS_BYPASS=1 or `airis host <cmd>`
 if [[ "${{AIRIS_BYPASS:-}}" == "1" ]]; then
@@ -101,7 +101,7 @@ if find_airis_context >/dev/null; then
         if [[ ! -t 1 ]]; then
             export AIRIS_NO_AUTO_UP=1
         fi
-        exec airis exec {cmd} "$@"
+        exec airis exec '{cmd}' "$@"
     else
         echo "❌ AIRIS: Context detected but 'airis' command not found." >&2
         echo "   Cannot route to Docker. Host execution is blocked for hygiene." >&2

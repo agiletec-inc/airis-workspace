@@ -56,12 +56,32 @@ fn installed_shim_invokes_airis_exec_with_cmd_only() {
 
     let content = fs::read_to_string(dir.path().join("pnpm")).unwrap();
     assert!(
-        content.contains("exec airis exec pnpm \"$@\""),
+        content.contains("exec airis exec 'pnpm' \"$@\""),
         "shim must hand off to `airis exec <cmd>` for auto-routing. Got:\n{content}"
     );
     assert!(
         !content.contains("exec airis exec workspace"),
         "Phase 0 workaround must be gone now that auto-routing exists. Got:\n{content}"
+    );
+}
+
+#[test]
+fn generated_script_single_quotes_command_name() {
+    // Defense-in-depth (issue #247): the command name must be single-quoted at
+    // every interpolation point so a future unvalidated command name cannot
+    // break out of its shell token. `validate_guard_cmd` already restricts the
+    // charset, but the template must not rely on that alone.
+    let dir = tempfile::tempdir().unwrap();
+    install_global_guard(dir.path(), "pnpm", GuardLevel::Enforce).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("pnpm")).unwrap();
+    assert!(
+        content.contains("REAL_CMD=$(find_real_cmd 'pnpm')"),
+        "command name passed to find_real_cmd must be single-quoted. Got:\n{content}"
+    );
+    assert!(
+        content.contains("exec airis exec 'pnpm' \"$@\""),
+        "command name passed to `airis exec` must be single-quoted. Got:\n{content}"
     );
 }
 
