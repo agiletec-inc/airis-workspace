@@ -71,6 +71,24 @@ jobs:
           fi
           echo "OK: under limit"
 
+  windows-check:
+    # Catches Windows-only compilation breakage (e.g. unguarded `std::os::unix`
+    # APIs) before it reaches the cargo-dist release pipeline. Runs natively on
+    # a Windows runner — free for public repos and avoids the Windows SDK
+    # headers that a Linux cross-compile of native deps (ring) would require.
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+
+      - name: Cargo check
+        run: cargo check --all-targets
+
   dependency-audit:
     runs-on: ubuntu-latest
     steps:
