@@ -91,14 +91,22 @@ struct ComposeDeploy {
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeResources {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    reservations: Vec<ComposeReservation>,
+    /// A single map in the Compose spec (`{ cpus, memory, devices, ... }`),
+    /// not a sequence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reservations: Option<ComposeReservation>,
+    /// Catch-all for unmodeled fields such as `limits`.
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_yaml_ng::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 struct ComposeReservation {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     devices: Vec<ComposeDevice>,
+    /// Catch-all for unmodeled fields such as `cpus`, `memory`, `generic_resources`.
+    #[serde(flatten)]
+    extra: IndexMap<String, serde_yaml_ng::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
@@ -353,13 +361,15 @@ fn build_app_service(
     let deploy = if use_gpu_override {
         Some(ComposeDeploy {
             resources: Some(ComposeResources {
-                reservations: vec![ComposeReservation {
+                reservations: Some(ComposeReservation {
                     devices: vec![ComposeDevice {
                         driver: Some("nvidia".to_string()),
                         count: Some(serde_json::json!("all")),
                         capabilities: vec!["gpu".to_string()],
                     }],
-                }],
+                    ..Default::default()
+                }),
+                ..Default::default()
             }),
         })
     } else {
@@ -560,5 +570,33 @@ mod tests {
                 .iter()
                 .any(|v| v.starts_with("myproj-api-next:"))
         );
+    }
+
+    #[test]
+    fn merge_parses_gpu_resource_reservations() {
+        // Regression: `deploy.resources.reservations` is a map in the Compose
+        // spec, not a sequence. Parsing a GPU service must not fail.
+        let dir = tempdir().unwrap();
+        let existing_path = dir.path().join("compose.yaml");
+        fs::write(
+            &existing_path,
+            r#"services:
+  gpu-svc:
+    image: cuda:12
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+"#,
+        )
+        .unwrap();
+
+        let merged = merge_with_existing(ComposeFile::default(), &existing_path).unwrap();
+        assert!(merged.services.contains_key("gpu-svc"));
     }
 }
