@@ -1,4 +1,6 @@
 pub mod dir_sync;
+pub mod settings_hooks;
+pub mod tab_title;
 pub mod templates;
 
 #[cfg(test)]
@@ -11,7 +13,17 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::Value;
 
-use crate::manifest::GlobalConfig;
+use crate::manifest::{GlobalConfig, TerminalTitleSection};
+
+/// Resolve the absolute path of the running `airis` binary, for embedding in
+/// hook commands. Falls back to the bare name (relies on `$PATH`) if the path
+/// cannot be determined.
+fn airis_bin_path() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "airis".to_string())
+}
 
 /// Plugin ID in installed_plugins.json
 const AIRIS_PLUGIN_ID: &str = "airis-mcp-gateway@airis-mcp-gateway";
@@ -228,6 +240,32 @@ pub fn setup_global() -> Result<()> {
         println!();
     }
 
+    // 6. Inject terminal tab-title hooks into settings.json
+    let terminal_title = &global_config.claude.terminal_title;
+    let airis_bin = airis_bin_path();
+    let hook_result = settings_hooks::apply(&home, &airis_bin, terminal_title)?;
+    if hook_result.migrated_legacy {
+        println!("  {} Migrated legacy warp-tab-title.sh hooks", "✓".green());
+        println!(
+            "     {} {} is no longer referenced — delete it if unused",
+            "ℹ".dimmed(),
+            "~/.claude/hooks/warp-tab-title.sh".dimmed()
+        );
+    }
+    if hook_result.injected > 0 {
+        println!(
+            "  {} Terminal tab-title hooks installed ({} events)",
+            "✓".green(),
+            hook_result.injected
+        );
+    } else if !terminal_title.enabled {
+        println!(
+            "  {} Terminal tab-title disabled ([claude.terminal_title] enabled = false)",
+            "–".dimmed()
+        );
+    }
+    println!();
+
     println!("{}", "✅ Global configuration synced".green());
 
     Ok(())
@@ -287,6 +325,32 @@ pub fn status() -> Result<()> {
                 all_synced = false;
             }
         }
+    }
+
+    // Terminal tab-title hooks
+    println!();
+    println!("  Terminal title:");
+    let terminal_title = &global_config.claude.terminal_title;
+    let managed_hooks = settings_hooks::count_managed_entries(&home);
+    if terminal_title.enabled {
+        let idle_label = if terminal_title.idle.is_empty() {
+            "—".to_string()
+        } else {
+            terminal_title.idle.clone()
+        };
+        print_status(
+            &format!(
+                "  enabled (running {} / waiting {} / idle {})",
+                terminal_title.running, terminal_title.waiting, idle_label
+            ),
+            managed_hooks > 0,
+        );
+        if managed_hooks == 0 {
+            println!("    (run `airis claude setup` to install hooks)");
+            all_synced = false;
+        }
+    } else {
+        println!("    {} disabled in [claude.terminal_title]", "–".dimmed());
     }
 
     // Legacy check
@@ -352,7 +416,16 @@ pub fn uninstall() -> Result<()> {
         fs::remove_file(&reg_path)?;
     }
 
-    // 3. Clean legacy hooks
+    // 3. Remove terminal tab-title hooks from settings.json
+    let disabled = TerminalTitleSection {
+        enabled: false,
+        ..TerminalTitleSection::default()
+    };
+    let airis_bin = airis_bin_path();
+    settings_hooks::apply(&home, &airis_bin, &disabled)?;
+    println!("   {} Removed terminal tab-title hooks", "✓".green());
+
+    // 4. Clean legacy hooks
     clean_legacy_hooks(&home)?;
 
     println!();
