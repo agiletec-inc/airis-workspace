@@ -504,6 +504,20 @@ pub enum ClaudeCommands {
     Setup,
     Status,
     Uninstall,
+    /// Deprecated no-op shim for legacy tab-title hooks (pre-`airis ui`).
+    ///
+    /// A Claude Code session started before the `airis ui` migration keeps a
+    /// snapshot of the old `airis claude tab-title <state>` hook wiring. If
+    /// this subcommand were removed, that hook would hard-fail — and a failing
+    /// `UserPromptSubmit` hook blocks the whole session. The shim drains stdin
+    /// and exits 0 so the legacy hook stays harmless until `airis ui install`
+    /// re-wires settings.json to the standalone script.
+    #[command(hide = true)]
+    TabTitle {
+        /// Legacy state argument(s) — accepted and ignored.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
 }
 
 /// `airis ui` — cosmetic Claude Code integrations (tab-title + statusline)
