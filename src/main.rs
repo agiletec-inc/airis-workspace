@@ -77,6 +77,7 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Setup => commands::claude_setup::setup_global()?,
             ClaudeCommands::Status => commands::claude_setup::status()?,
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
+            ClaudeCommands::TabTitle { state } => commands::claude_setup::tab_title::emit(state)?,
         },
         Commands::Guards { action } => match action {
             GuardsCommands::Install {

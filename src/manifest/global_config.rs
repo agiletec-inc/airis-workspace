@@ -101,18 +101,64 @@ impl GlobalGuardsSection {
 pub struct GlobalClaudeSection {
     #[serde(default = "default_claude_source")]
     pub source: String,
+    /// Terminal tab-title status indicator
+    #[serde(default)]
+    pub terminal_title: TerminalTitleSection,
 }
 
 impl Default for GlobalClaudeSection {
     fn default() -> Self {
         GlobalClaudeSection {
             source: default_claude_source(),
+            terminal_title: TerminalTitleSection::default(),
         }
     }
 }
 
 fn default_claude_source() -> String {
     "~/.airis/claude".to_string()
+}
+
+/// Terminal tab-title status indicator config.
+/// airis manages Claude Code hooks that set the terminal tab title to
+/// `<emoji> <repo>`, reflecting the agent's current state.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TerminalTitleSection {
+    /// Whether airis manages terminal-title hooks in ~/.claude/settings.json
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Emoji shown while the agent is running
+    #[serde(default = "default_running_emoji")]
+    pub running: String,
+    /// Emoji shown while waiting for user input (questions, approvals)
+    #[serde(default = "default_waiting_emoji")]
+    pub waiting: String,
+    /// Emoji shown when idle (session start, turn complete). Empty = no emoji.
+    #[serde(default)]
+    pub idle: String,
+}
+
+impl Default for TerminalTitleSection {
+    fn default() -> Self {
+        TerminalTitleSection {
+            enabled: true,
+            running: default_running_emoji(),
+            waiting: default_waiting_emoji(),
+            idle: String::new(),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_running_emoji() -> String {
+    "🏃".to_string()
+}
+
+fn default_waiting_emoji() -> String {
+    "✋".to_string()
 }
 
 /// Strategy for backing up files before modification

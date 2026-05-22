@@ -23,6 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workspace_doctor`, `workspace_verify`, `workspace_status` (in addition to the
   existing `workspace_init`, `workspace_cleanup`, `workspace_discover`,
   `manifest_validate`, `manifest_apply`, `migration_execute`).
+- **Terminal tab-title status indicator.** `airis claude setup` now injects
+  Claude Code hooks that set the terminal tab title to `<emoji> <repo>`,
+  reflecting the agent's state: running (🏃), waiting for user input (✋), or
+  idle (no emoji). Emojis are configurable in `~/.airis/global-config.toml`
+  under `[claude.terminal_title]` (`enabled` / `running` / `waiting` / `idle`)
+  and read at hook time, so changes apply without re-running setup. Hooks call
+  the hidden `airis claude tab-title <state>` handler. `airis claude uninstall`
+  removes the hooks; legacy hand-written `warp-tab-title.sh` hooks are migrated
+  away automatically.
 
 ### Removed
 
