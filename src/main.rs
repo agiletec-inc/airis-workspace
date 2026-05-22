@@ -77,15 +77,10 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Setup => commands::claude_setup::setup_global()?,
             ClaudeCommands::Status => commands::claude_setup::status()?,
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
-            ClaudeCommands::TabTitle { .. } => {
-                // Legacy shim: a session still wired to the pre-`airis ui`
-                // hook calls `airis claude tab-title <state>`. Drain stdin and
-                // succeed so the stale hook never blocks the session. Real
-                // tab-title work now lives in the `airis ui` shell scripts.
-                use std::io::Read;
-                let mut sink = String::new();
-                let _ = std::io::stdin().read_to_string(&mut sink);
-            }
+            // Legacy shim: a session still wired to the pre-`airis ui` hook
+            // calls `airis claude tab-title <state>`. Bridge it to the
+            // installed script so a stale session's tab emoji still updates.
+            ClaudeCommands::TabTitle { args } => commands::ui::legacy_tab_title_shim(&args)?,
         },
         Commands::Ui { action } => match action {
             UiCommands::Install => commands::ui::install()?,

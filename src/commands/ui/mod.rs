@@ -8,7 +8,7 @@
 // them.
 
 use std::fs;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -229,6 +229,51 @@ pub fn status() -> Result<()> {
         tt.enabled, tt.running, tt.waiting, idle
     );
 
+    Ok(())
+}
+
+/// Legacy `airis claude tab-title <state>` shim handler.
+///
+/// A Claude Code session started before the `airis ui` migration keeps the
+/// old hook wiring in its startup snapshot and still calls this command. A
+/// plain no-op would leave that session's tab emoji frozen, so bridge the
+/// call to the installed `airis-tab-title.sh` script instead — the emoji then
+/// updates without restarting the session. Always succeeds: a failing
+/// `UserPromptSubmit` hook would block the whole session.
+pub fn legacy_tab_title_shim(args: &[String]) -> Result<()> {
+    // Drain the hook payload from stdin; it is forwarded to the script.
+    let mut payload = String::new();
+    let _ = std::io::stdin().read_to_string(&mut payload);
+
+    let Ok(home) = claude_home() else {
+        return Ok(());
+    };
+    let script = home.join(TAB_TITLE_REL);
+    if !script.exists() {
+        // Pre-`airis ui install`: nothing to delegate to. Stay harmless.
+        return Ok(());
+    }
+
+    let state = args.first().map(String::as_str).unwrap_or("idle");
+    let tt = GlobalConfig::load()
+        .map(|c| c.claude.terminal_title)
+        .unwrap_or_default();
+
+    // Forward to the installed script. stdout is inherited so the script's
+    // terminalSequence JSON reaches Claude Code. Any failure is swallowed —
+    // the shim must never error.
+    if let Ok(mut child) = std::process::Command::new("sh")
+        .arg(&script)
+        .args([state, &tt.running, &tt.waiting, &tt.idle])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::inherit())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(payload.as_bytes());
+        }
+        let _ = child.wait();
+    }
     Ok(())
 }
 
