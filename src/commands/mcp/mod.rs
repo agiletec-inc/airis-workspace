@@ -631,12 +631,27 @@ fn handle_manifest_apply(arguments: &Value) -> Result<Value> {
         .context("Missing manifest content")?;
     let run_gen = arguments["run_gen"].as_bool().unwrap_or(true);
 
-    // 1. Write to disk
+    // 1. Parse + validate before touching disk so an invalid manifest can
+    //    never corrupt the workspace. `Manifest::parse` performs both TOML
+    //    parsing and consistency validation.
+    if let Err(e) = Manifest::parse(content) {
+        return Ok(json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": format!("Invalid manifest, manifest.toml not modified:\n{:#}", e)
+                }
+            ],
+            "isError": true
+        }));
+    }
+
+    // 2. Write to disk
     std::fs::write("manifest.toml", content)?;
 
     let mut response_text = "Manifest written to manifest.toml.".to_string();
 
-    // 2. Optionally run gen
+    // 3. Optionally run gen
     if run_gen {
         // Load the manifest we just wrote to ensure we're using the latest
         let _manifest = Manifest::load(Path::new("manifest.toml"))?;
@@ -1031,5 +1046,38 @@ mod tests {
         // advertised list, so reads should be refused.
         let err = handle_resources_read("file:///Cargo.lock").unwrap_err();
         assert!(err.to_string().contains("not advertised"));
+    }
+
+    #[test]
+    fn handle_manifest_apply_rejects_invalid_toml() {
+        // Syntactically broken TOML must be refused with an error response
+        // before any disk write. `run_gen` is off so the handler never reaches
+        // the write/gen path and never shells out to `airis gen`.
+        let args = json!({ "manifest": "this = = not valid toml", "run_gen": false });
+        let result = handle_manifest_apply(&args).unwrap();
+
+        assert_eq!(result["isError"], json!(true));
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("not modified")
+        );
+    }
+
+    #[test]
+    fn handle_manifest_apply_rejects_manifest_failing_validation() {
+        // An empty document is valid TOML but fails consistency validation
+        // (project.id is required). It must still be rejected before writing.
+        let args = json!({ "manifest": "", "run_gen": false });
+        let result = handle_manifest_apply(&args).unwrap();
+
+        assert_eq!(result["isError"], json!(true));
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("not modified")
+        );
     }
 }
