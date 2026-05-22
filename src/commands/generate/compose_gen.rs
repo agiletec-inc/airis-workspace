@@ -391,6 +391,45 @@ fn build_app_service(
     }
 }
 
+/// Resolve YAML merge keys (`<<`) throughout a value tree.
+///
+/// Compose files commonly DRY up shared config with anchors and `<<` merge
+/// keys (e.g. `<<: *defaults`). `serde_yaml_ng` resolves anchors but leaves
+/// `<<` as a literal key, so merges must be applied before deserializing into
+/// the typed model. Keys already present on the host mapping win over merged
+/// ones, matching the YAML merge-key spec.
+fn resolve_merge_keys(value: &mut serde_yaml_ng::Value) {
+    use serde_yaml_ng::Value;
+    match value {
+        Value::Mapping(map) => {
+            for (_, child) in map.iter_mut() {
+                resolve_merge_keys(child);
+            }
+            if let Some(merge) = map.remove("<<") {
+                let sources = match merge {
+                    Value::Sequence(seq) => seq,
+                    single => vec![single],
+                };
+                for source in sources {
+                    if let Value::Mapping(source_map) = source {
+                        for (key, val) in source_map {
+                            if !map.contains_key(&key) {
+                                map.insert(key, val);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Value::Sequence(seq) => {
+            for item in seq.iter_mut() {
+                resolve_merge_keys(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Merge generated services with the existing compose file:
 /// - Existing services with `x-airis-managed: true` are replaced by the new
 ///   generated version (or removed if no longer generated).
@@ -403,7 +442,10 @@ fn merge_with_existing(generated: ComposeFile, existing_path: &Path) -> Result<C
     let existing: ComposeFile = if raw.trim().is_empty() {
         ComposeFile::default()
     } else {
-        serde_yaml_ng::from_str(&raw)
+        let mut value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
+            .with_context(|| format!("failed to parse {} as YAML", existing_path.display()))?;
+        resolve_merge_keys(&mut value);
+        serde_yaml_ng::from_value(value)
             .with_context(|| format!("failed to parse {} as YAML", existing_path.display()))?
     };
 
@@ -598,5 +640,41 @@ mod tests {
 
         let merged = merge_with_existing(ComposeFile::default(), &existing_path).unwrap();
         assert!(merged.services.contains_key("gpu-svc"));
+    }
+
+    #[test]
+    fn merge_resolves_yaml_merge_keys() {
+        // Regression: compose files DRY up config with YAML anchors and `<<`
+        // merge keys, including nested ones (e.g. inside `environment`).
+        let dir = tempdir().unwrap();
+        let existing_path = dir.path().join("compose.yaml");
+        fs::write(
+            &existing_path,
+            r#"x-base: &base
+  restart: always
+  networks: [traefik]
+x-env: &env
+  NODE_ENV: production
+services:
+  web:
+    <<: *base
+    image: nginx
+    environment:
+      <<: *env
+      EXTRA: "1"
+"#,
+        )
+        .unwrap();
+
+        let merged = merge_with_existing(ComposeFile::default(), &existing_path).unwrap();
+        let web = &merged.services["web"];
+        assert_eq!(web.restart.as_deref(), Some("always"));
+        assert_eq!(web.networks, vec!["traefik"]);
+        assert_eq!(web.image.as_deref(), Some("nginx"));
+        assert_eq!(
+            web.environment.get("NODE_ENV").map(String::as_str),
+            Some("production")
+        );
+        assert_eq!(web.environment.get("EXTRA").map(String::as_str), Some("1"));
     }
 }
