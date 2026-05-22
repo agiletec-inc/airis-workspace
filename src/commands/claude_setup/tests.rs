@@ -514,7 +514,7 @@ fn test_tab_title_migrates_legacy_script_hooks() {
     let stop = settings["hooks"]["Stop"].as_array().unwrap();
     assert_eq!(stop.len(), 1, "legacy entry replaced by managed one");
     let cmd = stop[0]["hooks"][0]["command"].as_str().unwrap();
-    assert!(cmd.contains("claude tab-title idle"));
+    assert!(cmd.contains("claude tab-title stop"));
     assert!(!cmd.contains("warp-tab-title.sh"));
 }
 

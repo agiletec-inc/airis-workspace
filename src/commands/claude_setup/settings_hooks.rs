@@ -29,7 +29,10 @@ const HOOK_EVENTS: &[(&str, &str, &str)] = &[
     ("PostToolUse", "", "running"),
     ("PreToolUse", "AskUserQuestion|ExitPlanMode", "waiting"),
     ("Notification", "", "waiting"),
-    ("Stop", "", "idle"),
+    // `Stop` resolves to idle or waiting at runtime: it fires on every turn
+    // end, including when Claude ends its turn asking via AskUserQuestion /
+    // ExitPlanMode. A static `idle` here would overwrite the `waiting` emoji.
+    ("Stop", "", "stop"),
 ];
 
 /// Outcome of an `apply` call.

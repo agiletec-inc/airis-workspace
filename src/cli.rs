@@ -516,6 +516,10 @@ pub enum TabTitleState {
     Running,
     /// Waiting — waiting for user input (questions, approvals)
     Waiting,
+    /// Stop — turn ended; resolve to idle or waiting from the transcript.
+    /// The `Stop` event fires on every turn end, including when Claude ends
+    /// its turn by asking a question, so the state cannot be known statically.
+    Stop,
 }
 
 impl TabTitleState {
@@ -525,6 +529,7 @@ impl TabTitleState {
             TabTitleState::Idle => "idle",
             TabTitleState::Running => "running",
             TabTitleState::Waiting => "waiting",
+            TabTitleState::Stop => "stop",
         }
     }
 }
