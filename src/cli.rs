@@ -498,6 +498,35 @@ pub enum ClaudeCommands {
     Setup,
     Status,
     Uninstall,
+    /// Hook handler: emit a terminal-title escape sequence (invoked by Claude Code hooks)
+    #[command(hide = true)]
+    TabTitle {
+        /// Agent state to reflect in the tab title
+        #[arg(value_enum)]
+        state: TabTitleState,
+    },
+}
+
+/// Agent state for the terminal tab-title indicator
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum TabTitleState {
+    /// Idle — session start or turn complete (no emoji)
+    Idle,
+    /// Running — agent is working
+    Running,
+    /// Waiting — waiting for user input (questions, approvals)
+    Waiting,
+}
+
+impl TabTitleState {
+    /// Lowercase identifier used in hook command strings.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TabTitleState::Idle => "idle",
+            TabTitleState::Running => "running",
+            TabTitleState::Waiting => "waiting",
+        }
+    }
 }
 
 #[derive(Subcommand)]
