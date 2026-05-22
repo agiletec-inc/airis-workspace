@@ -39,38 +39,63 @@ impl TemplateEngine {
             );
         }
 
-        // Add root dependencies from manifest.packages.root
+        // Add root dependencies from manifest.packages.root (v1) and manifest.root (v2).
+        // manifest.root values are merged on top of manifest.packages.root so that
+        // [root] declarations in manifest.toml always win.
         let root_pkg = &manifest.packages.root;
 
-        if !root_pkg.scripts.is_empty() {
+        // Merge scripts: packages.root first, then [root] overrides.
+        let mut merged_scripts = root_pkg.scripts.clone();
+        if let Some(ref root) = manifest.root {
+            for (k, v) in &root.scripts {
+                merged_scripts.insert(k.clone(), v.clone());
+            }
+        }
+        if !merged_scripts.is_empty() {
             obj.insert(
                 "scripts".to_string(),
-                serde_json::to_value(&root_pkg.scripts)?,
+                serde_json::to_value(&merged_scripts)?,
             );
         }
 
-        if !root_pkg.dependencies.is_empty() {
+        // Merge dependencies: packages.root first, then [root] overrides.
+        let mut merged_deps = root_pkg.dependencies.clone();
+        if let Some(ref root) = manifest.root {
+            for (k, v) in &root.dependencies {
+                merged_deps.insert(k.clone(), v.clone());
+            }
+        }
+        if !merged_deps.is_empty() {
             let mut deps = serde_json::Map::new();
-            for (k, v) in &root_pkg.dependencies {
+            for (k, v) in &merged_deps {
                 // If it's in the manifest catalog, use "catalog:"
-                let version = if resolved_catalog.contains_key(k) {
-                    "catalog:".to_string()
-                } else {
-                    v.clone()
-                };
+                let version =
+                    if resolved_catalog.contains_key(k) || v == "catalog" || v == "catalog:" {
+                        "catalog:".to_string()
+                    } else {
+                        v.clone()
+                    };
                 deps.insert(k.clone(), serde_json::json!(version));
             }
             obj.insert("dependencies".to_string(), serde_json::Value::Object(deps));
         }
 
-        if !root_pkg.dev_dependencies.is_empty() {
+        // Merge devDependencies: packages.root first, then [root] overrides.
+        let mut merged_dev_deps = root_pkg.dev_dependencies.clone();
+        if let Some(ref root) = manifest.root {
+            for (k, v) in &root.dev_dependencies {
+                merged_dev_deps.insert(k.clone(), v.clone());
+            }
+        }
+        if !merged_dev_deps.is_empty() {
             let mut dev_deps = serde_json::Map::new();
-            for (k, v) in &root_pkg.dev_dependencies {
-                let version = if resolved_catalog.contains_key(k) {
-                    "catalog:".to_string()
-                } else {
-                    v.clone()
-                };
+            for (k, v) in &merged_dev_deps {
+                let version =
+                    if resolved_catalog.contains_key(k) || v == "catalog" || v == "catalog:" {
+                        "catalog:".to_string()
+                    } else {
+                        v.clone()
+                    };
                 dev_deps.insert(k.clone(), serde_json::json!(version));
             }
             obj.insert(
@@ -79,10 +104,17 @@ impl TemplateEngine {
             );
         }
 
-        if !root_pkg.engines.is_empty() {
+        // Merge engines: packages.root first, then [root] overrides.
+        let mut merged_engines = root_pkg.engines.clone();
+        if let Some(ref root) = manifest.root {
+            for (k, v) in &root.engines {
+                merged_engines.insert(k.clone(), v.clone());
+            }
+        }
+        if !merged_engines.is_empty() {
             obj.insert(
                 "engines".to_string(),
-                serde_json::to_value(&root_pkg.engines)?,
+                serde_json::to_value(&merged_engines)?,
             );
         }
 

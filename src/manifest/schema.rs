@@ -1746,12 +1746,31 @@ pub struct ExternalServiceConfig {
 // v2: Root Section (replaces packages.root in v1)
 // =============================================================================
 
+/// Root-level package.json configuration.
+///
+/// Declared in `manifest.toml` as `[root]`. When `airis gen` runs, these values
+/// are merged on top of any `[packages.root]` declarations and written into the
+/// workspace-root `package.json`.
+///
+/// Example:
+/// ```toml
+/// [root]
+/// [root.devDependencies]
+/// vitest            = "catalog:"
+/// jsdom             = "catalog:"
+/// "@vitest/coverage-v8" = "catalog:"
+///
+/// [root.scripts]
+/// test = "vitest run"
+/// ```
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RootSection {
     #[serde(default)]
     pub engines: IndexMap<String, String>,
     #[serde(default)]
     pub scripts: IndexMap<String, String>,
+    #[serde(default)]
+    pub dependencies: IndexMap<String, String>,
     #[serde(rename = "devDependencies", default)]
     pub dev_dependencies: IndexMap<String, String>,
 }
