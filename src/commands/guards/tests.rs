@@ -188,6 +188,73 @@ fn enforce_passes_through_outside_airis_context() {
     );
 }
 
+#[test]
+fn generated_script_branches_on_guard_level() {
+    // Regression: the `LEVEL` variable used to be dead code — every level
+    // behaved like Enforce. The generated script must actually branch on it.
+    let dir = tempfile::tempdir().unwrap();
+    install_global_guard(dir.path(), "pnpm", GuardLevel::Warn).unwrap();
+
+    let content = fs::read_to_string(dir.path().join("pnpm")).unwrap();
+    assert!(
+        content.contains("LEVEL=\"warn\""),
+        "guard level must be embedded in the script. Got:\n{content}"
+    );
+    assert!(
+        content.contains("if [[ \"$LEVEL\" != \"enforce\" ]]"),
+        "script must branch on $LEVEL so warn/off do not route to Docker. Got:\n{content}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn warn_level_passes_through_inside_workspace() {
+    // Regression: a `warn`-level guard must notify but proceed with the host
+    // command — it must NOT route to `airis exec`. We prove this with a mock
+    // `airis` that always fails: if the guard wrongly routed to it the shim
+    // would exit non-zero. With warn it execs the real `true` and exits 0.
+    let bin_dir = tempfile::tempdir().unwrap();
+    install_global_guard(bin_dir.path(), "true", GuardLevel::Warn).unwrap();
+
+    let tmp_home = tempfile::tempdir().unwrap();
+    let work_dir = tmp_home.path().join("work");
+    fs::create_dir_all(&work_dir).unwrap();
+    // Plant .airis/ so the guard would route to Docker under Enforce.
+    fs::create_dir_all(work_dir.join(".airis")).unwrap();
+
+    // Mock `airis` that always fails — must not be invoked under warn.
+    let mock_airis = tmp_home.path().join("airis");
+    fs::write(&mock_airis, "#!/usr/bin/env bash\nexit 1\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_airis, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let script = bin_dir.path().join("true");
+    let path = format!("{}:/usr/bin:/bin", tmp_home.path().display());
+    let output = Command::new("bash")
+        .arg(&script)
+        .current_dir(&work_dir)
+        .env_clear()
+        .env("HOME", tmp_home.path())
+        .env("PATH", &path)
+        .output()
+        .expect("bash must be available");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "warn level must exec the real command (true), not route to airis.\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("guard level: warn"),
+        "warn level must notify the user on stderr. Got stderr:\n{stderr}"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn airis_bypass_skips_guard() {

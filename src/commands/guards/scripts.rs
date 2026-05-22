@@ -93,7 +93,16 @@ fi
 
 # 2. Airis Context detection & Smart Proxy
 if find_airis_context >/dev/null; then
-    # We are in an airis docker-first project. Route to Docker via airis exec.
+    # We are in an airis docker-first project. Behavior depends on guard level.
+    if [[ "$LEVEL" != "enforce" ]]; then
+        # warn / off: never block. warn additionally notifies the user.
+        if [[ "$LEVEL" == "warn" ]]; then
+            echo "⚠️  AIRIS: '{cmd}' is running on the host inside an airis workspace (guard level: warn)." >&2
+            echo "   Docker-first recommends: airis exec '{cmd}' ..." >&2
+        fi
+        if [[ -n "$REAL_CMD" ]]; then exec "$REAL_CMD" "$@"; else exit 127; fi
+    fi
+    # enforce: route to Docker via airis exec.
     if command -v airis &>/dev/null; then
         # Non-interactive (no TTY on stdout): disable auto-up so that background
         # scripts such as statusline commands and hooks don't trigger a full
