@@ -5,7 +5,7 @@ use colored::Colorize;
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
     HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, TestLevel,
-    ValidateCommands, WorkspaceCommands,
+    UiCommands, ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -77,7 +77,29 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Setup => commands::claude_setup::setup_global()?,
             ClaudeCommands::Status => commands::claude_setup::status()?,
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
-            ClaudeCommands::TabTitle { state } => commands::claude_setup::tab_title::emit(state)?,
+            ClaudeCommands::TabTitle { .. } => {
+                // Legacy shim: a session still wired to the pre-`airis ui`
+                // hook calls `airis claude tab-title <state>`. Drain stdin and
+                // succeed so the stale hook never blocks the session. Real
+                // tab-title work now lives in the `airis ui` shell scripts.
+                use std::io::Read;
+                let mut sink = String::new();
+                let _ = std::io::stdin().read_to_string(&mut sink);
+            }
+        },
+        Commands::Ui { action } => match action {
+            UiCommands::Install => commands::ui::install()?,
+            UiCommands::Uninstall { purge, keep } => {
+                let choice = if purge {
+                    Some(true)
+                } else if keep {
+                    Some(false)
+                } else {
+                    None
+                };
+                commands::ui::uninstall(choice)?;
+            }
+            UiCommands::Status => commands::ui::status()?,
         },
         Commands::Guards { action } => match action {
             GuardsCommands::Install {

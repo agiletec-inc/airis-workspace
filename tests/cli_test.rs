@@ -31,6 +31,19 @@ fn test_help_flag() {
 }
 
 #[test]
+fn claude_tab_title_is_a_harmless_legacy_shim() {
+    // A Claude Code session started before the `airis ui` migration keeps a
+    // snapshot of the old `airis claude tab-title <state>` hook wiring. The
+    // shim must always exit 0 — a failing UserPromptSubmit hook blocks the
+    // whole session.
+    airis()
+        .args(["claude", "tab-title", "running"])
+        .write_stdin(r#"{"cwd":"/tmp"}"#)
+        .assert()
+        .success();
+}
+
+#[test]
 fn test_build_help() {
     airis()
         .args(["build", "--help"])

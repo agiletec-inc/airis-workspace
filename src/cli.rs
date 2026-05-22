@@ -71,6 +71,12 @@ pub enum Commands {
         action: GuardsCommands,
     },
 
+    /// Cosmetic Claude Code integrations (terminal tab-title + statusline)
+    Ui {
+        #[command(subcommand)]
+        action: UiCommands,
+    },
+
     /// Run a host command, bypassing airis guards (sets AIRIS_BYPASS=1)
     ///
     /// Use this when you need to run a guarded command (pnpm, npm, python, ...)
@@ -498,35 +504,38 @@ pub enum ClaudeCommands {
     Setup,
     Status,
     Uninstall,
-    /// Hook handler: emit a terminal-title escape sequence (invoked by Claude Code hooks)
+    /// Deprecated no-op shim for legacy tab-title hooks (pre-`airis ui`).
+    ///
+    /// A Claude Code session started before the `airis ui` migration keeps a
+    /// snapshot of the old `airis claude tab-title <state>` hook wiring. If
+    /// this subcommand were removed, that hook would hard-fail — and a failing
+    /// `UserPromptSubmit` hook blocks the whole session. The shim drains stdin
+    /// and exits 0 so the legacy hook stays harmless until `airis ui install`
+    /// re-wires settings.json to the standalone script.
     #[command(hide = true)]
     TabTitle {
-        /// Agent state to reflect in the tab title
-        #[arg(value_enum)]
-        state: TabTitleState,
+        /// Legacy state argument(s) — accepted and ignored.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
-/// Agent state for the terminal tab-title indicator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub enum TabTitleState {
-    /// Idle — session start or turn complete (no emoji)
-    Idle,
-    /// Running — agent is working
-    Running,
-    /// Waiting — waiting for user input (questions, approvals)
-    Waiting,
-}
-
-impl TabTitleState {
-    /// Lowercase identifier used in hook command strings.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            TabTitleState::Idle => "idle",
-            TabTitleState::Running => "running",
-            TabTitleState::Waiting => "waiting",
-        }
-    }
+/// `airis ui` — cosmetic Claude Code integrations (tab-title + statusline)
+#[derive(Subcommand)]
+pub enum UiCommands {
+    /// Install the tab-title hooks and statusline into ~/.claude/
+    Install,
+    /// Remove the airis UI integrations
+    Uninstall {
+        /// Delete the generated script files too (non-interactive)
+        #[arg(long)]
+        purge: bool,
+        /// Keep the generated script files (non-interactive)
+        #[arg(long, conflicts_with = "purge")]
+        keep: bool,
+    },
+    /// Show airis UI install status
+    Status,
 }
 
 #[derive(Subcommand)]
