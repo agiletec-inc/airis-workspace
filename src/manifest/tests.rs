@@ -958,3 +958,149 @@ id = "test"
         "got: {msg}"
     );
 }
+
+// =============================================================================
+// [root] section tests
+// =============================================================================
+
+#[test]
+fn test_root_section_absent_defaults_to_none() {
+    let manifest = load_from_str(&minimal_manifest()).unwrap();
+    assert!(manifest.root.is_none());
+}
+
+#[test]
+fn test_root_section_parses_dev_dependencies() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[root.devDependencies]
+vitest                = "catalog:"
+jsdom                 = "catalog:"
+"@vitest/coverage-v8" = "catalog:"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let root = manifest
+        .root
+        .as_ref()
+        .expect("[root] section must be parsed");
+    assert_eq!(
+        root.dev_dependencies.get("vitest").map(String::as_str),
+        Some("catalog:")
+    );
+    assert_eq!(
+        root.dev_dependencies.get("jsdom").map(String::as_str),
+        Some("catalog:")
+    );
+    assert_eq!(
+        root.dev_dependencies
+            .get("@vitest/coverage-v8")
+            .map(String::as_str),
+        Some("catalog:")
+    );
+}
+
+#[test]
+fn test_root_section_parses_dependencies() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[root.dependencies]
+"some-runtime-dep" = "^1.0.0"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let root = manifest
+        .root
+        .as_ref()
+        .expect("[root] section must be parsed");
+    assert_eq!(
+        root.dependencies
+            .get("some-runtime-dep")
+            .map(String::as_str),
+        Some("^1.0.0")
+    );
+    assert!(root.dev_dependencies.is_empty());
+}
+
+#[test]
+fn test_root_section_parses_scripts() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[root.scripts]
+test = "vitest run"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let root = manifest
+        .root
+        .as_ref()
+        .expect("[root] section must be parsed");
+    assert_eq!(
+        root.scripts.get("test").map(String::as_str),
+        Some("vitest run")
+    );
+}
+
+#[test]
+fn test_root_section_full_config() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[root.devDependencies]
+vitest = "catalog:"
+
+[root.dependencies]
+"some-lib" = "^2.0.0"
+
+[root.scripts]
+test  = "vitest run"
+build = "tsc -b"
+
+[root.engines]
+node = ">=22"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let root = manifest
+        .root
+        .as_ref()
+        .expect("[root] section must be parsed");
+    assert_eq!(root.dev_dependencies.len(), 1);
+    assert_eq!(root.dependencies.len(), 1);
+    assert_eq!(root.scripts.len(), 2);
+    assert_eq!(root.engines.get("node").map(String::as_str), Some(">=22"));
+}
+
+#[test]
+fn test_root_section_round_trips_through_toml() {
+    let toml = r#"
+version = 1
+[project]
+id = "test"
+
+[root.devDependencies]
+vitest = "catalog:"
+
+[root.scripts]
+test = "vitest run"
+"#;
+    let manifest = load_from_str(toml).unwrap();
+    let serialized = toml::to_string(&manifest).unwrap();
+    let reparsed: Manifest = toml::from_str(&serialized).unwrap();
+    let root = reparsed.root.as_ref().expect("[root] must round-trip");
+    assert_eq!(
+        root.dev_dependencies.get("vitest").map(String::as_str),
+        Some("catalog:")
+    );
+    assert_eq!(
+        root.scripts.get("test").map(String::as_str),
+        Some("vitest run")
+    );
+}
