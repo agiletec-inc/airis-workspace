@@ -533,7 +533,10 @@ fn test_tab_title_preserves_unrelated_user_hooks() {
     mutate(&mut settings, "/bin/airis", true);
     let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
     assert_eq!(pre.len(), 2, "user hook + injected waiting hook");
-    assert!(pre.iter().any(|e| e["hooks"][0]["command"] == "my-custom-hook.sh"));
+    assert!(
+        pre.iter()
+            .any(|e| e["hooks"][0]["command"] == "my-custom-hook.sh")
+    );
 
     mutate(&mut settings, "/bin/airis", false);
     let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
@@ -544,7 +547,12 @@ fn test_tab_title_preserves_unrelated_user_hooks() {
 #[test]
 fn test_tab_title_apply_writes_file_and_counts() {
     let claude = tempfile::tempdir().unwrap();
-    let result = apply(claude.path(), "/bin/airis", &TerminalTitleSection::default()).unwrap();
+    let result = apply(
+        claude.path(),
+        "/bin/airis",
+        &TerminalTitleSection::default(),
+    )
+    .unwrap();
     assert_eq!(result.injected, 6);
     assert!(claude.path().join("settings.json").exists());
     assert_eq!(count_managed_entries(claude.path()), 6);
@@ -562,7 +570,12 @@ fn test_tab_title_apply_handles_corrupt_settings() {
     let claude = tempfile::tempdir().unwrap();
     fs::write(claude.path().join("settings.json"), "{ not json").unwrap();
     // Corrupt settings.json is skipped with a warning, never panics or errors.
-    let result = apply(claude.path(), "/bin/airis", &TerminalTitleSection::default()).unwrap();
+    let result = apply(
+        claude.path(),
+        "/bin/airis",
+        &TerminalTitleSection::default(),
+    )
+    .unwrap();
     assert_eq!(result.injected, 0);
 }
 
