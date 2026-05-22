@@ -1,29 +1,17 @@
 pub mod dir_sync;
-pub mod settings_hooks;
-pub mod tab_title;
 pub mod templates;
 
 #[cfg(test)]
 mod tests;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde_json::Value;
 
-use crate::manifest::{GlobalConfig, TerminalTitleSection};
-
-/// Resolve the absolute path of the running `airis` binary, for embedding in
-/// hook commands. Falls back to the bare name (relies on `$PATH`) if the path
-/// cannot be determined.
-fn airis_bin_path() -> String {
-    std::env::current_exe()
-        .ok()
-        .and_then(|p| p.to_str().map(str::to_string))
-        .unwrap_or_else(|| "airis".to_string())
-}
+use crate::manifest::GlobalConfig;
 
 /// Plugin ID in installed_plugins.json
 const AIRIS_PLUGIN_ID: &str = "airis-mcp-gateway@airis-mcp-gateway";
@@ -240,30 +228,12 @@ pub fn setup_global() -> Result<()> {
         println!();
     }
 
-    // 6. Inject terminal tab-title hooks into settings.json
-    let terminal_title = &global_config.claude.terminal_title;
-    let airis_bin = airis_bin_path();
-    let hook_result = settings_hooks::apply(&home, &airis_bin, terminal_title)?;
-    if hook_result.migrated_legacy {
-        println!("  {} Migrated legacy warp-tab-title.sh hooks", "✓".green());
-        println!(
-            "     {} {} is no longer referenced — delete it if unused",
-            "ℹ".dimmed(),
-            "~/.claude/hooks/warp-tab-title.sh".dimmed()
-        );
-    }
-    if hook_result.injected > 0 {
-        println!(
-            "  {} Terminal tab-title hooks installed ({} events)",
-            "✓".green(),
-            hook_result.injected
-        );
-    } else if !terminal_title.enabled {
-        println!(
-            "  {} Terminal tab-title disabled ([claude.terminal_title] enabled = false)",
-            "–".dimmed()
-        );
-    }
+    // 6. Terminal tab-title + statusline are cosmetic — managed by `airis ui`.
+    println!(
+        "  {} Run {} for the terminal tab-title + statusline",
+        "ℹ".dimmed(),
+        "airis ui install".bright_cyan()
+    );
     println!();
 
     println!("{}", "✅ Global configuration synced".green());
@@ -327,31 +297,10 @@ pub fn status() -> Result<()> {
         }
     }
 
-    // Terminal tab-title hooks
+    // Terminal tab-title + statusline are managed by `airis ui`.
     println!();
-    println!("  Terminal title:");
-    let terminal_title = &global_config.claude.terminal_title;
-    let managed_hooks = settings_hooks::count_managed_entries(&home);
-    if terminal_title.enabled {
-        let idle_label = if terminal_title.idle.is_empty() {
-            "—".to_string()
-        } else {
-            terminal_title.idle.clone()
-        };
-        print_status(
-            &format!(
-                "  enabled (running {} / waiting {} / idle {})",
-                terminal_title.running, terminal_title.waiting, idle_label
-            ),
-            managed_hooks > 0,
-        );
-        if managed_hooks == 0 {
-            println!("    (run `airis claude setup` to install hooks)");
-            all_synced = false;
-        }
-    } else {
-        println!("    {} disabled in [claude.terminal_title]", "–".dimmed());
-    }
+    println!("  UI integrations:");
+    println!("    {} run `airis ui status`", "ℹ".dimmed());
 
     // Legacy check
     let legacy_dir = home.join(LEGACY_HOOKS_DIR);
@@ -388,45 +337,63 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-/// Remove airis-managed configuration from ~/.claude/
+/// Outcome of an `uninstall_at` call.
+struct UninstallReport {
+    /// Registry-tracked content files left in place (never deleted).
+    kept: Vec<String>,
+}
+
+/// Remove airis's bookkeeping from a Claude home directory.
+///
+/// Content files (`CLAUDE.md`, `rules/*.md`) are **never deleted**: they are
+/// user-editable and `CLAUDE.md` is the user's primary instruction file.
+/// Deleting it on uninstall would destroy hand-maintained content. Only the
+/// sync registry and legacy hook artifacts are removed. Separated from
+/// `uninstall()` so the "content is preserved" guarantee can be unit-tested.
+fn uninstall_at(claude_home: &Path, reg_path: &Path) -> Result<UninstallReport> {
+    // Registry-tracked content files: report them, but never delete them.
+    let kept: Vec<String> = dir_sync::load_claude_registry(reg_path)
+        .into_iter()
+        .filter(|rel| claude_home.join(rel).exists())
+        .collect();
+
+    // Clear the registry — airis bookkeeping under ~/.airis/, not user content.
+    if reg_path.exists() {
+        fs::remove_file(reg_path)
+            .with_context(|| format!("Failed to remove {}", reg_path.display()))?;
+    }
+
+    // Remove legacy hook files / settings entries from before the plugin migration.
+    clean_legacy_hooks(claude_home)?;
+
+    Ok(UninstallReport { kept })
+}
+
+/// Remove airis-managed configuration from ~/.claude/.
 pub fn uninstall() -> Result<()> {
     println!("{}", "🗑️  Removing airis configuration...".bright_blue());
     println!();
 
     let home = claude_home()?;
-
-    // 1. Remove registry-tracked files only
     let reg_path = registry_path()?;
-    let registry = dir_sync::load_claude_registry(&reg_path);
-    for rel_path in &registry {
-        let target = home.join(rel_path);
-        if target.exists() {
-            fs::remove_file(&target)
-                .with_context(|| format!("Failed to remove {}", target.display()))?;
-            println!(
-                "   {} Removed {}",
-                "✓".green(),
-                target.display().to_string().dimmed()
-            );
+
+    let report = uninstall_at(&home, &reg_path)?;
+
+    if report.kept.is_empty() {
+        println!("   {} Cleared airis sync registry", "✓".green());
+    } else {
+        println!(
+            "  {} Content files left in place — airis never deletes these:",
+            "ℹ".dimmed()
+        );
+        for rel in &report.kept {
+            println!("     {}", home.join(rel).display().to_string().dimmed());
         }
+        println!(
+            "  {} Remove them by hand if you no longer want them.",
+            "ℹ".dimmed()
+        );
     }
-
-    // 2. Clear registry
-    if reg_path.exists() {
-        fs::remove_file(&reg_path)?;
-    }
-
-    // 3. Remove terminal tab-title hooks from settings.json
-    let disabled = TerminalTitleSection {
-        enabled: false,
-        ..TerminalTitleSection::default()
-    };
-    let airis_bin = airis_bin_path();
-    settings_hooks::apply(&home, &airis_bin, &disabled)?;
-    println!("   {} Removed terminal tab-title hooks", "✓".green());
-
-    // 4. Clean legacy hooks
-    clean_legacy_hooks(&home)?;
 
     println!();
     println!("{}", "✅ airis configuration removed".green());

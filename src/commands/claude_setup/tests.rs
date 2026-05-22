@@ -7,7 +7,9 @@ use super::dir_sync::{
     sync_single_file,
 };
 use super::templates::{self, ManagedDir, TemplateFile};
-use super::{check_plugin_installed, is_legacy_airis_entry, remove_legacy_airis_entries};
+use super::{
+    check_plugin_installed, is_legacy_airis_entry, remove_legacy_airis_entries, uninstall_at,
+};
 
 #[test]
 fn test_sync_managed_dir_creates_files() {
@@ -416,169 +418,6 @@ fn test_no_infra_constants_in_templates() {
     );
 }
 
-// ── Terminal tab-title hook tests ───────────────────────────────────
-
-use super::settings_hooks::{apply, count_managed_entries, mutate};
-use crate::manifest::TerminalTitleSection;
-
-fn total_hook_entries(settings: &serde_json::Value) -> usize {
-    settings["hooks"]
-        .as_object()
-        .unwrap()
-        .values()
-        .map(|a| a.as_array().unwrap().len())
-        .sum()
-}
-
-#[test]
-fn test_tab_title_mutate_injects_six_events() {
-    let mut settings = json!({});
-    let result = mutate(&mut settings, "/usr/local/bin/airis", true);
-    assert_eq!(result.injected, 6);
-    let hooks = settings["hooks"].as_object().unwrap();
-    for event in [
-        "SessionStart",
-        "UserPromptSubmit",
-        "PostToolUse",
-        "PreToolUse",
-        "Notification",
-        "Stop",
-    ] {
-        assert_eq!(hooks[event].as_array().unwrap().len(), 1, "{event}");
-    }
-}
-
-#[test]
-fn test_tab_title_mutate_is_idempotent() {
-    let mut settings = json!({});
-    mutate(&mut settings, "/bin/airis", true);
-    mutate(&mut settings, "/bin/airis", true);
-    assert_eq!(
-        total_hook_entries(&settings),
-        6,
-        "re-apply must not duplicate entries"
-    );
-}
-
-#[test]
-fn test_tab_title_mutate_disabled_removes_all() {
-    let mut settings = json!({});
-    mutate(&mut settings, "/bin/airis", true);
-    let result = mutate(&mut settings, "/bin/airis", false);
-    assert_eq!(result.injected, 0);
-    assert_eq!(total_hook_entries(&settings), 0);
-}
-
-#[test]
-fn test_tab_title_preserves_agent_stop_hook() {
-    // The airis-verify Stop hook is type:"agent" with no `command` field —
-    // it must survive both injection and removal.
-    let mut settings = json!({
-        "hooks": {
-            "Stop": [
-                {
-                    "matcher": "",
-                    "hooks": [{ "type": "agent", "prompt": "run airis verify", "timeout": 300 }]
-                }
-            ]
-        }
-    });
-    mutate(&mut settings, "/bin/airis", true);
-    let stop = settings["hooks"]["Stop"].as_array().unwrap();
-    assert_eq!(stop.len(), 2, "agent hook + injected tab-title hook");
-    assert!(stop.iter().any(|e| e["hooks"][0]["type"] == "agent"));
-
-    mutate(&mut settings, "/bin/airis", false);
-    let stop = settings["hooks"]["Stop"].as_array().unwrap();
-    assert_eq!(stop.len(), 1, "only the agent hook remains");
-    assert_eq!(stop[0]["hooks"][0]["type"], "agent");
-}
-
-#[test]
-fn test_tab_title_migrates_legacy_script_hooks() {
-    let mut settings = json!({
-        "hooks": {
-            "Stop": [
-                {
-                    "matcher": "",
-                    "hooks": [{
-                        "type": "command",
-                        "command": "sh \"$HOME/.claude/hooks/warp-tab-title.sh\" idle"
-                    }]
-                }
-            ]
-        }
-    });
-    let result = mutate(&mut settings, "/bin/airis", true);
-    assert!(result.migrated_legacy);
-    let stop = settings["hooks"]["Stop"].as_array().unwrap();
-    assert_eq!(stop.len(), 1, "legacy entry replaced by managed one");
-    let cmd = stop[0]["hooks"][0]["command"].as_str().unwrap();
-    assert!(cmd.contains("claude tab-title idle"));
-    assert!(!cmd.contains("warp-tab-title.sh"));
-}
-
-#[test]
-fn test_tab_title_preserves_unrelated_user_hooks() {
-    let mut settings = json!({
-        "hooks": {
-            "PreToolUse": [
-                {
-                    "matcher": "Bash",
-                    "hooks": [{ "type": "command", "command": "my-custom-hook.sh" }]
-                }
-            ]
-        }
-    });
-    mutate(&mut settings, "/bin/airis", true);
-    let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
-    assert_eq!(pre.len(), 2, "user hook + injected waiting hook");
-    assert!(
-        pre.iter()
-            .any(|e| e["hooks"][0]["command"] == "my-custom-hook.sh")
-    );
-
-    mutate(&mut settings, "/bin/airis", false);
-    let pre = settings["hooks"]["PreToolUse"].as_array().unwrap();
-    assert_eq!(pre.len(), 1);
-    assert_eq!(pre[0]["hooks"][0]["command"], "my-custom-hook.sh");
-}
-
-#[test]
-fn test_tab_title_apply_writes_file_and_counts() {
-    let claude = tempfile::tempdir().unwrap();
-    let result = apply(
-        claude.path(),
-        "/bin/airis",
-        &TerminalTitleSection::default(),
-    )
-    .unwrap();
-    assert_eq!(result.injected, 6);
-    assert!(claude.path().join("settings.json").exists());
-    assert_eq!(count_managed_entries(claude.path()), 6);
-
-    let disabled = TerminalTitleSection {
-        enabled: false,
-        ..TerminalTitleSection::default()
-    };
-    apply(claude.path(), "/bin/airis", &disabled).unwrap();
-    assert_eq!(count_managed_entries(claude.path()), 0);
-}
-
-#[test]
-fn test_tab_title_apply_handles_corrupt_settings() {
-    let claude = tempfile::tempdir().unwrap();
-    fs::write(claude.path().join("settings.json"), "{ not json").unwrap();
-    // Corrupt settings.json is skipped with a warning, never panics or errors.
-    let result = apply(
-        claude.path(),
-        "/bin/airis",
-        &TerminalTitleSection::default(),
-    )
-    .unwrap();
-    assert_eq!(result.injected, 0);
-}
-
 #[test]
 fn test_registry_load_save_roundtrip() {
     let file = tempfile::NamedTempFile::new().unwrap();
@@ -595,4 +434,42 @@ fn test_registry_load_save_roundtrip() {
     assert!(loaded.contains(&"CLAUDE.md".to_string()));
     assert!(loaded.contains(&"rules/docker-first.md".to_string()));
     assert!(loaded.contains(&"rules/server-access.md".to_string()));
+}
+
+// ── Uninstall tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_uninstall_preserves_user_content_files() {
+    // Regression: `airis claude uninstall` must never delete CLAUDE.md or
+    // rule files. They are user-editable and CLAUDE.md is the user's primary
+    // instruction file — uninstall removes only airis's own bookkeeping.
+    let claude = tempfile::tempdir().unwrap();
+    let registry = tempfile::NamedTempFile::new().unwrap();
+
+    // Simulate an installed state: content files tracked in the registry.
+    fs::write(claude.path().join("CLAUDE.md"), "user's global rules").unwrap();
+    fs::create_dir_all(claude.path().join("rules")).unwrap();
+    fs::write(claude.path().join("rules/docker-first.md"), "a rule").unwrap();
+    save_claude_registry(
+        registry.path(),
+        &["CLAUDE.md".to_string(), "rules/docker-first.md".to_string()],
+    )
+    .unwrap();
+
+    let report = uninstall_at(claude.path(), registry.path()).unwrap();
+
+    // Content files survive uninstall — this is the bug being fixed.
+    assert!(
+        claude.path().join("CLAUDE.md").exists(),
+        "uninstall must not delete CLAUDE.md"
+    );
+    assert!(claude.path().join("rules/docker-first.md").exists());
+    assert_eq!(
+        fs::read_to_string(claude.path().join("CLAUDE.md")).unwrap(),
+        "user's global rules"
+    );
+    assert_eq!(report.kept.len(), 2, "both content files reported as kept");
+
+    // The registry (airis bookkeeping) is cleared.
+    assert!(!registry.path().exists());
 }
