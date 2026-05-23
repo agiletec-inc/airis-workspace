@@ -421,9 +421,8 @@ pub(super) fn orchestrated_up(
 
     println!("\n{}", "✅ All services started!".green().bold());
 
-    // 5. Automatic install (Converge)
-    // Run install inside Docker to ensure dependencies are in sync.
-    let _ = crate::commands::install::run(&[]);
+    // Dependency install is handled by the image build (Dockerfile pnpm install)
+    // during `docker compose up --build`. No extra exec-into-container step needed.
 
     // Check health but don't force fix
     println!("\n{}", "🛡️  Checking workspace boundaries...".dimmed());

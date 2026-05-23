@@ -155,13 +155,6 @@ pub enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Install dependencies inside Docker container
-    Install {
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
     /// Stop Docker services
     Down {
         /// Extra arguments

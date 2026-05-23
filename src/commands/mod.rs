@@ -16,7 +16,6 @@ pub mod guards;
 pub mod hooks;
 pub mod host;
 pub mod init_shell;
-pub mod install;
 pub mod manifest_cmd;
 pub mod mcp;
 pub mod migrate;

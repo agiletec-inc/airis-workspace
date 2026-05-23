@@ -201,7 +201,6 @@ fn dispatch(command: Commands) -> Result<()> {
         }
         Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
         Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
-        Commands::Install { extra_args } => commands::install::run(&extra_args)?,
         Commands::Down { extra_args } => commands::run::run_down(&extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
