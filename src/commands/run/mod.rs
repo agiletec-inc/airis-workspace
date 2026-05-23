@@ -315,19 +315,13 @@ pub fn run(task: &str, extra_args: &[String]) -> Result<()> {
                 .bold()
         );
 
-        // 1. Sync manifest -> generated files (gen)
+        // Sync manifest -> generated files (gen). Dependency install happens
+        // during `docker compose up --build` (Dockerfile runs pnpm install).
         println!("   {} Syncing workspace configuration...", "🔄".cyan());
         if let Err(e) = crate::commands::generate::sync_from_manifest(&manifest) {
             eprintln!("\n{} Workspace sync partially failed: {}", "⚠️".yellow(), e);
             eprintln!("   Continuing to start environment anyway...\n");
         }
-
-        // 2. Sync dependencies inside Docker (install)
-        println!(
-            "   {} Syncing dependencies inside container...",
-            "📦".blue()
-        );
-        let _ = crate::commands::install::run(&[]);
         println!();
     }
 
