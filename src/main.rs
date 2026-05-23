@@ -3,9 +3,9 @@ use clap::{CommandFactory, Parser};
 use colored::Colorize;
 
 use airis_workspace::cli::{
-    ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
-    HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, TestLevel,
-    UiCommands, ValidateCommands, WorkspaceCommands,
+    ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, ManifestCommands,
+    NetworkCommands, NewCommands, PolicyCommands, TestLevel, UiCommands, ValidateCommands,
+    WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -96,76 +96,8 @@ fn dispatch(command: Commands) -> Result<()> {
             }
             UiCommands::Status => commands::ui::status()?,
         },
-        Commands::Guards { action } => match action {
-            GuardsCommands::Install {
-                global,
-                preset,
-                hooks,
-            } => {
-                if hooks {
-                    eprintln!(
-                        "{}: `airis guards install --hooks` is deprecated. Use `airis claude setup` instead.",
-                        "warning".yellow().bold()
-                    );
-                    commands::claude_setup::setup_global()?;
-                } else if global {
-                    commands::guards::install_global(preset)?;
-                } else {
-                    println!("{}", "⚠️  Local guards are deprecated.".yellow());
-                    println!(
-                        "   Use {} instead.",
-                        "airis guards install --global".bright_cyan()
-                    );
-                }
-            }
-            GuardsCommands::CheckDocker => {
-                if std::path::Path::new("/.dockerenv").exists() {
-                    println!("{} Running inside Docker", "✓".green());
-                } else {
-                    println!("{} Running on host", "✗".yellow());
-                }
-            }
-            GuardsCommands::Status { global, hooks } => {
-                if hooks {
-                    eprintln!(
-                        "{}: `airis guards status --hooks` is deprecated. Use `airis claude status` instead.",
-                        "warning".yellow().bold()
-                    );
-                    commands::claude_setup::status()?;
-                } else if global {
-                    commands::guards::status_global()?;
-                } else {
-                    println!(
-                        "Local guards are no longer recommended. Use 'airis guards status --global'."
-                    );
-                }
-            }
-            GuardsCommands::Uninstall { global, hooks } => {
-                if hooks {
-                    eprintln!(
-                        "{}: `airis guards uninstall --hooks` is deprecated. Use `airis claude uninstall` instead.",
-                        "warning".yellow().bold()
-                    );
-                    commands::claude_setup::uninstall()?;
-                } else if global {
-                    commands::guards::uninstall_global()?;
-                } else {
-                    commands::workspace::uninstall()?;
-                }
-            }
-            GuardsCommands::Verify => commands::guards::verify_global()?,
-            GuardsCommands::CheckAllow { cmd: _ } => {
-                // Local check_allow is no longer supported
-                println!("check-allow is now handled by global smart-shims.");
-            }
-        },
-        Commands::Host { cmd } | Commands::Bypass { cmd } => commands::host::run(&cmd)?,
         Commands::Workspace(args) => match args.action {
             WorkspaceCommands::Uninstall => commands::workspace::uninstall()?,
-        },
-        Commands::Hooks { action } => match action {
-            HooksCommands::Install => commands::hooks::install()?,
-            HooksCommands::Uninstall => commands::hooks::uninstall()?,
         },
         Commands::Docs { action } => match action {
             DocsCommands::Wrap { target, force } => commands::docs::wrap(&target, force)?,

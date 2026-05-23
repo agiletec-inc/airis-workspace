@@ -131,7 +131,9 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("PATH", "/root/.local/share/pnpm:$PATH"),
             ],
             default_scripts: &[],
-            isolated_dirs: &["node_modules", ".pnpm-store"],
+            // `.pnpm-store` is omitted: the canonical pnpm store lives at
+            // `/root/.local/share/pnpm/store` (declared in `global_caches`).
+            isolated_dirs: &["node_modules"],
             global_caches: &[("pnpm-store", "/root/.local/share/pnpm/store")],
         },
         "rust" => FrameworkDefaults {

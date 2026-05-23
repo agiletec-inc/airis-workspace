@@ -40,8 +40,6 @@ pub struct Manifest {
     pub rule: IndexMap<String, RuleConfig>,
     #[serde(default)]
     pub packages: PackagesSection,
-    #[serde(default)]
-    pub guards: GuardsSection,
     /// App definitions (for package.json generation)
     #[serde(default)]
     pub app: Vec<ProjectDefinition>,
@@ -588,34 +586,6 @@ pub struct PeerDependencyRules {
     pub ignore_missing: Vec<String>,
     #[serde(rename = "allowedVersions", default)]
     pub allowed_versions: IndexMap<String, String>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone, Default)]
-pub struct GuardsSection {
-    /// Commands to completely deny (e.g., ["npm", "yarn"])
-    #[serde(default)]
-    pub deny: Vec<String>,
-
-    /// Commands to allow (opt-out from global deny list for this repo)
-    #[serde(default)]
-    pub allow: Vec<String>,
-
-    /// Commands to wrap with Docker execution
-    /// e.g., {"pnpm": "docker compose exec workspace pnpm"}
-    #[serde(default)]
-    pub wrap: IndexMap<String, String>,
-
-    /// Commands to deny with custom messages
-    #[serde(default)]
-    pub deny_with_message: IndexMap<String, String>,
-
-    /// LLM-specific: completely forbid these commands
-    #[serde(default)]
-    pub forbid: Vec<String>,
-
-    /// LLM-specific: dangerous commands (warn humans, block LLMs)
-    #[serde(default)]
-    pub danger: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
