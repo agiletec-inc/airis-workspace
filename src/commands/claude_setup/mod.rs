@@ -228,14 +228,6 @@ pub fn setup_global() -> Result<()> {
         println!();
     }
 
-    // 6. Terminal tab-title + statusline are cosmetic — managed by `airis ui`.
-    println!(
-        "  {} Run {} for the terminal tab-title + statusline",
-        "ℹ".dimmed(),
-        "airis ui install".bright_cyan()
-    );
-    println!();
-
     println!("{}", "✅ Global configuration synced".green());
 
     Ok(())
@@ -296,11 +288,6 @@ pub fn status() -> Result<()> {
             }
         }
     }
-
-    // Terminal tab-title + statusline are managed by `airis ui`.
-    println!();
-    println!("  UI integrations:");
-    println!("    {} run `airis ui status`", "ℹ".dimmed());
 
     // Legacy check
     let legacy_dir = home.join(LEGACY_HOOKS_DIR);

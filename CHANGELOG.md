@@ -23,20 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `workspace_doctor`, `workspace_verify`, `workspace_status` (in addition to the
   existing `workspace_init`, `workspace_cleanup`, `workspace_discover`,
   `manifest_validate`, `manifest_apply`, `migration_execute`).
-- **Terminal tab-title status indicator.** `airis claude setup` now injects
-  Claude Code hooks that set the terminal tab title to `<emoji> <repo>`,
-  reflecting the agent's state: running (🏃), waiting for user input (✋), or
-  idle (no emoji). Emojis are configurable in `~/.airis/global-config.toml`
-  under `[claude.terminal_title]` (`enabled` / `running` / `waiting` / `idle`)
-  and read at hook time, so changes apply without re-running setup. Hooks call
-  the hidden `airis claude tab-title <state>` handler. `airis claude uninstall`
-  removes the hooks; legacy hand-written `warp-tab-title.sh` hooks are migrated
-  away automatically.
-
 ### Removed
 
 - `src/commands/init.rs` and `Commands::Init` CLI variant.
 - `scripts/gif-recording/01-init-demo.tape` (corresponding demo).
+- **`airis ui` subcommand, the `airis claude tab-title` shim, and the
+  `[claude.terminal_title]` config section.** Managing a few entries in
+  `~/.claude/settings.json` and two static shell scripts through a Rust
+  install/uninstall command was over-engineered for a personal-config
+  feature, and it produced three follow-up bugs (PR #258 → #264 → #265)
+  tied to the generator round-trip. Maintain
+  `~/.claude/hooks/airis-tab-title.sh`, `~/.claude/statusline-command.sh`,
+  and the `hooks` / `statusLine` entries in `~/.claude/settings.json`
+  directly (or via a dotfiles manager). Bake the emoji into the hook
+  command's `args` instead of `[claude.terminal_title]`.
 
 ### Migration Guide
 

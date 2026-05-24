@@ -5,7 +5,7 @@ use colored::Colorize;
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, GuardsCommands,
     HooksCommands, ManifestCommands, NetworkCommands, NewCommands, PolicyCommands, TestLevel,
-    UiCommands, ValidateCommands, WorkspaceCommands,
+    ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -77,24 +77,6 @@ fn dispatch(command: Commands) -> Result<()> {
             ClaudeCommands::Setup => commands::claude_setup::setup_global()?,
             ClaudeCommands::Status => commands::claude_setup::status()?,
             ClaudeCommands::Uninstall => commands::claude_setup::uninstall()?,
-            // Legacy shim: a session still wired to the pre-`airis ui` hook
-            // calls `airis claude tab-title <state>`. Bridge it to the
-            // installed script so a stale session's tab emoji still updates.
-            ClaudeCommands::TabTitle { args } => commands::ui::legacy_tab_title_shim(&args)?,
-        },
-        Commands::Ui { action } => match action {
-            UiCommands::Install => commands::ui::install()?,
-            UiCommands::Uninstall { purge, keep } => {
-                let choice = if purge {
-                    Some(true)
-                } else if keep {
-                    Some(false)
-                } else {
-                    None
-                };
-                commands::ui::uninstall(choice)?;
-            }
-            UiCommands::Status => commands::ui::status()?,
         },
         Commands::Guards { action } => match action {
             GuardsCommands::Install {
