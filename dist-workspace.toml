@@ -6,10 +6,12 @@ members = ["cargo:."]
 # in the `publish-homebrew-formula` job:
 #
 #  1. App-token auth: mints a GitHub App installation token from the
-#     org-shared `agiletec-inc-homebrew-publisher` App (org var
+#     org-shared homebrew-publisher App (org var
 #     HOMEBREW_TAP_PUBLISHER_CLIENT_ID + org secret
 #     HOMEBREW_TAP_PUBLISHER_PRIVATE_KEY) instead of the static PAT
-#     (HOMEBREW_TAP_TOKEN) that cargo-dist's template hard-codes.
+#     (HOMEBREW_TAP_TOKEN) that cargo-dist's template hard-codes. The
+#     committer identity is resolved from the token's app-slug output at
+#     runtime so renaming the App does not require a workflow edit.
 #
 #  2. Branch + PR + auto-merge instead of direct push: the
 #     `agiletec-inc/homebrew-tap` repo is protected by an org-level

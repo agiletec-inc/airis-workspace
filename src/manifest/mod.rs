@@ -427,45 +427,6 @@ impl Manifest {
             },
             app: vec![],
         };
-        // Guards for Docker-first enforcement
-        let guards = GuardsSection {
-            deny: vec![
-                "npm".to_string(),
-                "yarn".to_string(),
-                "pnpm".to_string(),
-                "bun".to_string(),
-                "npx".to_string(),
-                "pip".to_string(),
-                "pip3".to_string(),
-                "uv".to_string(),
-                "poetry".to_string(),
-                "cargo".to_string(),
-            ],
-            allow: vec![],
-            wrap: {
-                let mut wrap = IndexMap::new();
-                wrap.insert(
-                    "pnpm".to_string(),
-                    "docker compose exec workspace pnpm".to_string(),
-                );
-                wrap.insert(
-                    "npm".to_string(),
-                    "docker compose exec workspace npm".to_string(),
-                );
-                wrap
-            },
-            deny_with_message: IndexMap::new(),
-            forbid: vec![
-                "npm".to_string(),
-                "yarn".to_string(),
-                "pnpm".to_string(),
-                "bun".to_string(),
-                "docker".to_string(),
-                "docker-compose".to_string(),
-            ],
-            danger: vec!["rm -rf /".to_string(), "chmod -R 777".to_string()],
-        };
-
         // Remap common commands to airis
         let mut remap = IndexMap::new();
         remap.insert("npm install".to_string(), "airis up".to_string());
@@ -527,7 +488,6 @@ impl Manifest {
             service: IndexMap::new(),
             rule,
             packages,
-            guards,
             stack: IndexMap::new(),
             app: vec![],
             orchestration: OrchestrationSection::default(),

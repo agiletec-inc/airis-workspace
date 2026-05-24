@@ -4,30 +4,16 @@ use clap::{Args, Parser, Subcommand};
 #[command(name = "airis")]
 #[command(about = "The Docker-first environment orchestrator for the vibe coding era")]
 #[command(long_about = "\
-The Docker-first environment orchestrator for the vibe coding era.
+A workspace orchestrator for monorepos.
 
-One manifest file (optional). Every config generated. Your AI pair-programmer \
-stays inside the container where it belongs.
-
-airis provides transparent command-level redirection. When you run a guarded \
-command (like pnpm or python) in a directory containing compose.yml, it \
-automatically executes inside the Docker workspace.
-
-DESIGN: airis acts as a transparent proxy for your existing tools. It ensures \
-environment hygiene by isolating build artifacts and dependencies within Docker \
-volumes while maintaining a native-like CLI experience.")]
+Generates compose.yaml, tsconfig.json, and AI rule files from manifest.toml. \
+Drives Docker Compose for local dev. Stays out of your way for everything else.")]
 #[command(after_help = "\
 QUICK REFERENCE:
   airis up                  Start the environment (via manifest.toml or compose.yml)
   airis run <task>          Run a task (defined in manifest or delegated to Docker)
   airis shell               Enter workspace container shell
   airis doctor              Diagnose and fix workspace issues
-
-SMART SHIMS:
-  Run `airis guards install` inside a project to enable transparent redirection
-  for pnpm, npm, uv, python, and more. Commands are automatically routed to
-  Docker when a compose.yml is detected. Global shims (~/.airis/bin) are
-  intentionally not recommended — use project-local guards instead.
 
 CONVENTIONS:
   airis automatically discovers projects in apps/* and libs/*. Use manifest.toml
@@ -65,42 +51,8 @@ pub enum Commands {
         action: ClaudeCommands,
     },
 
-    /// Manage global command shims (~/.airis/bin)
-    Guards {
-        #[command(subcommand)]
-        action: GuardsCommands,
-    },
-
-    /// Run a host command, bypassing airis guards (sets AIRIS_BYPASS=1)
-    ///
-    /// Use this when you need to run a guarded command (pnpm, npm, python, ...)
-    /// directly on the host — e.g. global installs outside any airis workspace.
-    ///
-    /// Examples:
-    ///   airis host npm install -g typescript
-    ///   airis host pnpm add -g prettier
-    Host {
-        /// Command and arguments to run on the host.
-        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
-        cmd: Vec<String>,
-    },
-
-    /// Alias for `host` — bypass airis guards and run directly on the host.
-    Bypass {
-        /// Command and arguments to run on the host.
-        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
-        cmd: Vec<String>,
-    },
-
     /// Project-level cleanup and management
     Workspace(WorkspaceArgs),
-
-    /// Git hooks management (internal)
-    #[command(hide = true)]
-    Hooks {
-        #[command(subcommand)]
-        action: HooksCommands,
-    },
 
     /// Documentation management
     Docs {
@@ -453,49 +405,9 @@ pub enum DepsCommands {
 }
 
 #[derive(Subcommand)]
-pub enum GuardsCommands {
-    Install {
-        /// Install global guards (~/.airis/bin/) that block commands outside airis projects
-        #[arg(long)]
-        global: bool,
-        /// Guard preset (balanced, strict, permissive)
-        #[arg(long, value_enum)]
-        preset: Option<crate::manifest::GuardPreset>,
-        /// Deprecated: use `airis claude setup` instead
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    #[command(name = "check-docker")]
-    CheckDocker,
-    Status {
-        #[arg(long)]
-        global: bool,
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    Uninstall {
-        #[arg(long)]
-        global: bool,
-        #[arg(long, hide = true)]
-        hooks: bool,
-    },
-    Verify,
-    #[command(name = "check-allow")]
-    CheckAllow {
-        cmd: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum ClaudeCommands {
     Setup,
     Status,
-    Uninstall,
-}
-
-#[derive(Subcommand)]
-pub enum HooksCommands {
-    Install,
     Uninstall,
 }
 
