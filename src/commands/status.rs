@@ -1,4 +1,4 @@
-use crate::manifest::{GlobalConfig, MANIFEST_FILE, Manifest};
+use crate::manifest::{MANIFEST_FILE, Manifest};
 use anyhow::Result;
 use colored::Colorize;
 use std::path::Path;
@@ -32,15 +32,6 @@ pub fn run(short: bool) -> Result<()> {
             "{:<15} {} (no manifest)",
             "Directory:".bright_yellow(),
             dir_name.dimmed()
-        );
-    }
-
-    // Guards Info
-    if let Ok(config) = GlobalConfig::load() {
-        println!(
-            "{:<15} {:?}",
-            "Guard Level:".bright_yellow(),
-            config.guards.preset
         );
     }
 
@@ -119,16 +110,6 @@ fn run_short() -> Result<()> {
 
         // Docker indicator
         parts.push("🐳".into());
-    }
-
-    // 2. Global Status (Guard Level)
-    if let Ok(config) = GlobalConfig::load() {
-        let level_icon = match config.guards.preset {
-            crate::manifest::GuardPreset::Strict => "🛡️!".red(),
-            crate::manifest::GuardPreset::Balanced => "🛡️".green(),
-            crate::manifest::GuardPreset::Permissive => "🛡️?".yellow(),
-        };
-        parts.push(level_icon.to_string());
     }
 
     print!("{}", parts.join(" "));

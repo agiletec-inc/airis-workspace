@@ -103,9 +103,6 @@ pub fn run(fix: bool) -> Result<()> {
     // Check each generated file
     check_generated_files(&manifest, &mut issues)?;
 
-    // Check for command guards
-    check_command_guards(&manifest, &mut issues)?;
-
     // Check for orphaned packages (not in manifest)
     check_orphaned_packages(&manifest, &mut issues)?;
 
@@ -138,15 +135,7 @@ pub fn run(fix: bool) -> Result<()> {
         // 1. Regenerate files
         crate::commands::generate::sync_from_manifest(&manifest)?;
 
-        // 2. Install global guards if missing
-        for issue in &issues {
-            if issue.file == "guards" {
-                println!("   {} Installing global command guards...", "→".dimmed());
-                crate::commands::guards::install_global(None)?;
-            }
-        }
-
-        // 3. Remove host artifacts (physical enforcement)
+        // 2. Remove host artifacts (physical enforcement)
         for issue in &issues {
             if issue.description.contains("leaked from container") {
                 let path = Path::new(&issue.file);
@@ -173,36 +162,6 @@ pub fn run(fix: bool) -> Result<()> {
             "💡 Run `airis doctor --fix` to auto-repair issues and enforce boundaries."
                 .bright_yellow()
         );
-    }
-
-    Ok(())
-}
-
-/// Check if command guards are installed
-fn check_command_guards(manifest: &Manifest, issues: &mut Vec<Issue>) -> Result<()> {
-    let guards_dir = Path::new(".airis/bin");
-
-    // Check if guards directory exists
-    if !guards_dir.exists() {
-        issues.push(Issue {
-            file: "guards".to_string(),
-            description: "Command guards are not installed. Host commands are unprotected."
-                .to_string(),
-            severity: Severity::Error,
-        });
-        return Ok(());
-    }
-
-    // Check if expected deny guards exist
-    for cmd in &manifest.guards.deny {
-        let guard_path = guards_dir.join(cmd);
-        if !guard_path.exists() {
-            issues.push(Issue {
-                file: "guards".to_string(),
-                description: format!("Guard for `{}` is missing.", cmd),
-                severity: Severity::Warning,
-            });
-        }
     }
 
     Ok(())

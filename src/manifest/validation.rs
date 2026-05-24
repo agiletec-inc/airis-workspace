@@ -1,18 +1,12 @@
-use std::sync::LazyLock;
-
 use anyhow::{Result, bail};
 
 use super::*;
-
-static GUARD_CMD_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^[a-zA-Z0-9._+\-]+$").expect("guard command regex"));
 
 impl Manifest {
     /// Validate manifest consistency.
     ///
     /// Checks:
     /// 1. No duplicate ports across service entries
-    /// 2. No command appears in both guards.deny and guards.wrap
     /// 3. dep_group / env_group references resolve to defined groups
     /// 4. env.validation keys exist in env.required or env.optional
     pub fn validate(&self) -> Result<()> {
@@ -51,48 +45,6 @@ impl Manifest {
                         seen.insert(port, name.clone());
                     }
                 }
-            }
-        }
-
-        // 2. Check for commands in both guards.deny and guards.wrap
-        for cmd in &self.guards.deny {
-            if self.guards.wrap.contains_key(cmd) {
-                errors.push(format!(
-                    "Guard conflict: \"{cmd}\" appears in both guards.deny and guards.wrap"
-                ));
-            }
-        }
-
-        // 3b. Validate guard command names (shell metacharacter prevention)
-        for cmd in &self.guards.deny {
-            if !GUARD_CMD_RE.is_match(cmd) {
-                errors.push(format!(
-                    "guards.deny contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
-                ));
-            }
-        }
-        for cmd in self.guards.wrap.keys() {
-            if !GUARD_CMD_RE.is_match(cmd) {
-                errors.push(format!(
-                    "guards.wrap contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
-                ));
-            }
-        }
-        for wrapper in self.guards.wrap.values() {
-            let dangerous_chars = [
-                '`', '$', '(', ')', ';', '&', '|', '<', '>', '\n', '\r', '\\', '!', '{', '}',
-            ];
-            if let Some(bad) = wrapper.chars().find(|c| dangerous_chars.contains(c)) {
-                errors.push(format!(
-                    "guards.wrap value \"{wrapper}\" contains dangerous character '{bad}': shell metacharacters are not allowed"
-                ));
-            }
-        }
-        for cmd in self.guards.deny_with_message.keys() {
-            if !GUARD_CMD_RE.is_match(cmd) {
-                errors.push(format!(
-                    "guards.deny_with_message contains invalid command name \"{cmd}\": only [a-zA-Z0-9._+-] allowed"
-                ));
             }
         }
 

@@ -81,106 +81,6 @@ image = "redis:7"
 }
 
 #[test]
-fn test_validate_guard_deny_wrap_conflict() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards]
-deny = ["pnpm"]
-
-[guards.wrap]
-pnpm = "docker compose exec workspace pnpm"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("pnpm") && msg.contains("guards.deny") && msg.contains("guards.wrap"),
-        "got: {msg}"
-    );
-}
-
-#[test]
-fn test_validate_guard_no_conflict() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards]
-deny = ["npm", "yarn"]
-
-[guards.wrap]
-pnpm = "docker compose exec workspace pnpm"
-"#;
-    assert!(load_from_str(toml).is_ok());
-}
-
-#[test]
-fn test_validate_guard_deny_invalid_command_name() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards]
-deny = ["npm", "bad command", "../escape"]
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("bad command"), "got: {msg}");
-    assert!(msg.contains("../escape"), "got: {msg}");
-}
-
-#[test]
-fn test_validate_guard_wrap_invalid_command_name() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards.wrap]
-"npm;evil" = "docker compose exec workspace npm"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("npm;evil"), "got: {msg}");
-}
-
-#[test]
-fn test_validate_guard_wrap_dangerous_wrapper_value() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards.wrap]
-pnpm = "docker $(whoami) pnpm"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("dangerous"), "got: {msg}");
-}
-
-#[test]
-fn test_validate_guard_deny_with_message_invalid_name() {
-    // This is the exact bug that caused airis gen to fail in agiletec:
-    // "docker run" has a space, which is rejected by the command name regex
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards.deny_with_message]
-"docker run" = "Use 'airis up' instead."
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("docker run"), "got: {msg}");
-}
-
-#[test]
 fn test_validate_rejects_workspace_bind_mounts() {
     let toml = r#"
 version = 1
@@ -228,33 +128,6 @@ image = "node:24"
 volumes = ["web-data:/app/data"]
 "#;
     assert!(load_from_str(toml).is_ok());
-}
-
-#[test]
-fn test_validate_multiple_errors_collected() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[service.a]
-image = "redis:7"
-port = 6379
-
-[service.b]
-image = "redis:7"
-port = 6379
-
-[guards]
-deny = ["pnpm"]
-
-[guards.wrap]
-pnpm = "docker compose exec workspace pnpm"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("Duplicate port"), "got: {msg}");
-    assert!(msg.contains("Guard conflict"), "got: {msg}");
 }
 
 #[test]
@@ -926,36 +799,6 @@ package_manager = "uv"
     assert_eq!(
         reparsed.runtimes.python.as_ref().unwrap().package_manager(),
         Some("uv")
-    );
-}
-
-#[test]
-fn test_validate_guard_wrap_value_with_newline_rejected() {
-    let toml = "version = 1\n[project]\nid = \"test\"\n[guards]\n[guards.wrap]\nnpm = \"docker exec workspace npm\\nrm -rf /\"\n";
-    // Newlines are in the dangerous_chars list — must be rejected.
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("dangerous character"),
-        "newline in wrap value should be rejected; got: {msg}"
-    );
-}
-
-#[test]
-fn test_validate_guard_deny_with_message_invalid_name_rejected() {
-    let toml = r#"
-version = 1
-[project]
-id = "test"
-
-[guards.deny_with_message]
-"npm; evil" = "do not use npm"
-"#;
-    let err = load_from_str(toml).unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("npm; evil") && msg.contains("invalid command name"),
-        "got: {msg}"
     );
 }
 

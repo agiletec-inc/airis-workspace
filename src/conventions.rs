@@ -131,16 +131,8 @@ pub fn framework_defaults(framework: &str) -> FrameworkDefaults {
                 ("PATH", "/root/.local/share/pnpm:$PATH"),
             ],
             default_scripts: &[],
-            // `.pnpm-store` is intentionally omitted: mounting it via
-            // `<project>-root-pnpm-store:/app/.pnpm-store` triggers the
-            // global docker-first edit guard (see ~/.claude/rules/docker-first.md)
-            // because `.pnpm-store` is a host-local pnpm path. The global pnpm
-            // store at `/root/.local/share/pnpm/store` (declared in
-            // `global_caches` below) is the canonical content-addressable
-            // location and already survives container recreation via its named
-            // volume. Projects that override `store-dir` in `.npmrc` should
-            // declare that path in their own manifest, not rely on this
-            // default.
+            // `.pnpm-store` is omitted: the canonical pnpm store lives at
+            // `/root/.local/share/pnpm/store` (declared in `global_caches`).
             isolated_dirs: &["node_modules"],
             global_caches: &[("pnpm-store", "/root/.local/share/pnpm/store")],
         },
