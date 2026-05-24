@@ -51,12 +51,6 @@ pub enum Commands {
         action: ClaudeCommands,
     },
 
-    /// Cosmetic Claude Code integrations (terminal tab-title + statusline)
-    Ui {
-        #[command(subcommand)]
-        action: UiCommands,
-    },
-
     /// Project-level cleanup and management
     Workspace(WorkspaceArgs),
 
@@ -415,38 +409,6 @@ pub enum ClaudeCommands {
     Setup,
     Status,
     Uninstall,
-    /// Deprecated no-op shim for legacy tab-title hooks (pre-`airis ui`).
-    ///
-    /// A Claude Code session started before the `airis ui` migration keeps a
-    /// snapshot of the old `airis claude tab-title <state>` hook wiring. If
-    /// this subcommand were removed, that hook would hard-fail — and a failing
-    /// `UserPromptSubmit` hook blocks the whole session. The shim drains stdin
-    /// and exits 0 so the legacy hook stays harmless until `airis ui install`
-    /// re-wires settings.json to the standalone script.
-    #[command(hide = true)]
-    TabTitle {
-        /// Legacy state argument(s) — accepted and ignored.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<String>,
-    },
-}
-
-/// `airis ui` — cosmetic Claude Code integrations (tab-title + statusline)
-#[derive(Subcommand)]
-pub enum UiCommands {
-    /// Install the tab-title hooks and statusline into ~/.claude/
-    Install,
-    /// Remove the airis UI integrations
-    Uninstall {
-        /// Delete the generated script files too (non-interactive)
-        #[arg(long)]
-        purge: bool,
-        /// Keep the generated script files (non-interactive)
-        #[arg(long, conflicts_with = "purge")]
-        keep: bool,
-    },
-    /// Show airis UI install status
-    Status,
 }
 
 #[derive(Subcommand)]
