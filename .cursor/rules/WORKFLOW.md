@@ -11,8 +11,8 @@
 ## Design Bias
 
 - **Convention over Configuration**: Prefer repository structure over redundant manifest declarations.
-- **Environment Focus**: Treat Airis as an environment orchestrator, not a task runner or package manager.
-- **Hygiene**: Never introduce host-side dependencies. Keep AI agents inside the container.
+- **Convention Focus**: Treat Airis as a convention-unification engine across repos (AI adapters, docs, tsconfig, scaffolding), not a task runner or package manager.
+- **Hygiene (containerized repos)**: Keep host-side dependencies out and run inside the container. This does not apply to repos where host execution is canonical (Edge/Workers, native desktop apps).
 
 ## Operational Notes
 

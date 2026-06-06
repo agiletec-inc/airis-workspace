@@ -321,7 +321,7 @@ fn render_agents_md(
     lines.push("".to_string());
     lines.push("Always:".to_string());
     lines.push("- Read the shared instructions before major edits.".to_string());
-    lines.push("- Treat `manifest.toml` as the machine-readable source of truth for Docker-first workflow, commands, and guards.".to_string());
+    lines.push("- Treat `manifest.toml` as the machine-readable source of truth for convention generation (AI adapters, docs, tsconfig, scaffolding) and, for containerized repos, Docker environment generation.".to_string());
     lines.push(
         "- Prefer minimal diffs and run the smallest relevant verification before finishing."
             .to_string(),
@@ -372,7 +372,7 @@ fn render_claude_md(
     lines.extend(sources.iter().map(|source| format!("- `{}`", source)));
     lines.push("".to_string());
     lines.push("Repository rules:".to_string());
-    lines.push("- `manifest.toml` remains the source of truth for Docker-first orchestration, command guards, and generated workspace config.".to_string());
+    lines.push("- `manifest.toml` is the thin source of truth for convention generation (AI adapters, docs, tsconfig, scaffolding) and, for containerized repos, Docker environment generation.".to_string());
     lines.push(
         "- Follow the shared docs for architecture, workflow, and review expectations.".to_string(),
     );
@@ -439,7 +439,7 @@ fn render_gemini_md(
 
     lines.push("".to_string());
     lines.push(
-        "`manifest.toml` remains the machine-readable source of truth for Docker-first workflow, commands, and guards.".to_string(),
+        "`manifest.toml` is the machine-readable source of truth for convention generation (AI adapters, docs, tsconfig, scaffolding) and, for containerized repos, Docker environment generation.".to_string(),
     );
     lines.join("\n")
 }
@@ -474,7 +474,7 @@ fn render_cursorrules(
 
     lines.push("".to_string());
     lines.push(
-        "`manifest.toml` stays authoritative for Docker-first workflow and guard configuration."
+        "`manifest.toml` stays authoritative for convention generation and, for containerized repos, Docker environment configuration."
             .to_string(),
     );
     lines.join("\n")
