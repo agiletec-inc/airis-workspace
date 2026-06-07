@@ -928,7 +928,7 @@ fn handle_workspace_status() -> Result<Value> {
 const WORKSPACE_RESOURCES: &[(&str, &str, &str)] = &[
     (
         "manifest.toml",
-        "Workspace manifest — Docker-first orchestration source of truth",
+        "Workspace manifest — thin source of truth for convention generation",
         "application/toml",
     ),
     (

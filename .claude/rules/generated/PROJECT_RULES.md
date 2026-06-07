@@ -2,7 +2,7 @@
 
 ## Architectural Boundaries
 
-Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygiene Enforcer**. It is not a build orchestrator (like Nx/Turborepo) or a package manager replacement. Its primary value is ensuring a host-hygienic Docker development environment through automated orchestration.
+Airis-workspace is a **polyglot monorepo convention-unification engine**. From a thin `manifest.toml` it keeps a heterogeneous set of repositories consistent: AI adapter files, shared docs, `tsconfig.json`, version scheme, and project scaffolding. It is not a build orchestrator (like Nx/Turborepo) or a package manager replacement. Docker development-environment generation (`compose.yaml`, volume hygiene) is **one module**, serving the subset of repositories that are containerized — not the whole tool.
 
 ## Design Principles
 
@@ -21,7 +21,7 @@ Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygien
 ## Non-Negotiables
 
 - For **runtime application** configuration (DB-backed settings, tenant boundaries, feature flags), follow `docs/ai/architecture-invariants.md` alongside this file—`manifest.toml` remains the SoT for workspace tooling, not for per-app DB config.
-- Preserve the Docker-first value proposition of airis. Changes must not weaken command guards or make host-side workflows the default path.
+- For containerized repositories, preserve the integrity of the Docker module (safe `compose.yaml` merge that never destroys user-authored services, volume hygiene). Do not weaken it — but do not impose Docker-first defaults on repositories that don't use it (e.g. Edge/Workers, native desktop apps).
 - Keep `airis gen` and the `workspace_init`/`manifest_apply` MCP tools safe by default. Avoid destructive overwrites unless the feature explicitly supports backups or opt-in replacement.
 - Prefer minimal, reviewable diffs. When changing generation or enforcement logic, document the intended invariant.
 

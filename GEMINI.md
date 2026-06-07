@@ -8,7 +8,7 @@ Primary project instructions. Read these first.
 
 ## Architectural Boundaries
 
-Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygiene Enforcer**. It is not a build orchestrator (like Nx/Turborepo) or a package manager replacement. Its primary value is ensuring a host-hygienic Docker development environment through automated orchestration.
+Airis-workspace is a **polyglot monorepo convention-unification engine**. From a thin `manifest.toml` it keeps a heterogeneous set of repositories consistent: AI adapter files, shared docs, `tsconfig.json`, version scheme, and project scaffolding. It is not a build orchestrator (like Nx/Turborepo) or a package manager replacement. Docker development-environment generation (`compose.yaml`, volume hygiene) is **one module**, serving the subset of repositories that are containerized — not the whole tool.
 
 ## Design Principles
 
@@ -27,7 +27,7 @@ Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygien
 ## Non-Negotiables
 
 - For **runtime application** configuration (DB-backed settings, tenant boundaries, feature flags), follow `docs/ai/architecture-invariants.md` alongside this file—`manifest.toml` remains the SoT for workspace tooling, not for per-app DB config.
-- Preserve the Docker-first value proposition of airis. Changes must not weaken command guards or make host-side workflows the default path.
+- For containerized repositories, preserve the integrity of the Docker module (safe `compose.yaml` merge that never destroys user-authored services, volume hygiene). Do not weaken it — but do not impose Docker-first defaults on repositories that don't use it (e.g. Edge/Workers, native desktop apps).
 - Keep `airis gen` and the `workspace_init`/`manifest_apply` MCP tools safe by default. Avoid destructive overwrites unless the feature explicitly supports backups or opt-in replacement.
 - Prefer minimal, reviewable diffs. When changing generation or enforcement logic, document the intended invariant.
 
@@ -53,8 +53,8 @@ Airis-workspace is an **Environment Source-of-Truth, Config Compiler, and Hygien
 ## Design Bias
 
 - **Convention over Configuration**: Prefer repository structure over redundant manifest declarations.
-- **Environment Focus**: Treat Airis as an environment orchestrator, not a task runner or package manager.
-- **Hygiene**: Never introduce host-side dependencies. Keep AI agents inside the container.
+- **Convention Focus**: Treat Airis as a convention-unification engine across repos (AI adapters, docs, tsconfig, scaffolding), not a task runner or package manager.
+- **Hygiene (containerized repos)**: Keep host-side dependencies out and run inside the container. This does not apply to repos where host execution is canonical (Edge/Workers, native desktop apps).
 
 ## Operational Notes
 
@@ -74,8 +74,8 @@ These are easy to discover the hard way. Read once, save a debugging session.
 
 ## Primary Checks
 
-- Does the change preserve or strengthen Docker-first enforcement?
-- Does it keep `manifest.toml` authoritative for workspace and guard behavior?
+- Does the change keep the convention-unification engine coherent — AI adapters, docs, `tsconfig.json`, and scaffolding consistent across repos?
+- Does it keep `manifest.toml` authoritative as the thin source of truth, and the Docker module safe for containerized repos?
 - Are generated files or adapters clearly marked and reproducible?
 - Are vendor-specific differences isolated instead of duplicated into shared docs?
 
@@ -94,7 +94,7 @@ These are easy to discover the hard way. Read once, save a debugging session.
 
 - This repository is a Rust CLI project.
 - The primary binary is `airis`.
-- `manifest.toml` drives workspace discovery, generation, orchestration, guards, and related automation.
+- `manifest.toml` is the thin source of truth that drives convention generation (AI adapters, docs, `tsconfig.json`, scaffolding) and, for containerized repos, Docker environment generation.
 
 ## Common Commands
 
@@ -169,4 +169,4 @@ Hook policy:
 Testing policy:
 - **Mock policy: forbidden** — Never mock external services (DB, APIs). Use real instances or local emulators.
 
-`manifest.toml` remains the machine-readable source of truth for Docker-first workflow, commands, and guards.
+`manifest.toml` is the machine-readable source of truth for convention generation (AI adapters, docs, tsconfig, scaffolding) and, for containerized repos, Docker environment generation.

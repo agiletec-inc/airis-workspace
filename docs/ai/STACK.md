@@ -4,7 +4,7 @@
 
 - This repository is a Rust CLI project.
 - The primary binary is `airis`.
-- `manifest.toml` drives workspace discovery, generation, orchestration, guards, and related automation.
+- `manifest.toml` is the thin source of truth that drives convention generation (AI adapters, docs, `tsconfig.json`, scaffolding) and, for containerized repos, Docker environment generation.
 
 ## Common Commands
 
