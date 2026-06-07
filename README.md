@@ -15,7 +15,7 @@ A few minutes later, your Mac has:
 
 AIRIS Workspace exists to stop that.
 
-It is a **Rust-powered Docker-first workspace guard** for the AI coding era.  
+It is a **Rust-powered workspace engine** for the AI coding era — Docker-first host hygiene for containerized repos, plus consistent conventions (AI rules, docs, tsconfig, scaffolding) across the monorepo.  
 Humans and AI agents can keep typing normal commands:
 
 ```bash

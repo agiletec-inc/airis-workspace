@@ -139,11 +139,18 @@ airis hooks uninstall      # removes the airis-workspace blocks (keeps other hoo
 
 The `post-commit` hook (which reinstalls the `airis` binary in the background) is installed separately by `airis hooks install`.
 
+## Module Boundary
+
+airis is a convention-unification engine; Docker is one module within it, not the whole tool.
+
+- **Convention core** (applies to every repo, polyglot): `gen`, `docs`, `claude`, `new`, `validate`, `doctor`, `bump-version`, `verify`. These keep AI adapters, docs, `tsconfig.json`, version scheme, and scaffolding consistent.
+- **Docker module** (only for containerized repos): `up` / `down` / `exec` / `ps` / `logs` / `restart` / `network` / `run`, plus `compose.yaml` + volume-hygiene generation inside `gen`. The `[docker]` manifest section is optional (`#[serde(default)]`), so non-containerized repos (Edge/Workers, native desktop) use airis without it.
+
 ## Important Paths
 
 - `src/manifest/` for manifest schema and validation
 - `src/commands/` for CLI behavior
-- `src/commands/hooks.rs` + `src/commands/generate/hooks_gen.rs` for git hook install/generation
+- `src/commands/generate/compose_gen.rs` for the Docker module's `compose.yaml` generation
 - `docs/ai/` for shared AI guidance (source of truth for adapter files)
 - `tests/cli_test.rs` for end-to-end CLI integration tests
 
