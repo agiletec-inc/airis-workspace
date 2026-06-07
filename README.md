@@ -269,16 +269,13 @@ airis logs [service]     # Tail Docker logs
 ### Build, Test & Release
 
 ```bash
-airis build [project]    # Build all or specific projects
-airis build --affected   # Build only what changed (uses src/dag.rs)
+airis run build          # Run the "build" task (defined in manifest or delegated to Docker)
 airis test [--level unit|integration|e2e|smoke]
 airis lint               # Run linting
 airis format             # Run code formatting
 airis typecheck          # Run type checking
-airis affected           # List packages affected by current changes
 airis deps               # Visualize the dependency graph
 airis diff               # Preview changes before applying gen
-airis bundle             # Generate a deployment bundle (image.tar + artifact.tar.gz + bundle.json)
 airis bump-version       # Bump the package version (pre-commit auto-runs `--auto`)
 airis upgrade            # Upgrade the airis binary
 ```

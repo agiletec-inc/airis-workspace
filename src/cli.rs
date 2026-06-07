@@ -117,9 +117,6 @@ pub enum Commands {
 
     /// Run tests
     Test {
-        /// Scan test files
-        #[arg(long)]
-        scan: bool,
         /// Test level: unit, integration, e2e, smoke
         #[arg(long, value_enum)]
         level: Option<TestLevel>,
@@ -132,54 +129,6 @@ pub enum Commands {
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
-    },
-
-    /// Build projects
-    Build {
-        /// Target project path
-        project: Option<String>,
-        /// Build only affected projects
-        #[arg(long)]
-        affected: bool,
-        /// Base branch/commit for --affected
-        #[arg(long, default_value = "origin/main")]
-        base: String,
-        /// Head branch/commit
-        #[arg(long, default_value = "HEAD")]
-        head: String,
-        /// Build Docker image
-        #[arg(long)]
-        docker: bool,
-        /// Runtime channel
-        #[arg(long)]
-        channel: Option<String>,
-        /// Build for multiple targets (comma-separated, e.g. node,edge,bun,deno)
-        #[arg(long, value_delimiter = ',')]
-        targets: Option<Vec<String>>,
-        /// Number of parallel workers
-        #[arg(long, short = 'j')]
-        parallel: Option<usize>,
-        /// Image name
-        #[arg(long)]
-        image: Option<String>,
-        /// Push image
-        #[arg(long)]
-        push: bool,
-        /// Output directory for build context
-        #[arg(long)]
-        context_out: Option<std::path::PathBuf>,
-        /// No cache
-        #[arg(long)]
-        no_cache: bool,
-        /// Remote cache URL (e.g. s3://bucket/key or oci://registry/repo)
-        #[arg(long)]
-        remote_cache: Option<String>,
-        /// Build production image
-        #[arg(long)]
-        prod: bool,
-        /// Quick build test
-        #[arg(long)]
-        quick: bool,
     },
 
     /// Clean build artifacts
@@ -202,18 +151,6 @@ pub enum Commands {
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
-    },
-
-    /// Generate deployment bundle (image.tar + artifact.tar.gz + bundle.json)
-    Bundle {
-        /// Target project path
-        project: String,
-        /// Output directory (defaults to .airis/bundles/<project>/)
-        #[arg(short, long)]
-        output: Option<std::path::PathBuf>,
-        /// Generate Kubernetes manifests
-        #[arg(long)]
-        k8s: bool,
     },
 
     /// Show current workspace and guard status
@@ -306,14 +243,6 @@ pub enum Commands {
         patch: bool,
         #[arg(long)]
         auto: bool,
-    },
-
-    /// Show affected packages
-    Affected {
-        #[arg(long, default_value = "origin/main")]
-        base: String,
-        #[arg(long, default_value = "HEAD")]
-        head: String,
     },
 
     /// Regenerate workspace files

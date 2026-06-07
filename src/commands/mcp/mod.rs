@@ -319,19 +319,6 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                     }
                 },
                 {
-                    "name": "workspace_build",
-                    "description": "Build one or all projects inside Docker (airis build [project]). Use --docker to build a Docker image.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "project": {
-                                "type": "string",
-                                "description": "Target project path (e.g. apps/api). Omit to build all."
-                            }
-                        }
-                    }
-                },
-                {
                     "name": "workspace_lint",
                     "description": "Run linting inside Docker (airis lint).",
                     "inputSchema": {
@@ -362,20 +349,6 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                                 "type": "boolean",
                                 "description": "Also remove legacy compose files and orphaned configs (requires manifest.toml)",
                                 "default": false
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "workspace_affected",
-                    "description": "List packages affected by changes relative to origin/main (airis affected). Use in CI to scope test/build runs.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "base": {
-                                "type": "string",
-                                "description": "Base ref to compare against (default: origin/main)",
-                                "default": "origin/main"
                             }
                         }
                     }
@@ -449,11 +422,9 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 "workspace_run" => handle_workspace_run(arguments)?,
                 "workspace_exec" => handle_workspace_exec(arguments)?,
                 "workspace_test" => handle_workspace_test(arguments)?,
-                "workspace_build" => handle_workspace_build(arguments)?,
                 "workspace_lint" => handle_workspace_lint()?,
                 "workspace_typecheck" => handle_workspace_typecheck()?,
                 "workspace_clean" => handle_workspace_clean(arguments)?,
-                "workspace_affected" => handle_workspace_affected(arguments)?,
                 "guards_install" => handle_guards_install(arguments)?,
                 "guards_status" => handle_guards_status(arguments)?,
                 "guards_uninstall" => handle_guards_uninstall(arguments)?,
@@ -818,14 +789,6 @@ fn handle_workspace_test(arguments: &Value) -> Result<Value> {
     run_airis_subprocess_dyn(args)
 }
 
-fn handle_workspace_build(arguments: &Value) -> Result<Value> {
-    let mut args = vec!["build".to_string()];
-    if let Some(project) = arguments["project"].as_str() {
-        args.push(project.to_string());
-    }
-    run_airis_subprocess_dyn(args)
-}
-
 fn handle_workspace_lint() -> Result<Value> {
     run_airis_subprocess(&["lint"])
 }
@@ -845,14 +808,6 @@ fn handle_workspace_clean(arguments: &Value) -> Result<Value> {
         args.push("--purge".to_string());
     }
     run_airis_subprocess_dyn(args)
-}
-
-fn handle_workspace_affected(arguments: &Value) -> Result<Value> {
-    let base = arguments["base"]
-        .as_str()
-        .unwrap_or("origin/main")
-        .to_string();
-    run_airis_subprocess_dyn(vec!["affected".to_string(), "--base".to_string(), base])
 }
 
 fn handle_guards_install(arguments: &Value) -> Result<Value> {

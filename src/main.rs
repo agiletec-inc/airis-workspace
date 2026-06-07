@@ -117,15 +117,12 @@ fn dispatch(command: Commands) -> Result<()> {
         Commands::Down { extra_args } => commands::run::run_down(&extra_args)?,
         Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
         Commands::Test {
-            scan,
             level,
             coverage_check,
             min_coverage,
             extra_args,
         } => {
-            if scan {
-                commands::test_scan::run()?;
-            } else if let Some(lvl) = level {
+            if let Some(lvl) = level {
                 let task = match lvl {
                     TestLevel::Unit => "test:unit",
                     TestLevel::Integration => "test:integration",
@@ -137,55 +134,6 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::run::run_test_coverage(min_coverage)?;
             } else {
                 commands::run::run("test", &extra_args)?;
-            }
-        }
-        Commands::Build {
-            project,
-            affected,
-            base,
-            head,
-            docker,
-            channel,
-            targets,
-            parallel,
-            image,
-            push,
-            context_out,
-            no_cache,
-            remote_cache,
-            prod,
-            quick,
-        } => {
-            let opts = commands::build::DockerBuildOpts {
-                channel,
-                targets,
-                parallel,
-                image,
-                push,
-                context_out,
-                no_cache,
-                remote_cache,
-            };
-
-            if affected && docker {
-                commands::build::build_affected_docker(&base, &head, &opts)?;
-            } else if docker {
-                let target = project.ok_or_else(|| {
-                    anyhow::anyhow!("--docker requires a project path (e.g., apps/web)")
-                })?;
-                commands::build::build_docker(&target, &opts)?;
-            } else if prod {
-                let app_name = project
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("--prod requires a project path"))?;
-                commands::run::run_build_prod(app_name)?;
-            } else if quick {
-                let app_name = project
-                    .as_deref()
-                    .ok_or_else(|| anyhow::anyhow!("--quick requires a project path"))?;
-                commands::run::run_build_quick(app_name)?;
-            } else {
-                commands::run::run("build", &[])?;
             }
         }
         Commands::Status { short } => {
@@ -201,13 +149,6 @@ fn dispatch(command: Commands) -> Result<()> {
             // dry_run is true by default, force overrides it
             let actual_dry_run = if force { false } else { dry_run };
             commands::clean::run(actual_dry_run, purge, allow_anywhere)?;
-        }
-        Commands::Bundle {
-            project,
-            output,
-            k8s,
-        } => {
-            commands::bundle::run(&project, output.as_deref(), k8s)?;
         }
         Commands::Lint { extra_args } => commands::run::run("lint", &extra_args)?,
         Commands::Format { extra_args } => commands::run::run("format", &extra_args)?,
@@ -256,9 +197,6 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::new_cmd::run_with_runtime("supabase-realtime", &name, "deno")?;
             }
         },
-        Commands::Affected { base, head } => {
-            commands::affected::run(&base, &head)?;
-        }
         Commands::Gen {
             dry_run,
             force,
