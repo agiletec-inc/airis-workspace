@@ -1,7 +1,4 @@
-pub mod affected;
-pub mod build;
 pub mod bump_version;
-pub mod bundle;
 pub mod claude_setup;
 pub mod clean;
 pub mod completion;
@@ -21,7 +18,6 @@ pub mod new_cmd;
 pub mod policy;
 pub mod run;
 pub mod status;
-pub mod test_scan;
 pub mod upgrade;
 pub mod validate_cmd;
 pub mod verify;

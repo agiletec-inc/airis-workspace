@@ -24,7 +24,7 @@ use hooks::ensure_pre_command;
 use services::{display_compose_urls, display_service_urls};
 
 // Re-export public API
-pub use build_ops::{run_build_prod, run_build_quick, run_test_coverage};
+pub use build_ops::run_test_coverage;
 pub use exec::run_exec;
 pub use monitoring::{run_logs, run_ps, run_restart};
 
