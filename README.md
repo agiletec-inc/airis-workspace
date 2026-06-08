@@ -12,53 +12,57 @@ A few minutes later, your Mac has:
 - Python packages installed on the host
 - build artifacts leaking through bind mounts
 - local state that CI will never have
+- three repos that each invented their own `tsconfig.json`, docs layout, and AI rules
 
 AIRIS Workspace exists to stop that.
 
-It is a **Rust-powered workspace engine** for the AI coding era — Docker-first host hygiene for containerized repos, plus consistent conventions (AI rules, docs, tsconfig, scaffolding) across the monorepo.  
-Humans and AI agents can keep typing normal commands:
-
-```bash
-pnpm install
-pnpm dev
-uv sync
-python scripts/foo.py
-cargo build
-```
-
-AIRIS routes them into the right Docker workspace.  
-No host pollution. No accidental package manager drift. No hidden local state.
-
-Just a clean workspace boundary.
+It is a **Rust-powered, polyglot convention-unification engine** for the AI coding era. From a thin `manifest.toml` it keeps a heterogeneous set of repositories consistent — AI rules, shared docs, `tsconfig.json`, version scheme, and scaffolding. For the subset of repos that are containerized, an **optional Docker module** generates the development environment (`compose.yaml`, volume hygiene) so host-side `node_modules` / `.venv` / build artifacts stay out of your working tree.
 
 ---
 
 ## The Core Idea
 
-**The host should be a control plane. The workspace belongs in Docker.**
+**airis is a convention-unification engine. Docker is one module within it, not the whole tool.**
 
-AIRIS detects your Docker Compose setup and intercepts development commands, routing them into containers instead of letting them pollute your host.
+- **Convention core** — applies to *every* repo, polyglot (Node / Python / Rust / edge / native):
+  `gen`, `docs`, `new`, `validate`, `doctor`, `bump-version`, `verify`. These keep AI adapters,
+  shared docs, `tsconfig.json`, the version scheme, and scaffolding consistent across repos.
+- **Docker module** — *only* for containerized repos: `up` / `down` / `exec` / `shell` / `run`,
+  plus `compose.yaml` + named-volume generation inside `gen`. The `[docker]` manifest section is
+  optional (`#[serde(default)]`), so non-containerized repos use airis without it.
 
-With guard shims enabled, you do not change how you code:
-- type `pnpm install` → AIRIS intercepts and runs it in the workspace container
-- type `python -V` → AIRIS intercepts and runs it in the workspace container
-- type `uv sync` → AIRIS intercepts and runs it in the workspace container
+### Pick the runtime that matches where the code ships
 
-Your host stays clean. Your AI agent moves fast. Your CI passes.
+airis does **not** force everything into Docker. Match the development runtime to the deploy runtime:
+
+| Workload | Where you develop |
+|---|---|
+| Cloudflare Workers / edge (incl. Next.js on OpenNext) | **host-native** (`pnpm dev`, `wrangler dev`, `pnpm cf-preview`) |
+| Native desktop (macOS / Swift / Tauri / Rust CLI) | **host** (`cargo`, `xcodebuild`, …) |
+| Long-running container workloads (k3s daemons, Playwright) | **Docker** (`airis up` / `airis exec`) |
+| Python / GPU (CUDA, ML, video) | **Docker** |
+| Tests (all workloads) | **Docker** (`airis test`, for CI parity) |
+
+For containerized repos, run your usual tools through the workspace so they never touch the host:
+
+```bash
+airis exec pnpm install      # → docker compose exec workspace pnpm install
+airis exec pnpm dev          # → docker compose exec workspace pnpm dev
+airis exec python main.py    # → docker compose exec workspace python main.py
+```
+
+For Workers / edge / native repos, run host-native — airis stays out of the runtime and just
+keeps conventions consistent.
 
 ## Why Rust?
 
 AIRIS is implemented in Rust because this layer has to be boring, fast, and reliable.  
-It sits between your shell, your AI agent, and your Docker workspace.  
-That means **it should not depend on the very runtimes it protects you from**.
+It sits between your shell, your AI agent, and your workspace.  
+That means **it should not depend on the very runtimes it manages**.
 
-AIRIS works even when your host has:
-- no Node.js installed
-- no pnpm, npm, or yarn
-- no Python
-- no Rust toolchain
-
-The host is only a thin control plane. The real development environment lives in Docker.
+The convention core works even when your host has no Node.js, no pnpm, no Python, and no Rust
+toolchain — and the Docker module keeps the heavy dependencies inside containers for the repos
+that use it.
 
 ---
 
@@ -69,7 +73,8 @@ AIRIS works with plain Docker Compose projects.
 If your repository already has a `compose.yml`, AIRIS can use it as the workspace boundary.  
 **No manifest required. No migration required. No monorepo rewrite required.**
 
-Start with guards. Grow into manifest-driven orchestration later.
+Start by routing commands through `airis exec` / `airis run`. Grow into manifest-driven
+orchestration later.
 
 ### Install AIRIS
 
@@ -90,75 +95,60 @@ cargo binstall airis-workspace
 cargo install airis-workspace
 ```
 
-### Enable Guard Shims (Recommended — Project-Local)
-
-```bash
-# Run inside a project that has a compose.yml
-airis guards install
-```
-
-This generates project-local shims under `.airis/bin/` and adds an `init-shell` snippet so guarded commands (`pnpm`, `npm`, `python`, `uv`, `cargo`, …) route into the workspace container when you are inside the project.
-
-> **Note:** `airis guards install --global` (shims under `~/.airis/bin`) still exists, but **global shims are no longer recommended** — they leak across unrelated projects. Prefer project-local guards.
-
-Guard shims work by:
-1. Detecting if you are in an AIRIS workspace (`manifest.toml` or `.airis/` directory)
-2. Automatically delegating to `airis exec <cmd>` to route through Docker
-3. Falling back to the host command if no workspace is detected (preserving coexistence with host development)
-
 ### Use Your Repo as Normal
 
-Go to any project with a `compose.yml` and run your usual commands:
+Go to any project with a `compose.yml` and route your usual commands through airis:
 
 ```bash
-pnpm install      # intercepted → docker compose exec workspace pnpm install
-pnpm dev          # intercepted → docker compose exec workspace pnpm dev
-python main.py    # intercepted → docker compose exec workspace python main.py
+airis exec pnpm install   # runs inside the workspace container
+airis exec pnpm dev       # runs inside the workspace container
+airis run <task>          # runs a task defined in manifest.toml [commands]
 ```
 
-If the workspace container is not running, AIRIS automatically starts it via `airis up`.
+If the workspace container is not running, `airis exec` automatically starts it via `airis up`.
+
+> Earlier versions shipped a **guard-shim** subsystem that transparently intercepted bare
+> `pnpm` / `python` / `cargo` calls on the host. That subsystem has been removed: routing is now
+> explicit (`airis exec` / `airis run`), which is simpler and avoids surprising host commands.
 
 ---
 
 ## How It Works: Command Routing
 
-### Guard Shims → `airis exec` → Service Resolution
+### `airis exec` / `airis run` → Service Resolution
 
-When a guard shim intercepts a command (e.g., `pnpm install`):
+When you run `airis exec pnpm install` (or `airis run <task>` that delegates to Docker):
 
-1. **Guard shim** (`~/.airis/bin/pnpm`) detects the AIRIS context
-2. **Delegates to** `airis exec pnpm install`
-3. **Service resolution** classifies the command by runtime family:
-   - `node`, `npm`, `pnpm`, `yarn`, `bun`, `npm`, `tsc`, `tsx`, `next`, `vite` → Node family → `workspace` service
+1. **Service resolution** classifies the command by runtime family:
+   - `node`, `npm`, `pnpm`, `yarn`, `bun`, `tsc`, `tsx`, `next`, `vite` → Node family → `workspace` service
    - `python`, `python3`, `pip`, `uv`, `poetry`, `ruff`, `mypy`, `pytest` → Python family → `workspace` service
    - `cargo`, `rustc`, `rustup`, `clippy-driver`, `rustfmt` → Rust family → `workspace` service
-4. **Executes** `docker compose exec workspace <command>`
-5. **Auto-up** (optional): If the service is not running, `airis exec` automatically runs `airis up` first
+2. **Executes** `docker compose exec <service> <command>`
+3. **Auto-up**: if the resolved service is not running, `airis exec` runs `airis up` first
 
-### Bypass Mechanisms
+### Command remapping (`[remap]`)
 
-Guard shims respect several bypass methods:
-
-- **Environment variables**: `AIRIS_SKIP_GUARD=1`, `AIRIS_HOST=1`, or `AIRIS_BYPASS=1` run the host command
-- **Arguments**: `pnpm bypass install` or `pnpm host install` also run on the host
-- **Docker/CI detection**: Inside containers or CI environments, commands run on the host automatically
-- **No workspace**: Outside an AIRIS project, commands run on the host normally
+A repo's `manifest.toml` may declare a `[remap]` table that rewrites convenience commands when
+they go through `airis run` — for example aliasing `docker compose up` → `airis up`. Remap is
+opt-in per repo and deliberately does **not** ship default `pnpm dev` / `pnpm install` → `airis up`
+entries, since install/dev runtime is workload-dependent.
 
 ---
 
 ## What AIRIS Is (and Is Not)
 
 AIRIS is **not** a replacement for Docker Compose, Nx, Turborepo, pnpm, uv, or cargo.  
-It is the missing local guard layer around them.
+It is the convention layer around them, plus an optional Docker workspace module.
 
 - **Docker Compose** defines services
 - **pnpm / uv / cargo** manage dependencies
 - **Nx / Turborepo** orchestrate builds
-- **AIRIS** keeps execution inside the workspace boundary
+- **AIRIS** keeps conventions consistent across repos and, for containerized repos, keeps
+  execution inside the workspace boundary
 
-AIRIS is also not a one-size-fits-all project management tool.  
-It assumes you already have Docker. It assumes you already manage dependencies.  
-It just ensures those tools run in the right place.
+AIRIS is also not a one-size-fits-all project management tool. It assumes you already manage
+dependencies and builds; it just keeps the cross-repo conventions coherent and the container
+runtime tidy.
 
 ---
 
@@ -168,18 +158,17 @@ When you need more structure, a `manifest.toml` becomes the source of truth for:
 
 - **Apps and libs**: Convention-first discovery (`apps/*`, `libs/*`)
 - **Runtimes**: Node.js, Python, Rust — per project
-- **Docker workspace generation**: Automated `compose.yaml` from declarations
+- **Docker workspace generation**: Automated `compose.yaml` from declarations (containerized repos)
 - **Named volumes**: Keep `node_modules`, `target/`, `.venv` inside containers
-- **Command policies**: Define `airis run <task>` shortcuts
-- **Guard policies**: Forbid or remap commands per workspace
-- **AI agent rules**: Claude-specific guidance and safety policies
+- **Command policies**: Define `airis run <task>` shortcuts and `[remap]` aliases
+- **AI agent rules**: Shared guidance synced into `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`
 - **Generated config**: Synced `package.json`, `tsconfig.json`, Justfile
 
 Start simple. Add manifest later.
 
 ```bash
 airis gen              # Generate compose.yaml and other configs from manifest.toml
-airis up               # Start the Docker workspace
+airis up               # Start the Docker workspace (containerized repos)
 airis shell            # Enter the workspace container
 airis run <task>       # Run custom tasks (defined in manifest.toml [commands])
 ```
@@ -206,8 +195,7 @@ This:
 Inside Claude Code:
 - AIRIS provides MCP tools for workspace initialization (`/airis:init`)
 - Claude can safely inspect and modify `manifest.toml`
-- Agent-executed commands stay inside Docker containers
-- Guard policies are enforced automatically
+- For containerized repos, agent-executed commands stay inside Docker containers
 
 ### Status & Cleanup
 
@@ -230,18 +218,6 @@ airis down                # Stop all services (alias for airis run down)
 airis shell               # Enter the workspace container interactive shell
 ```
 
-### Guards
-
-```bash
-airis guards install             # Install project-local shims (.airis/bin) — recommended
-airis guards install --global    # Install global shims (~/.airis/bin) — not recommended
-airis guards status              # Show installed guards and their status
-airis guards uninstall           # Remove project-local guards
-airis guards verify              # Verify guard functionality
-airis guards check-docker        # Check if running inside Docker
-airis guards check-allow         # Show allow/deny policy for the current workspace
-```
-
 ### Claude & AI Integration
 
 ```bash
@@ -261,7 +237,7 @@ airis verify             # Run system health checks
 airis doctor             # Diagnose workspace issues
 airis doctor --fix       # Auto-repair issues
 airis doctor --truth     # Print the resolved startup truth (where each setting came from)
-airis status             # Show current workspace and guard status
+airis status             # Show current workspace status
 airis ps                 # Show Docker container status
 airis logs [service]     # Tail Docker logs
 ```
@@ -289,7 +265,7 @@ airis hooks install        # Install native git hooks (.git/hooks/{pre-commit,pr
 airis hooks uninstall      # Remove the airis-workspace blocks from .git/hooks/
 airis docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
 airis docs list            # List managed adapter files
-airis init-shell           # Print the shell-integration snippet (prompt + project-local guards)
+airis init-shell           # Print the shell-integration snippet (prompt)
 airis completion <shell>   # Generate shell completion scripts
 ```
 
@@ -298,7 +274,6 @@ airis completion <shell>   # Generate shell completion scripts
 ```bash
 airis shell                  # Open an interactive shell in the workspace container
 airis exec <cmd>             # Run any command in the resolved service (auto-up if down)
-airis host <cmd>             # Bypass guards; run on the host (sets AIRIS_BYPASS=1)
 airis run <task>             # Run a task defined in manifest.toml [commands]
 airis restart [service]      # Restart Docker services
 airis network <subcommand>   # Manage Docker networks

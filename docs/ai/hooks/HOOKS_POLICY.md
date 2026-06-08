@@ -4,7 +4,7 @@ This file defines portable hook intent shared across AI vendors.
 
 ## Shared Intent
 
-- enforce Docker-first command safety
+- respect workload runtime boundaries (Docker workloads run in-container; Workers/edge/native run host-native — see `~/.claude/rules/runtime-workflow.md`)
 - prevent obviously dangerous commands
 - keep hook behavior explainable and auditable
 - allow vendor-specific hook implementations when event models differ
@@ -15,13 +15,11 @@ This file defines portable hook intent shared across AI vendors.
 |-------|-------|------|
 | Spec / rules | airis-workspace (CLI) | CLAUDE.md, rules/*.md → ~/.claude/ |
 | Runtime hooks | airis-mcp-gateway (plugin) | hooks.json, *.sh (PreToolUse, Stop) |
-| PATH guards | airis-workspace (CLI) | ~/.airis/bin/ command wrappers |
 | Skills / commands | airis-mcp-gateway (plugin) | skills/, commands/ |
 
 When debugging:
 - Rule content wrong → check `~/.airis/claude/` source files (CLI domain)
 - Hook not firing → check plugin's `hooks/` directory (plugin domain)
-- Command blocked on host → check `~/.airis/bin/` guards (CLI domain)
 
 ## Boundaries
 

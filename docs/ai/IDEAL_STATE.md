@@ -98,7 +98,7 @@ IDE 拡張 (VSCode ESLint/Prettier/TypeScript LSP、Cursor AI 補完) と git ho
 **Phase 2 (理想解)**: **devcontainer.json (or Cursor の Remote Container 機能) で IDE 自体をコンテナ内で動かす**。これにより IDE 拡張・git hook が workspace コンテナ内で完結し、host node が完全に不要になる。当初 §13 Out of scope としていたが、§1 の理想形を完全達成するには **Phase 2 で取り組む必須項目** に格上げする
 
 **現状ズレ:**
-- Claude Code の global rules (`~/.claude/CLAUDE.md`, `~/.claude/rules/docker-first.md`) は「host で実行するな」と文章で書いているが、host に実行可能な binary が残っている限り Claude が叩いてしまう余地が残る
+- Claude Code の global rules (`~/.claude/CLAUDE.md`, `~/.claude/rules/runtime-workflow.md`) はワークロード別に「Docker ワークロードは host で実行するな」と文章で書いているが、host に実行可能な binary が残っている限り Claude が叩いてしまう余地が残る (※ guard/shim による強制 intercept は撤去済み)
 - `airis exec <cmd>` でなく素の `pnpm <cmd>` を提案してくる癖が Claude / 人間双方にある
 - VSCode/Cursor 設定が host node 依存の状態 (Phase 2 で devcontainer.json 化が必要)
 
