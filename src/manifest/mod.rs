@@ -427,13 +427,11 @@ impl Manifest {
             },
             app: vec![],
         };
-        // Remap common commands to airis
+        // Alias bare `docker compose up/down` to airis lifecycle commands.
+        // Do NOT remap `pnpm install` / `pnpm dev` here: install/dev runtime is
+        // workload-dependent (Workers/edge/native run host-native), so forcing
+        // them into `airis up` bakes in the retracted Docker-first default.
         let mut remap = IndexMap::new();
-        remap.insert("npm install".to_string(), "airis up".to_string());
-        remap.insert("pnpm install".to_string(), "airis up".to_string());
-        remap.insert("yarn install".to_string(), "airis up".to_string());
-        remap.insert("npm run dev".to_string(), "airis up".to_string());
-        remap.insert("pnpm dev".to_string(), "airis up".to_string());
         remap.insert("docker compose up".to_string(), "airis up".to_string());
         remap.insert("docker compose down".to_string(), "airis down".to_string());
 
