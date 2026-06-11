@@ -36,19 +36,6 @@ airis docs list           # show which adapter files are managed
 
 Never hand-edit the `<!-- BEGIN GENERATED airis gen -->` block in the adapter files — `airis docs sync` rewrites it.
 
-## Git Hooks
-
-Hooks are generated into `.airis/hooks/` by `airis gen` and wired into `.git/hooks/` by:
-
-```bash
-airis hooks install        # writes shims to .git/hooks/{pre-commit,pre-push}
-airis hooks uninstall      # removes the airis-workspace blocks (keeps other hooks)
-```
-
-`.git/hooks/` is not checked in, so a fresh clone needs `airis hooks install` once. The shims delegate to `.airis/hooks/pre-commit` / `.airis/hooks/pre-push` so updates flow through `airis gen` without re-installing.
-
-The `post-commit` hook (which reinstalls the `airis` binary in the background) is installed separately by `airis hooks install`.
-
 ## Module Boundary
 
 airis is a convention-unification engine; Docker is one module within it, not the whole tool.
