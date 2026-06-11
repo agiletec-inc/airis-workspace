@@ -109,17 +109,18 @@ Run with `airis run <command>` (or the built-in aliases `airis up` / `airis down
 
 ## Version Catalog
 
-```toml
-[packages.catalog]
-next = "latest"
-react = "latest"
-typescript = "latest"
+Shared dependency versions use the [pnpm catalog](https://pnpm.io/catalogs) in
+`pnpm-workspace.yaml` (user-owned):
 
-[packages.catalog.react-dom]
-follow = "react"
+```yaml
+catalog:
+  next: 15.3.0
+  react: 19.1.1
+  typescript: 5.8.2
 ```
 
-Centralize dependency versions across all apps. Versions are resolved from the npm registry and written to `pnpm-workspace.yaml`.
+Individual `package.json` files reference versions as `"catalog:"`. airis reads the
+resolved catalog during generation (e.g. for `tsconfig.json`).
 
 ---
 

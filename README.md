@@ -303,6 +303,12 @@ This design ensures that stopping a workspace does not automatically restart it 
 - **[Deployment & Release](docs/DEPLOYMENT.md)** — How to release and distribute AIRIS
 - **[Architecture & Design](docs/ai/architecture-invariants.md)** — Deep dive into AIRIS design decisions
 
+## 💖 Support
+
+[agiletec](https://github.com/agiletec-inc) is a one-person studio building these tools full-time and open source. If they earn a spot in your workflow, a sponsorship keeps them maintained and independent.
+
+[![Sponsor agiletec](https://img.shields.io/badge/Sponsor-agiletec-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/agiletec-inc)
+
 ---
 
 License: MIT

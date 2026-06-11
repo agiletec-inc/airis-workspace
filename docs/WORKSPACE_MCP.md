@@ -50,10 +50,10 @@ contaminate the stdio protocol on the MCP server's own stdout.
 
 | Concern | Owner |
 |--------|-------|
-| `manifest.toml` → deterministic files (package.json, pnpm-workspace.yaml, CI, compose.yaml) | Rust CLI (`airis gen`) |
+| `manifest.toml` → deterministic files (compose.yaml, tsconfig.json, AI adapters) | Rust CLI (`airis gen`) |
 | Discovery of legacy repo layout + proposing a fresh `manifest.toml` | MCP tool `workspace_init` (invoked by LLM) |
 | Format-preserving edits to `manifest.toml` (catalog merges, comment retention) | LLM text-editing; there is no TOML re-serializer in the CLI path |
-| Command-guard enforcement, hook wiring | Rust CLI (`airis guards`, `airis claude setup`) |
+| Claude Code integration setup | Rust CLI (`airis claude setup`) |
 | Cross-server routing, confidence checks, repo-index, suggest | `airis-mcp-gateway` (separate repository; already integrates these) |
 
 The `airis-mcp-gateway` handles "thinking-layer" meta-tools (`airis-confidence`,

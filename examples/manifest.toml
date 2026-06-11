@@ -1,9 +1,8 @@
-# manifest.toml - Docker-First Monorepo Configuration
-# Single source of truth for workspace management
-# Generated files: package.json, pnpm-workspace.yaml, docker-compose.yml
+# manifest.toml - Workspace Configuration Example
+# Thin source of truth for convention generation and (optionally) the Docker module
+# Generated files: compose.yaml, tsconfig.json, AI adapter files
 
 version = 1
-mode = "docker-first"
 app = []
 
 # =============================================================================
@@ -58,18 +57,9 @@ dirs = [
 recursive = ["node_modules"]
 
 # =============================================================================
-# Dependency Catalog (version policies)
-# Use "latest" | "lts" | "^X.Y.Z" format
+# Shared dependency versions live in pnpm-workspace.yaml (user-owned pnpm catalog).
+# package.json files reference them as "catalog:".
 # =============================================================================
-[catalog]
-"next" = "latest"
-"react" = "latest"
-"react-dom" = "latest"
-"tailwindcss" = "latest"
-"typescript" = "latest"
-"@types/node" = "latest"
-"tsup" = "latest"
-"vitest" = "latest"
 
 # =============================================================================
 # Workspaces (legacy, use [packages.workspaces] instead)
@@ -155,29 +145,6 @@ workspaces = [
 ]
 app = []
 
-# Shared dependency versions (pnpm catalog)
-[packages.catalog]
-next = "latest"
-react = "latest"
-react-dom = "latest"
-typescript = "latest"
-"@types/node" = "latest"
-"@types/react" = "latest"
-"@types/react-dom" = "latest"
-tailwindcss = "latest"
-"@tailwindcss/postcss" = "latest"
-postcss = "latest"
-autoprefixer = "latest"
-clsx = "latest"
-tailwind-merge = "latest"
-lucide-react = "latest"
-zod = "latest"
-tsup = "latest"
-tsx = "latest"
-vitest = "latest"
-"@vitest/coverage-v8" = "latest"
-eslint = "latest"
-
 [packages.root.dependencies]
 
 [packages.root.devDependencies]
@@ -232,25 +199,6 @@ react = "19"
 react-dom = "19"
 
 # =============================================================================
-# Guards (Docker-First enforcement)
-# =============================================================================
-[guards]
-deny = [
-    "npm",
-    "yarn",
-    "npx",
-]
-forbid = []
-danger = []
-
-[guards.wrap]
-pnpm = "docker compose exec workspace pnpm"
-
-[guards.deny_with_message]
-"docker run" = "Use 'airis up' instead. Direct docker run is not allowed."
-docker-compose = "Use 'docker compose' (with space) or 'airis up' instead."
-
-# =============================================================================
 # Orchestration (Docker networking)
 # =============================================================================
 [orchestration]
@@ -276,7 +224,7 @@ typecheck = "docker compose exec workspace pnpm typecheck"
 # Remap (LLM command translation)
 # =============================================================================
 [remap]
-# "npm install" = "airis install"
+# "docker compose up" = "airis up"
 
 # =============================================================================
 # Versioning

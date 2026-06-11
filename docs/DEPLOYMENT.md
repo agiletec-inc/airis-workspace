@@ -1,170 +1,90 @@
 # Deployment Guide
 
-## 自動デプロイの設定方法
+リリースは **git tag 駆動の [cargo-dist](https://opensource.axo.dev/cargo-dist/)** で行う。
+`.github/workflows/release.yml` は cargo-dist が自動生成したものなので手編集しない
+(変更は `dist-workspace.toml` を編集して `dist generate` で再生成する)。
 
-### 前提条件
+## リリースフロー
 
-- GitHub リポジトリ: `agiletec-inc/airis-workspace`
-- Homebrew Tap リポジトリ: `agiletec-inc/homebrew-tap`
-- GitHub Personal Access Token（`repo` スコープ付き）
+```
+バージョン更新 (Cargo.toml / VERSION)
+  ↓
+PR → main にマージ
+  ↓
+git tag vX.Y.Z を push
+  ↓
+GitHub Actions (release.yml) が起動
+  1. dist plan — タグとパッケージバージョンの一致を検証
+  2. 各プラットフォームのバイナリ・アーカイブ・インストーラをビルド
+  3. SHA256 などのハッシュを生成
+  4. GitHub Release を作成しアーティファクトを添付
+  5. Homebrew formula を agiletec-inc/homebrew-tap に push
+  ↓
+完了
+```
 
-### 1. GitHub Personal Access Token の作成
-
-1. GitHub にログイン
-2. Settings → Developer settings → Personal access tokens → Tokens (classic)
-3. "Generate new token (classic)" をクリック
-4. Note: `HOMEBREW_TAP_TOKEN` (識別用の名前)
-5. Expiration: 推奨は "No expiration"（長期運用の場合）
-6. Select scopes: **`repo`** にチェック（フルアクセス）
-7. "Generate token" をクリック
-8. **トークンをコピー**（この画面を閉じると二度と表示されない）
-
-### 2. GitHub Secrets に追加
-
-1. `agiletec-inc/airis-workspace` リポジトリにアクセス
-2. Settings → Secrets and variables → Actions
-3. "New repository secret" をクリック
-4. Name: `HOMEBREW_TAP_TOKEN`
-5. Secret: コピーしたトークンを貼り付け
-6. "Add secret" をクリック
-
-### 3. デプロイの動作確認
-
-#### 自動デプロイ（推奨）
-
-Conventional Commits でコミットすると自動的にバージョンが更新されます：
+## 手順
 
 ```bash
-# 機能追加 → minor bump
-git commit -m "feat: add new feature"
+# 1. バージョンを上げる(PR 経由で main へ)
+airis bump-version --minor    # Cargo.toml / Cargo.lock を更新
 
-# バグ修正 → patch bump
-git commit -m "fix: fix critical bug"
-
-# 破壊的変更 → major bump
-git commit -m "feat!: BREAKING CHANGE: new API"
-
-# main にプッシュ
-git push origin main
-
-# → 自動的に:
-#   1. pre-commit hook がバージョンを自動更新
-#   2. GitHub Actions が起動
-#   3. リリースバイナリをビルド
-#   4. GitHub Release を作成
-#   5. Homebrew formula を更新
+# 2. main にマージ後、タグを push
+git checkout main && git pull --ff-only
+git tag v1.57.0
+git push origin v1.57.0
 ```
 
-#### 手動トリガー
+タグとパッケージバージョンが一致しない場合、`dist plan` の段階でワークフローが fail する。
 
-GitHub の Actions タブから手動で実行できます：
+## Homebrew への公開
 
-1. `agiletec-inc/airis-workspace` の Actions タブにアクセス
-2. "Release to Homebrew" ワークフローを選択
-3. "Run workflow" → "Run workflow" をクリック
+cargo-dist の publish ジョブが `agiletec-inc/homebrew-tap` に formula を push する。
+認証は GitHub App トークン(bot identity はトークン出力から導出)で行う —
+リポジトリの Actions secrets を参照。
 
-### 4. デプロイの流れ
-
-```
-コミット & プッシュ
-  ↓
-GitHub Actions 起動
-  ↓
-1. バージョン抽出（Cargo.toml から）
-  ↓
-2. タグ重複チェック（既存の場合はスキップ）
-  ↓
-3. アーキテクチャ検出（arm64 or x86_64）
-  ↓
-4. リリースバイナリビルド
-  ↓
-5. SHA256 計算
-  ↓
-6. GitHub Release 作成
-  ↓
-7. homebrew-tap の Formula 更新
-  ↓
-8. Formula をコミット & プッシュ
-  ↓
-完了！
-```
-
-### 5. ユーザーのインストール方法
-
-リリース後、ユーザーは以下のコマンドでインストールできます：
+## ユーザーのインストール方法
 
 ```bash
-# 初回インストール
-brew tap agiletec-inc/tap
-brew install airis
+# Homebrew
+brew install agiletec-inc/tap/airis-workspace
 
-# 更新
-brew upgrade airis
+# シェルインストーラ
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/agiletec-inc/airis-workspace/releases/latest/download/airis-workspace-installer.sh | sh
+
+# cargo
+cargo binstall airis-workspace   # プリビルトバイナリ
+cargo install airis-workspace    # ソースからビルド
 
 # バージョン確認
 airis --version
 ```
 
-### 6. トラブルシューティング
+## crates.io への公開
 
-#### ワークフローが失敗する場合
+`publish-crates.yml` が同じ `vX.Y.Z` タグ push を契機に crates.io へ publish する。
 
-**エラー: "HOMEBREW_TAP_TOKEN not found"**
-- GitHub Secrets に `HOMEBREW_TAP_TOKEN` が設定されているか確認
-- トークンの有効期限が切れていないか確認
+## トラブルシューティング
 
-**エラー: "Push failed"**
-- Personal Access Token の `repo` スコープが有効か確認
-- homebrew-tap リポジトリへのアクセス権限があるか確認
+**タグ push 後にワークフローが fail する**
+- `Cargo.toml` の `version` とタグ (`vX.Y.Z`) が一致しているか確認
+- Actions タブで `plan` ジョブのログを確認
 
-**エラー: "Tag already exists"**
-- 同じバージョンのタグが既に存在する場合は自動的にスキップされます
-- バージョンを上げてから再度コミット
+**Homebrew formula の push が fail する**
+- GitHub App トークンの secrets 設定と homebrew-tap への権限を確認
 
-#### ローカルでのビルド確認
+## ローカルでのビルド確認
 
 ```bash
-# リリースビルド
 cargo build --release
-
-# バイナリサイズ確認
 ls -lh target/release/airis
-
-# tar.gz 作成テスト
-tar -czf airis-test.tar.gz -C target/release airis
-
-# SHA256 確認
-shasum -a 256 airis-test.tar.gz
 ```
-
-### 7. ローカル開発での自動インストール
-
-開発中は以下のコマンドで自動的に `~/.cargo/bin` にインストールできます：
-
-```bash
-# ビルド + インストール
-cargo build-install
-
-# ファイル監視 + 自動インストール
-cargo watch-install
-```
-
-### 8. ワークフローのカスタマイズ
-
-`.github/workflows/release.yml` を編集することで、デプロイの挙動を変更できます：
-
-- **トリガー条件の変更**: `on.push.paths` セクション
-- **対象ブランチの変更**: `on.push.branches` セクション
-- **ビルドオプションの追加**: `cargo build --release` コマンド
-- **Formula の内容変更**: `cat > Formula/airis.rb` セクション
 
 ---
 
 ## 参考リンク
 
+- [cargo-dist](https://opensource.axo.dev/cargo-dist/)
 - [GitHub Actions ドキュメント](https://docs.github.com/en/actions)
 - [Homebrew Formula Cookbook](https://docs.brew.sh/Formula-Cookbook)
-- [Conventional Commits](https://www.conventionalcommits.org/)
-# Test
-
-
