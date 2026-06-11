@@ -1,6 +1,6 @@
 # Contributing to AIris
 
-Thank you for your interest in contributing to AIris, a Docker-first monorepo workspace manager built in Rust.
+Thank you for your interest in contributing to AIris, a polyglot convention-unification engine built in Rust (with an optional Docker workspace module).
 
 Repository: https://github.com/agiletec-inc/airis-workspace
 
@@ -54,11 +54,11 @@ cargo install --path .
 ## Architecture Overview
 
 - `src/main.rs` -- CLI entry point using `clap` derive macros.
-- `src/manifest.rs` -- manifest.toml schema and helpers.
+- `src/manifest/` -- manifest.toml schema and validation.
 - `src/templates/mod.rs` -- Handlebars template engine for file generation.
-- `src/commands/` -- Command implementations (init, generate, run, doctor, etc.).
+- `src/commands/` -- Command implementations (generate, run, doctor, docs, etc.).
 
-Key pattern: `manifest.toml` is the single source of truth. All workspace files (`package.json`, `pnpm-workspace.yaml`, `docker-compose.yml`, `Cargo.toml`) are generated from it and should never be edited manually.
+Key pattern: `manifest.toml` is the thin source of truth. Generated files (`compose.yaml`, `tsconfig.json`, the AI adapter files) carry `DO NOT EDIT` markers and should never be edited manually; per-project `package.json` dependencies and scripts are user-owned.
 
 ## Testing
 

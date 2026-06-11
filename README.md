@@ -252,7 +252,7 @@ airis format             # Run code formatting
 airis typecheck          # Run type checking
 airis deps               # Visualize the dependency graph
 airis diff               # Preview changes before applying gen
-airis bump-version       # Bump the package version (pre-commit auto-runs `--auto`)
+airis bump-version       # Bump the package version
 airis upgrade            # Upgrade the airis binary
 ```
 
@@ -260,9 +260,7 @@ airis upgrade            # Upgrade the airis binary
 
 ```bash
 airis new <kind> <name>    # Create a new app, service, or library
-airis workspace uninstall  # Remove AIRIS hooks and generated files from a repo
-airis hooks install        # Install native git hooks (.git/hooks/{pre-commit,pre-push,post-commit})
-airis hooks uninstall      # Remove the airis-workspace blocks from .git/hooks/
+airis workspace uninstall  # Remove AIRIS-generated files from a repo
 airis docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
 airis docs list            # List managed adapter files
 airis init-shell           # Print the shell-integration snippet (prompt)
@@ -304,6 +302,12 @@ This design ensures that stopping a workspace does not automatically restart it 
 - **[Workflow Guide](docs/ai/WORKFLOW.md)** — Step-by-step guides for common tasks
 - **[Deployment & Release](docs/DEPLOYMENT.md)** — How to release and distribute AIRIS
 - **[Architecture & Design](docs/ai/architecture-invariants.md)** — Deep dive into AIRIS design decisions
+
+## 💖 Support
+
+[agiletec](https://github.com/agiletec-inc) is a one-person studio building these tools full-time and open source. If they earn a spot in your workflow, a sponsorship keeps them maintained and independent.
+
+[![Sponsor agiletec](https://img.shields.io/badge/Sponsor-agiletec-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/agiletec-inc)
 
 ---
 

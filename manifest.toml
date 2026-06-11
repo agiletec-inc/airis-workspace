@@ -1,10 +1,9 @@
 version = 1
-mode = "docker-first"
 
 [project]
 id = "airis-workspace"
 binary_name = "airis"
-description = "Docker-first monorepo workspace manager for rapid prototyping"
+description = "Polyglot convention-unification engine for the AI coding era"
 rust_edition = "2024"
 
 [workspace]
@@ -35,10 +34,6 @@ verify = "airis verify"
 
 [rule.verify]
 commands = ["cargo check"]
-
-[guards]
-deny = []
-# wrap = { pnpm = "docker compose exec workspace pnpm" }
 
 [versioning]
 strategy = "conventional-commits"

@@ -1,433 +1,664 @@
-# Airis Manifest Specification
+# manifest.toml Configuration Reference
 
-**Version**: 1.2.0
-**Format**: TOML
-**File**: `manifest.toml` (Optional)
+Complete reference for the `manifest.toml` file used by the airis CLI — a polyglot
+convention-unification engine with an optional Docker workspace module.
 
-## Overview
+`manifest.toml` is the **thin source of truth** for workspace tooling. airis uses
+**Convention over Configuration**: projects are discovered from repository structure
+(`apps/*`, `libs/*`), and the manifest declares intent and exceptions, not everything.
 
-Airis is an environment source-of-truth and transparent command proxy. While it supports a declarative `manifest.toml` for complex monorepos, it also functions as a **transparent proxy** for any project containing a Docker Compose file.
-
-**Design Philosophy**:
-- **Smart Shims (Transparent Proxy)**: Commands like `pnpm` or `python` are automatically redirected to Docker if a Compose file is detected.
-- **Optional Manifest**: `manifest.toml` is only needed for monorepo orchestration and policy enforcement.
-- **Convention-First**: Detects environment intent from existing files (`compose.yml`, `package.json`, etc.).
-- **Docker-First**: Enforce Docker-based development workflow without changing your muscle memory.
-
----
-
-## Smart Proxy Behavior
-
-When `airis guards install --global` is run, airis installs "Smart Shims" in `~/.airis/bin`. These shims detect the presence of any of the following files in the current or parent directories:
-
-1. `compose.yaml`
-2. `compose.yml`
-3. `docker-compose.yaml`
-4. `docker-compose.yml`
-
-If detected, the command (e.g., `pnpm install`) is automatically executed inside the Docker container (usually the `workspace` service) using `docker compose exec`. If no Compose file is found, the command runs natively on the host.
+Generated files (`compose.yaml`, `tsconfig.json` / `tsconfig.base.json`, and the AI
+adapter files `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`) carry `DO NOT EDIT` markers —
+change `manifest.toml` (or `docs/ai/*.md` for the adapters) and run `airis gen`.
+Per-project `package.json` dependencies/scripts and `pnpm-workspace.yaml` are
+**user-owned**; airis reads them but never overwrites your edits.
 
 ---
 
-## Schema Reference
+## Table of Contents
 
-### Root Level
+- [Top-Level Fields](#top-level-fields)
+- [\[project\]](#project)
+- [\[workspace\]](#workspace)
+- [\[dev\]](#dev)
+- [\[\[app\]\]](#app)
+- [\[stack.\<name\>\]](#stackname)
+- [\[service.\<name\>\]](#servicename)
+- [\[docker\]](#docker)
+- [\[packages\]](#packages)
+- [\[commands\]](#commands)
+- [\[remap\]](#remap)
+- [\[versioning\]](#versioning)
+- [\[docs\]](#docs)
+- [\[ai\]](#ai)
+- [\[templates\]](#templates)
+- [\[runtimes\]](#runtimes)
+- [\[env\]](#env)
+- [\[secrets\]](#secrets)
+- [\[rule.\<name\>\]](#rulename)
+- [\[orchestration\]](#orchestration)
+- [\[policy\]](#policy)
+
+---
+
+## Top-Level Fields
+
+| Field     | Type | Default | Description            |
+|-----------|------|---------|------------------------|
+| `version` | u32  | `1`     | Schema version number. |
 
 ```toml
-version = 1                 # Manifest format version
+version = 1
 ```
-
-Airis uses **Convention over Configuration**. It automatically discovers projects in `apps/*` and `libs/*`. `manifest.toml` is used for **exceptions and intent**.
 
 ---
 
-### Catalog Section (Optional)
+## [project]
 
-Define version policies for shared dependencies. Airis resolves these to `pnpm.catalog` in the root `package.json`.
+Project metadata. Acts as the source of truth for `Cargo.toml`, Homebrew formula generation, and other downstream consumers.
+
+| Field          | Type     | Default | Description                                    |
+|----------------|----------|---------|------------------------------------------------|
+| `id`           | string   | `""`    | Project identifier (e.g., `"airis-workspace"`). |
+| `binary_name`  | string   | `""`    | CLI binary name (e.g., `"airis"`).             |
+| `version`      | string   | `""`    | Semantic version (e.g., `"1.56.0"`).           |
+| `description`  | string   | `""`    | Short project description.                     |
+| `authors`      | string[] | `[]`    | List of authors.                               |
+| `license`      | string   | `""`    | License identifier (e.g., `"MIT"`).            |
+| `homepage`     | string   | `""`    | Project homepage URL.                          |
+| `repository`   | string   | `""`    | Source repository URL.                         |
+| `keywords`     | string[] | `[]`    | Keywords for discovery.                        |
+| `categories`   | string[] | `[]`    | Categories for classification.                 |
+| `rust_edition`  | string   | `""`    | Rust edition (e.g., `"2024"`).                 |
 
 ```toml
-[catalog]
-react = "latest"
-next = "lts"
-typescript = "^5.0.0"
+[project]
+id = "airis-workspace"
+binary_name = "airis"
+description = "Polyglot convention-unification engine for the AI coding era"
+authors = ["Agile Technology <hello@agiletec.jp>"]
+license = "MIT"
+repository = "https://github.com/agiletec-inc/airis-workspace"
+rust_edition = "2024"
 ```
 
 ---
 
-### Apps & Libs Section (Optional)
+## [workspace]
 
-Configure individual applications or libraries. Only needed for **overrides** (e.g., custom ports, environment variables).
+Core workspace settings for Docker Compose integration and cleanup behavior.
+
+| Field             | Type     | Default                                  | Description                                  |
+|-------------------|----------|------------------------------------------|----------------------------------------------|
+| `name`            | string   | Git root directory name                  | Docker Compose project name.                 |
+| `package_manager` | string   | `"pnpm@10.22.0"`                        | Package manager with version.                |
+| `service`         | string   | `"workspace"`                            | Primary Docker Compose service name.         |
+| `image`           | string   | `"node:22-alpine"`                       | Docker image for the workspace container.    |
+| `workdir`         | string   | `"/app"`                                 | Working directory inside the container.      |
+| `volumes`         | string[] | `["workspace-node-modules:/app/node_modules"]` | Docker volume mounts.               |
+
+### [workspace.clean]
+
+Cleanup targets used by `airis clean`.
+
+| Field       | Type     | Default                                                        | Description                                    |
+|-------------|----------|----------------------------------------------------------------|------------------------------------------------|
+| `dirs`      | string[] | `[".next", "dist", "build", "out", ".turbo", ".swc", ".cache"]` | Root directories to remove.                  |
+| `recursive` | string[] | `["node_modules"]`                                             | Patterns to find and remove recursively.       |
 
 ```toml
-[apps.corporate-site]
-port = 3000
-framework = "nextjs"
+[workspace]
+name = "my-project"
+package_manager = "pnpm@10.22.0"
+service = "workspace"
+image = "node:22-alpine"
+workdir = "/app"
+volumes = ["my-project-node-modules:/app/node_modules"]
 
-[libs.ui]
-deps = { "lucide-react" = "latest" }
+[workspace.clean]
+dirs = [".next", "dist", "build", "out", ".turbo"]
+recursive = ["node_modules"]
 ```
-
-**Key Fields**:
-- `path`: (Auto-inferred) Custom path to project
-- `framework`: (Auto-detected) nextjs | vite | hono | node | rust
-- `port`: Port to expose in Docker Compose
-- `deps`: Explicit dependency overrides (preserved in package.json)
-- `"node"`: Node.js application
-- `"rust"`: Rust application (supports `runtime: local` for GPU)
-- `"python"`: Python application
 
 ---
 
-### Docker Section
+## [dev]
 
-Configure Docker workspace settings.
+Development environment configuration. Controls app discovery, infrastructure compose files, post-startup hooks, and URL display after `airis up`.
+
+| Field          | Type                      | Default                          | Description                                       |
+|----------------|---------------------------|----------------------------------|---------------------------------------------------|
+| `apps_pattern` | string                    | `"apps/*/docker-compose.yml"`    | Glob pattern for auto-discovering app compose files. |
+| `supabase`     | string[]?                 | `null`                           | Paths to Supabase compose files.                  |
+| `traefik`      | string?                   | `null`                           | Path to Traefik compose file.                     |
+| `urls`         | object?                   | `null`                           | URLs to display after `airis up`.                 |
+| `post_up`      | string[]                  | `[]`                             | Commands to run after `airis up` (e.g., DB migrations). |
+
+### [dev.urls]
+
+| Field   | Type                    | Default | Description               |
+|---------|-------------------------|---------|---------------------------|
+| `infra` | `[{name, url}]`        | `[]`    | Infrastructure URLs.      |
+| `apps`  | `[{name, url}]`        | `[]`    | Application URLs.         |
+
+```toml
+[dev]
+apps_pattern = "apps/*/docker-compose.yml"
+supabase = ["supabase/docker-compose.yml"]
+traefik = "traefik/docker-compose.yml"
+post_up = [
+    "docker compose exec workspace pnpm db:migrate",
+    "docker compose exec workspace pnpm db:seed",
+]
+
+[dev.urls]
+infra = [
+    { name = "Supabase Studio", url = "http://localhost:54323" },
+    { name = "Traefik Dashboard", url = "http://localhost:8080" },
+]
+apps = [
+    { name = "Dashboard", url = "http://localhost:3000" },
+    { name = "API", url = "http://localhost:4000" },
+]
+```
+
+---
+
+## [[app]]
+
+Declare application and library projects in the monorepo. Only needed for
+**overrides** — projects under `apps/*` and `libs/*` are discovered automatically.
+
+| Field       | Type    | Default | Description                                                                 |
+|-------------|---------|---------|-----------------------------------------------------------------------------|
+| `name`      | string  | --      | Project name.                                                               |
+| `path`      | string? | `null`  | Project directory path (e.g., `"apps/web"`).                                |
+| `use`       | string? | `null`  | Reference to a `[stack]` definition for automatic configuration.            |
+| `framework` | string? | `null`  | Legacy framework type (e.g., `"nextjs"`, `"vite"`). Prefer `use`.           |
+| `python`    | string? | `null`  | Python version constraint (e.g., `"3.12"`).                                 |
+| `cuda`      | string? | `null`  | CUDA version for GPU support (e.g., `"12.4"`). Triggers GPU resource setup. |
+
+```toml
+[[app]]
+name = "dashboard"
+path = "apps/dashboard"
+use = "nextjs"
+
+[[app]]
+name = "ai-model"
+path = "apps/ai-model"
+use = "python-ml"
+python = "3.12"
+cuda = "12.4"
+```
+
+---
+
+## [stack.\<name\>]
+
+Define reusable technology stacks. Stacks automate Docker volume isolation, environment variables, and quality verification.
+
+| Field       | Type                 | Default | Description                                                |
+|-------------|----------------------|---------|------------------------------------------------------------|
+| `image`     | string?              | `null`  | Base Docker image for this stack.                          |
+| `artifacts` | string[]             | `[]`    | Local directories to isolate in named volumes (e.g., `.next`). |
+| `volumes`   | map<string,string>   | `{}`    | Global cache volumes (e.g., `pnpm-store`).                 |
+| `verify`    | string[]             | `[]`    | Verification commands for `airis verify`.                  |
+| `gpu`       | bool                 | `false` | Enable NVIDIA GPU resource reservation.                    |
+| `scripts`   | map<string,string>   | `{}`    | npm scripts to inject into `package.json`.                 |
+
+```toml
+[stack.python-ml]
+image = "nvidia/cuda:12.4-runtime-ubuntu22.04"
+artifacts = [".venv", "__pycache__", ".pytest_cache"]
+volumes = { "uv-cache" = "/root/.cache/uv" }
+verify = ["pytest", "ruff check ."]
+gpu = true
+
+[stack.nextjs]
+artifacts = [".next", ".turbo", "node_modules/.cache"]
+verify = ["tsc --noEmit", "next build"]
+```
+
+---
+
+## [service.\<name\>]
+
+Define infrastructure services (databases, caches, etc.) for Docker Compose generation.
+
+| Field     | Type              | Default | Description                              |
+|-----------|-------------------|---------|------------------------------------------|
+| `image`   | string            | `""`    | Docker image (e.g., `"postgres:16-alpine"`). |
+| `port`    | u16?              | `null`  | Exposed port number.                     |
+| `command` | string?           | `null`  | Override the default container command.   |
+| `volumes` | string[]          | `[]`    | Volume mounts for the service.           |
+| `env`     | map<string,string> | `{}`   | Environment variables.                   |
+
+```toml
+[service.postgres]
+image = "postgres:16-alpine"
+port = 5432
+volumes = ["pg-data:/var/lib/postgresql/data"]
+
+[service.postgres.env]
+POSTGRES_USER = "dev"
+POSTGRES_PASSWORD = "dev"
+POSTGRES_DB = "myapp"
+
+[service.redis]
+image = "redis:7-alpine"
+port = 6379
+```
+
+---
+
+## [docker]
+
+Docker module configuration. This section is **optional** — non-containerized repos
+(Edge/Workers, native desktop) use airis without it.
+
+| Field           | Type     | Default                | Description                                    |
+|-----------------|----------|------------------------|------------------------------------------------|
+| `baseImage`     | string   | `""`                   | Base Docker image for builds.                  |
+| `workdir`       | string   | `""`                   | Working directory inside containers.           |
+| `compose`       | string   | `"compose.yml"`        | Path to the compose file.                      |
+
+### [docker.workspace]
+
+| Field     | Type     | Default | Description                  |
+|-----------|----------|---------|------------------------------|
+| `service` | string   | --      | Workspace service name.      |
+| `volumes` | string[] | `[]`    | Volume names for the service. |
+
+### [[docker.routes]]
+
+Command routing rules that map glob patterns to specific services and working directories (used by `airis exec`).
+
+| Field     | Type   | Description                                              |
+|-----------|--------|----------------------------------------------------------|
+| `glob`    | string | Glob pattern to match (e.g., `"apps/*"`).                |
+| `service` | string | Docker service to route commands to.                     |
+| `workdir` | string | Working directory template (supports `{match}` placeholder). |
 
 ```toml
 [docker]
-baseImage = "node:24-bookworm"
+baseImage = "node:22-bookworm"
 workdir = "/app"
 
 [docker.workspace]
 service = "workspace"
 volumes = ["node_modules"]
+
+[[docker.routes]]
+glob = "apps/*"
+service = "workspace"
+workdir = "/app/{match}"
 ```
 
 ---
 
-### Dev Section
+## [packages]
 
-Define which apps to start automatically in development.
+Package manager configuration. Controls workspace patterns, root `package.json` seeding, and per-app package definitions.
+
+| Field        | Type     | Default | Description                                       |
+|--------------|----------|---------|---------------------------------------------------|
+| `workspaces` | string[] | `[]`    | Workspace glob patterns (e.g., `["apps/*", "libs/*"]`). |
 
 ```toml
-[dev]
-autostart = [
-  "corporate-site",
-  "dashboard",
-  "api",
-]
+[packages]
+workspaces = ["apps/*", "libs/*", "packages/*"]
 ```
 
-**Behavior**:
-- `just up` reads this list and runs `pnpm dev` for each app inside workspace container
-- Order matters: apps are started in the specified order
+> **Shared dependency versions** use the [pnpm catalog](https://pnpm.io/catalogs) in
+> `pnpm-workspace.yaml`, which is **user-owned**. airis reads the resolved catalog
+> during generation; individual `package.json` files reference versions as `"catalog:"`.
 
----
+### [packages.root]
 
-### Orchestration Section
+Fields seeded into the root `package.json`. Maps directly to standard `package.json` fields. Once generated, dependencies and scripts in `package.json` are yours to edit — airis preserves them.
 
-Define infrastructure stack composition.
+| Field                  | Type              | Default | Description                              |
+|------------------------|-------------------|---------|------------------------------------------|
+| `dependencies`         | map<string,string> | `{}`   | Production dependencies.                 |
+| `devDependencies`      | map<string,string> | `{}`   | Development dependencies.                |
+| `optionalDependencies` | map<string,string> | `{}`   | Optional dependencies.                   |
+| `scripts`              | map<string,string> | `{}`   | npm scripts.                             |
+| `engines`              | map<string,string> | `{}`   | Engine constraints (e.g., `node >= 20`). |
+
+### [packages.root.pnpm]
+
+pnpm-specific configuration for the root `package.json`.
+
+| Field                                      | Type              | Default | Description                              |
+|--------------------------------------------|-------------------|---------|------------------------------------------|
+| `overrides`                                | map<string,string> | `{}`   | Dependency overrides.                    |
+| `peerDependencyRules.ignoreMissing`        | string[]          | `[]`    | Peer deps to ignore when missing.        |
+| `peerDependencyRules.allowedVersions`      | map<string,string> | `{}`   | Allowed peer dependency version ranges.  |
+| `onlyBuiltDependencies`                    | string[]          | `[]`    | Dependencies that require native builds. |
+| `allowedScripts`                           | map<string,bool>  | `{}`    | Lifecycle scripts to allow.              |
+
+### [[packages.app]]
+
+Array of tables defining per-app package.json fields. Uses a glob pattern to match app directories.
+
+| Field             | Type              | Default | Description                              |
+|-------------------|-------------------|---------|------------------------------------------|
+| `pattern`         | string            | --      | Glob pattern (e.g., `"apps/web"`).       |
+| `dependencies`    | map<string,string> | `{}`   | Production dependencies for matched apps. |
+| `devDependencies` | map<string,string> | `{}`   | Dev dependencies for matched apps.       |
+| `scripts`         | map<string,string> | `{}`   | npm scripts for matched apps.            |
 
 ```toml
-[orchestration.dev]
-workspace = "workspace/docker-compose.yml"
-supabase = [
-  "supabase/docker-compose.yml",
-  "supabase/docker-compose.override.yml",
-]
-traefik = "traefik/docker-compose.yml"
+[[packages.app]]
+pattern = "apps/web"
+dependencies = { next = "catalog:", react = "catalog:", react-dom = "catalog:" }
+devDependencies = { typescript = "catalog:" }
+scripts = { dev = "next dev", build = "next build" }
 ```
-
-**Auto-Detection**:
-- The `workspace_init` MCP tool (invoked via `/airis:init` in Claude Code) detects existing docker-compose.yml files
-- Generates this section based on discovered locations
-- `migration_execute` MCP tool moves files to optimal locations (workspace/, supabase/, traefik/)
 
 ---
 
-### Commands Section (NEW in v1.0.2)
+## [commands]
 
-Define user commands executed via `airis run <task>`.
+User-defined commands executed via `airis run <name>`. The built-in aliases
+(`airis up`, `airis down`, `airis shell`, `airis lint`, `airis format`,
+`airis typecheck`) delegate to keys here.
 
 ```toml
 [commands]
+up = "docker compose up -d --build"
+down = "docker compose down --remove-orphans"
+shell = "docker compose exec -it workspace sh"
 install = "docker compose exec workspace pnpm install"
-up = "docker compose up -d"
-down = "docker compose down"
-shell = "docker compose exec workspace bash"
-dev = "echo '🚀 Starting...'; docker compose exec workspace pnpm dev"
 build = "docker compose exec workspace pnpm build"
 test = "docker compose exec workspace pnpm test"
 lint = "docker compose exec workspace pnpm lint"
-clean = "find . -type d -name 'node_modules' -o -name 'dist' | xargs rm -rf"
 ```
-
-**Usage**:
-```bash
-airis run up       # Executes commands.up
-airis up           # Shorthand (built-in aliases)
-airis dev          # Shorthand for commands.dev
-```
-
-**Built-in Shorthands**:
-- `airis up` → `airis run up`
-- `airis down` → `airis run down`
-- `airis shell` → `airis run shell`
-- `airis dev` → `airis run dev`
-- `airis test` → `airis run test`
-- `airis install` → `airis run install`
-- `airis build` → `airis run build`
-- `airis clean` → `airis run clean`
 
 ---
 
-### Guards Section (NEW in v1.0.2)
+## [remap]
 
-Control command execution for humans and LLMs.
-
-```toml
-[guards]
-# Deny these commands (both humans and LLMs)
-deny = ["npm", "yarn", "pnpm", "bun"]
-
-# LLM-specific: completely forbid
-forbid = ["npm", "yarn", "pnpm", "docker", "docker-compose"]
-
-# Dangerous commands (warn humans, block LLMs)
-danger = ["rm -rf /", "chmod -R 777", "chown -R"]
-```
-
-**Behavior**:
-- `deny`: Block for all users with helpful error message
-- `forbid`: LLM-only blocking (via MCP/agent integration)
-- `danger`: Prevent catastrophic commands
-
----
-
-### Remap Section (NEW in v1.0.2)
-
-Automatically translate banned commands to safe alternatives (LLM-targeted).
+Command translation for `airis run`. When a remapped command goes through airis,
+the safe replacement defined here is used instead. Remap is opt-in per repo and
+ships no defaults, since install/dev runtime is workload-dependent.
 
 ```toml
 [remap]
-"npm install" = "airis install"
-"pnpm install" = "airis install"
-"yarn install" = "airis install"
-"npm run dev" = "airis dev"
-"pnpm dev" = "airis dev"
 "docker compose up" = "airis up"
-"docker compose up -d" = "airis up"
 "docker compose down" = "airis down"
 "docker exec" = "airis shell"
 ```
 
-**How It Works**:
-1. LLM attempts to run `npm install`
-2. Shell guard reads manifest.toml `[remap]`
-3. Command is translated to `airis install`
-4. Safe Docker-based command executes
-
-**Integration Points**:
-- MCP servers (airis-mcp-gateway)
-- Claude Code / Cursor / Windsurf
-- Custom shell guards
-
 ---
 
-### Versioning Section (NEW in v1.1.0)
+## [versioning]
 
-Define versioning strategy and source of truth for automatic version bumping.
+Version management strategy. Used by `airis bump-version`.
+
+| Field      | Type   | Default     | Description                                  |
+|------------|--------|-------------|----------------------------------------------|
+| `strategy` | string | `"manual"`  | One of `"manual"`, `"auto"`, or `"conventional-commits"`. |
+| `source`   | string | `"0.1.0"`   | Current version string.                      |
+
+Strategies:
+
+| Strategy               | Behavior                                                  |
+|------------------------|-----------------------------------------------------------|
+| `manual`               | Version bumps only when explicitly requested (`airis bump-version --major/--minor/--patch`). |
+| `auto`                 | `airis bump-version --auto` defaults to a minor bump.     |
+| `conventional-commits` | `airis bump-version --auto` parses the latest commit message to determine bump type (major/minor/patch). |
 
 ```toml
 [versioning]
-strategy = "conventional-commits"   # or "auto" or "manual"
-source = "1.1.0"                   # Current version (synced to Cargo.toml)
+strategy = "conventional-commits"
+source = "1.56.0"
 ```
-
-**Strategy Options**:
-- `"conventional-commits"`: Auto-detect bump type from commit message
-  - `feat:` → minor bump
-  - `fix:` → patch bump
-  - `BREAKING CHANGE` or `!:` → major bump
-- `"auto"`: Default to minor bump
-- `"manual"`: Disable auto-bump (use `airis bump-version` explicitly)
-
-**Usage**:
-```bash
-# Install Git pre-commit hook
-airis hooks install
-
-# Manual version bump
-airis bump-version --major    # 1.0.0 → 2.0.0
-airis bump-version --minor    # 1.0.0 → 1.1.0
-airis bump-version --patch    # 1.0.0 → 1.0.1
-
-# Auto-detect from commit message (requires strategy = "conventional-commits")
-airis bump-version --auto
-
-# Or just commit with conventional format
-git commit -m "feat: add dark mode"
-# → Pre-commit hook auto-bumps 1.0.0 → 1.1.0
-```
-
-**Sync Behavior**:
-- `manifest.toml` `[versioning.source]` is the single source of truth
-- `Cargo.toml` version is automatically synced on bump
-- Git pre-commit hook runs `airis bump-version --auto` before commit
 
 ---
 
-### Just Section (Optional)
+## [docs]
 
-Configure justfile generation (optional in v1.0.2+).
+AI documentation publication. Controls how airis generates vendor adapter files from shared project docs (`airis docs sync`).
+
+| Field           | Type     | Default  | Description |
+|----------------|----------|----------|-------------|
+| `targets`      | string[] | `[]`     | Explicit adapter files to generate. If omitted, airis derives targets from `vendors`. |
+| `mode`         | string   | `"warn"` | Overwrite mode: `"warn"` (refuse) or `"backup"` (create `.bak`). |
+| `sources`      | string[] | `[]`     | Shared AI instruction files that act as the source of truth. |
+| `vendors`      | string[] | `[]`     | Vendor adapters to generate. Supported values: `"codex"`, `"claude"`, `"gemini"`. |
+| `skills_source`| string?  | `null`   | Shared playbook or skill source directory. |
+| `hooks_policy` | string?  | `null`   | Shared hook-policy document for portable guard intent. |
 
 ```toml
-[just]
-output = "justfile.generated"
-features = ["docker-first-guard", "type-specific-commands"]
+[docs]
+mode = "backup"
+sources = [
+  "docs/ai/PROJECT_RULES.md",
+  "docs/ai/WORKFLOW.md",
+  "docs/ai/REVIEW.md",
+  "docs/ai/STACK.md",
+]
+vendors = ["codex", "claude", "gemini"]
+skills_source = "docs/ai/playbooks"
+hooks_policy = "docs/ai/hooks/HOOKS_POLICY.md"
 ```
 
-**Note**: With `[commands]` section, justfile generation is now optional. You can use `airis` commands directly without `just`.
-
 ---
 
-## Auto-Migration Workflow
+## [ai]
 
-When Claude Code calls `workspace_init` on an existing project:
-
-1. **Discovery Phase**
-   - Scans `apps/` and `libs/` directories
-   - Detects docker-compose.yml locations
-   - Parses existing package.json for catalog info
-
-2. **Migration Phase**
-   - Creates `workspace/` directory if missing
-   - Moves docker-compose.yml to correct locations
-   - Creates backups (.bak) before moving
-   - **Never overwrites** existing files
-
-3. **Generation Phase**
-   - Generates `manifest.toml` with detected configuration
-   - Generates `workspace.yaml`, `justfile`, `package.json`, etc.
-
-4. **Verification Phase**
-   - Shows diff/changes
-   - Asks for confirmation (unless `--force`)
-
----
-
-## Generated Files
-
-All these files are generated from `manifest.toml`:
-
-- `package.json` - Root package configuration with `pnpm.catalog`
-- `pnpm-workspace.yaml` - pnpm workspace definition
-- `compose.yml` - Docker Compose for services and workspace
-- `tsconfig.json` / `tsconfig.base.json` - TypeScript project references
-- Per-app `package.json` - App-level dependencies from catalog
-- `.env.example` - Environment variable template
-- `.github/workflows/` - CI/CD pipelines
-
-**DO NOT EDIT** generated files directly. Always edit `manifest.toml` and run `airis gen`.
-
----
-
-## Example
-
-Full example demonstrating all features:
+AI adapter configuration: which shared rules feed which vendor adapter files, and where per-vendor rule directories live.
 
 ```toml
-version = 1
-name = "agiletec"
-mode = "docker-first"
+[ai]
+shared_rules = [
+    "docs/ai/PROJECT_RULES.md",
+    "docs/ai/WORKFLOW.md",
+    "docs/ai/REVIEW.md",
+    "docs/ai/STACK.md",
+]
 
-# Catalog: Version policies
-[catalog.react]
-policy = "latest"
+[ai.claude]
+target = "CLAUDE.md"
+rules_dir = ".claude/rules/generated/"
+```
 
-[catalog.next]
-policy = "latest"
+---
 
-[catalog.typescript]
-policy = "latest"
+## [templates]
 
-# Workspaces
-[workspaces]
-apps = ["corporate-site", "dashboard"]
-libs = ["ui", "auth"]
+Template definitions for `airis new`. Organized by category. Each category is a map of template names to their configurations.
 
-# Apps
-[apps.corporate-site]
-path = "apps/corporate-site"
-type = "nextjs"
-port = 3000
+Categories: `api`, `web`, `worker`, `cli`, `lib`, `edge`, `supabase-trigger`, `supabase-realtime`.
 
-[apps.dashboard]
-path = "apps/dashboard"
-type = "nextjs"
-port = 3100
+### Template Fields
 
-# Docker
-[docker]
-baseImage = "node:24-bookworm"
-workdir = "/app"
+| Field            | Type     | Default | Description                                    |
+|------------------|----------|---------|------------------------------------------------|
+| `entry`          | string   | `""`    | Entry point file (e.g., `"src/index.ts"`).     |
+| `dockerfile`     | string   | `""`    | Dockerfile template path.                      |
+| `runtime`        | string   | `""`    | Runtime identifier (e.g., `"node"`, `"rust"`). |
+| `deps`           | string[] | `[]`    | Production dependencies to inject.             |
+| `dev_deps`       | string[] | `[]`    | Dev dependencies to inject.                    |
+| `inject`         | string[] | `[]`    | Features/modules to inject into the template.  |
+| `package_config` | string   | `""`    | Package config file path (`package.json`, `Cargo.toml`, etc.). |
 
-[docker.workspace]
-service = "workspace"
-volumes = ["node_modules"]
+```toml
+[templates.api.hono]
+entry = "src/index.ts"
+dockerfile = "templates/api/Dockerfile.hono"
+runtime = "node"
+deps = ["hono", "@hono/node-server"]
+dev_deps = ["tsx", "typescript"]
+package_config = "package.json"
+```
 
-# Dev
-[dev]
-autostart = ["corporate-site", "dashboard"]
+---
 
-# Orchestration
+## [runtimes]
+
+Runtime alias configuration for `airis new`. Provides short names that map to template identifiers.
+
+| Field   | Type              | Default | Description                                |
+|---------|-------------------|---------|--------------------------------------------|
+| `alias` | map<string,string> | `{}`   | Short aliases (e.g., `"py"` -> `"fastapi"`). |
+
+```toml
+[runtimes.alias]
+ts = "hono"
+py = "fastapi"
+rs = "rust-axum"
+```
+
+---
+
+## [env]
+
+Environment variable validation. Checked by `airis doctor` and `airis validate`.
+
+| Field      | Type     | Default | Description                              |
+|------------|----------|---------|------------------------------------------|
+| `required` | string[] | `[]`    | Variables that must be set.              |
+| `optional` | string[] | `[]`    | Variables that are recognized but not required. |
+
+### [env.validation.\<name\>]
+
+Per-variable validation rules.
+
+| Field         | Type    | Default | Description                                |
+|---------------|---------|---------|--------------------------------------------|
+| `pattern`     | string? | `null`  | Regex pattern to validate the value.       |
+| `description` | string? | `null`  | Human-readable description.                |
+| `example`     | string? | `null`  | Example value.                             |
+
+```toml
+[env]
+required = ["DATABASE_URL", "API_KEY", "SUPABASE_URL"]
+optional = ["SENTRY_DSN", "DEBUG"]
+
+[env.validation.DATABASE_URL]
+pattern = "^postgresql://"
+description = "PostgreSQL connection string"
+example = "postgresql://user:pass@localhost:5432/mydb"
+```
+
+---
+
+## [secrets]
+
+Secret provider configuration. When configured, `airis up` wraps Docker Compose with the provider CLI to inject environment variables automatically.
+
+| Field      | Type    | Default | Description                                      |
+|------------|---------|---------|--------------------------------------------------|
+| `provider` | string  | —       | Provider name. Currently supported: `"doppler"`. |
+
+### [secrets.doppler]
+
+Required when `provider = "doppler"`.
+
+| Field     | Type   | Default | Description                                           |
+|-----------|--------|---------|-------------------------------------------------------|
+| `project` | string | —       | Doppler project name.                                 |
+| `config`  | string | —       | Doppler config name (e.g., `"dev"`, `"stg"`, `"prd"`). |
+
+```toml
+[secrets]
+provider = "doppler"
+
+[secrets.doppler]
+project = "my-project"
+config = "dev"
+```
+
+When configured, `airis up` becomes `doppler run --project my-project --config dev -- docker compose up ...`.
+
+---
+
+## [rule.\<name\>]
+
+Named rule chains that execute a sequence of commands. Useful for defining composite tasks like CI pipelines or pre-push checks.
+
+| Field      | Type     | Default | Description                        |
+|------------|----------|---------|------------------------------------|
+| `commands` | string[] | `[]`    | Commands to run in sequence.       |
+
+```toml
+[rule.verify]
+commands = ["airis lint", "airis test"]
+
+[rule.ci]
+commands = ["airis lint", "airis test", "airis typecheck"]
+```
+
+---
+
+## [orchestration]
+
+Multi-compose orchestration for complex development environments with multiple infrastructure layers.
+
+### [orchestration.dev]
+
+| Field       | Type     | Default | Description                                        |
+|-------------|----------|---------|----------------------------------------------------|
+| `workspace` | string?  | `null`  | Path to workspace compose file.                    |
+| `supabase`  | string[]?| `null`  | Paths to Supabase compose files.                   |
+| `traefik`   | string?  | `null`  | Path to Traefik compose file.                      |
+
+### [orchestration.networks]
+
+| Field              | Type    | Default | Description                                    |
+|--------------------|---------|---------|------------------------------------------------|
+| `proxy`            | string? | `null`  | External proxy network name.                   |
+| `default_external` | bool    | `false` | Whether the default network should be external. |
+
+```toml
 [orchestration.dev]
 workspace = "workspace/docker-compose.yml"
 supabase = ["supabase/docker-compose.yml"]
 traefik = "traefik/docker-compose.yml"
 
-# Just (optional in v1.0.2+)
-[just]
-output = "justfile.generated"
-features = ["docker-first-guard", "type-specific-commands"]
-
-# Commands (v1.0.2+)
-[commands]
-install = "docker compose exec workspace pnpm install"
-up = "docker compose up -d"
-down = "docker compose down"
-dev = "docker compose exec workspace pnpm dev"
-build = "docker compose exec workspace pnpm build"
-
-# Guards (v1.0.2+)
-[guards]
-deny = ["npm", "yarn", "pnpm", "bun"]
-forbid = ["npm", "yarn", "pnpm", "docker", "docker-compose"]
-
-# Remap (v1.0.2+)
-[remap]
-"npm install" = "airis install"
-"pnpm install" = "airis install"
-
-# Versioning (v1.1.0+)
-[versioning]
-strategy = "conventional-commits"
-source = "1.1.0"
+[orchestration.networks]
+default_external = false
 ```
 
 ---
 
-## Commands
+## [policy]
 
-### Initialize/Migrate Project
+Code governance policy, checked by `airis policy check` / `airis policy enforce`.
+
+```toml
+[policy.testing]
+mock_policy = "unit-only"
+forbidden_patterns = ['vi\.mock.*supabase']
+ai_rules = [
+    "Never mock Supabase — use local `supabase start` or the test project.",
+]
+
+[policy.testing.coverage]
+unit = 80
+integration = 60
+
+[policy.security]
+banned_env_vars = ["SUPABASE_SERVICE_ROLE_KEY"]
+scan_secrets = true
+```
+
+---
+
+## Initialization
+
 Run `/airis:init` inside Claude Code (or invoke the `workspace_init` MCP tool
 directly). The LLM scans the repository and proposes a `manifest.toml` that
-preserves comments and formatting — something a TOML re-serializer cannot do.
-There is no `airis init` CLI entry point.
+preserves comments and formatting. There is no `airis init` CLI entry point —
+see [airis-init-architecture.md](airis-init-architecture.md).
 
-### Resolve Dependencies
-```bash
-airis gen    # Resolve catalog policies to versions and regenerate files
-```
-
-### Validate Configuration
-```bash
-airis validate          # Check manifest.toml for errors
-```
-
----
+For the authoritative field list, see `src/manifest/schema.rs`.
 
 ## See Also
 
-- [README.md](README.md) - User documentation
-- [CLAUDE.md](CLAUDE.md) - Development guidelines
-- [PROJECT_INDEX.md](PROJECT_INDEX.md) - Code structure
+- [README.md](../README.md) — User documentation
+- [Commands Guide](commands.md) — CLI usage patterns
+- [Example manifest](../examples/manifest.toml) — Full annotated example
