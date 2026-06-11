@@ -252,7 +252,7 @@ airis format             # Run code formatting
 airis typecheck          # Run type checking
 airis deps               # Visualize the dependency graph
 airis diff               # Preview changes before applying gen
-airis bump-version       # Bump the package version (pre-commit auto-runs `--auto`)
+airis bump-version       # Bump the package version
 airis upgrade            # Upgrade the airis binary
 ```
 
@@ -260,9 +260,7 @@ airis upgrade            # Upgrade the airis binary
 
 ```bash
 airis new <kind> <name>    # Create a new app, service, or library
-airis workspace uninstall  # Remove AIRIS hooks and generated files from a repo
-airis hooks install        # Install native git hooks (.git/hooks/{pre-commit,pre-push,post-commit})
-airis hooks uninstall      # Remove the airis-workspace blocks from .git/hooks/
+airis workspace uninstall  # Remove AIRIS-generated files from a repo
 airis docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
 airis docs list            # List managed adapter files
 airis init-shell           # Print the shell-integration snippet (prompt)
