@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "airis")]
+#[command(name = "airis-workspace")]
 #[command(about = "Convention engine for polyglot monorepos (Docker dev-env is one module)")]
 #[command(long_about = "\
 A workspace orchestrator for monorepos.

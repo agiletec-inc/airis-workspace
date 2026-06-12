@@ -45,7 +45,7 @@ fn run_main() -> Result<()> {
 
     // Handle version flag
     if cli.version {
-        println!("airis {}", get_version());
+        println!("airis-workspace {}", get_version());
         return Ok(());
     }
 

@@ -62,7 +62,7 @@ exclude = [
 ]
 
 [[bin]]
-name = "airis"
+name = "airis-workspace"
 path = "src/main.rs"
 
 # Dependencies are managed manually in this file for now.
