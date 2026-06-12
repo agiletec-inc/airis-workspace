@@ -480,7 +480,6 @@ impl Manifest {
                 compose: default_compose_file(),
                 service: String::new(),
                 routes: vec![],
-                shim_commands: default_shim_commands(),
             },
             just: None,
             service: IndexMap::new(),

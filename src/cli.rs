@@ -153,7 +153,7 @@ pub enum Commands {
         extra_args: Vec<String>,
     },
 
-    /// Show current workspace and guard status
+    /// Show current workspace status
     Status {
         /// Show a concise one-line status (for shell prompts)
         #[arg(long, short = 's')]
@@ -314,7 +314,7 @@ pub struct WorkspaceArgs {
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommands {
-    /// Uninstall airis from the current workspace (removes shims, hooks, and generated files)
+    /// Uninstall airis from the current workspace (removes hooks and generated files)
     Uninstall,
 }
 

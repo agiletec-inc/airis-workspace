@@ -352,48 +352,6 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                             }
                         }
                     }
-                },
-                {
-                    "name": "guards_install",
-                    "description": "Install airis command shims (airis guards install). With global=true installs global shims in ~/.airis/bin that intercept pnpm/npm/python outside Docker.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "global": {
-                                "type": "boolean",
-                                "description": "Install global shims in ~/.airis/bin (default: false = project-local)",
-                                "default": false
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "guards_status",
-                    "description": "Show current airis guard shim status (airis guards status).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "global": {
-                                "type": "boolean",
-                                "description": "Check global shims (~/.airis/bin) instead of project-local",
-                                "default": false
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "guards_uninstall",
-                    "description": "Remove airis guard shims (airis guards uninstall).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "global": {
-                                "type": "boolean",
-                                "description": "Remove global shims from ~/.airis/bin",
-                                "default": false
-                            }
-                        }
-                    }
                 }
             ]
         })),
@@ -425,9 +383,6 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 "workspace_lint" => handle_workspace_lint()?,
                 "workspace_typecheck" => handle_workspace_typecheck()?,
                 "workspace_clean" => handle_workspace_clean(arguments)?,
-                "guards_install" => handle_guards_install(arguments)?,
-                "guards_status" => handle_guards_status(arguments)?,
-                "guards_uninstall" => handle_guards_uninstall(arguments)?,
                 _ => json!({
                     "content": [
                         {
@@ -808,33 +763,6 @@ fn handle_workspace_clean(arguments: &Value) -> Result<Value> {
         args.push("--purge".to_string());
     }
     run_airis_subprocess_dyn(args)
-}
-
-fn handle_guards_install(arguments: &Value) -> Result<Value> {
-    let global = arguments["global"].as_bool().unwrap_or(false);
-    if global {
-        run_airis_subprocess(&["guards", "install", "--global"])
-    } else {
-        run_airis_subprocess(&["guards", "install"])
-    }
-}
-
-fn handle_guards_status(arguments: &Value) -> Result<Value> {
-    let global = arguments["global"].as_bool().unwrap_or(false);
-    if global {
-        run_airis_subprocess(&["guards", "status", "--global"])
-    } else {
-        run_airis_subprocess(&["guards", "status"])
-    }
-}
-
-fn handle_guards_uninstall(arguments: &Value) -> Result<Value> {
-    let global = arguments["global"].as_bool().unwrap_or(false);
-    if global {
-        run_airis_subprocess(&["guards", "uninstall", "--global"])
-    } else {
-        run_airis_subprocess(&["guards", "uninstall"])
-    }
 }
 
 fn handle_workspace_validate_all() -> Result<Value> {

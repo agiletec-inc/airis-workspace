@@ -627,29 +627,10 @@ pub struct DockerSection {
     /// Command routing rules (glob pattern → service/workdir)
     #[serde(default)]
     pub routes: Vec<DockerRoute>,
-    /// Commands to shim (default: pnpm, npm, node, npx, bun, tsx, next, eslint, vitest, etc.)
-    #[serde(default = "default_shim_commands")]
-    pub shim_commands: Vec<String>,
 }
 
 pub(crate) fn default_compose_file() -> String {
     "compose.yml".to_string()
-}
-
-pub(crate) fn default_shim_commands() -> Vec<String> {
-    vec![
-        "pnpm".to_string(),
-        "npm".to_string(),
-        "node".to_string(),
-        "npx".to_string(),
-        "bun".to_string(),
-        "tsx".to_string(),
-        "next".to_string(),
-        "eslint".to_string(),
-        "vitest".to_string(),
-        "tsc".to_string(),
-        "turbo".to_string(),
-    ]
 }
 
 /// Route configuration for Docker command execution
