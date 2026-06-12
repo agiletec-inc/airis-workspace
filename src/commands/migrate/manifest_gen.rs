@@ -149,11 +149,6 @@ pub(super) fn generate_manifest_content(discovery: &DiscoveryResult) -> Result<S
         lines.push("".to_string());
     }
 
-    // Guards section (docker-first defaults)
-    lines.push("[guards]".to_string());
-    lines.push("deny = [\"npm\", \"yarn\", \"pnpm\"]".to_string());
-    lines.push("".to_string());
-
     // Commands section
     lines.push("[commands]".to_string());
     lines.push("install = \"docker compose run --rm node pnpm install\"".to_string());

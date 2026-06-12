@@ -25,6 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `manifest_validate`, `manifest_apply`, `migration_execute`).
 ### Removed
 
+- Dead guard/shim remnants left behind by the May removal (472ec2e): the MCP
+  server no longer advertises the broken `guards_install` / `guards_status` /
+  `guards_uninstall` tools (they subprocess-called the deleted `airis guards`
+  subcommand and failed at runtime), the unused `shim_commands` manifest field
+  is gone (old manifests containing it still parse — unknown keys are ignored),
+  `airis new` no longer emits a `[guards]` section, and stale
+  `AIRIS_SKIP_GUARD` / `AIRIS_BYPASS` checks and shim docstrings were removed.
 - `src/commands/init.rs` and `Commands::Init` CLI variant.
 - `scripts/gif-recording/01-init-demo.tape` (corresponding demo).
 - **`airis ui` subcommand, the `airis claude tab-title` shim, and the

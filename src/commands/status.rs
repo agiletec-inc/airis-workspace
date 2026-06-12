@@ -91,19 +91,12 @@ fn run_short() -> Result<()> {
             }
         }
 
-        // Bypass check
-        let bypass = std::env::var("AIRIS_SKIP_GUARD").is_ok()
-            || std::env::var("AIRIS_BYPASS").is_ok()
-            || std::env::var("AIRIS_HOST").is_ok();
-
         if polluted {
             parts.push(format!(
                 "💀{}({})",
                 name.red().bold(),
                 "POLLUTED".on_red().white().bold()
             ));
-        } else if bypass {
-            parts.push(format!("{}({})", name.yellow(), "BYPASS".bold().yellow()));
         } else {
             parts.push(name.bright_cyan().bold().to_string());
         }

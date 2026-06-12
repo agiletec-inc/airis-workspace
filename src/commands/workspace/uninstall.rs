@@ -7,7 +7,7 @@ use colored::Colorize;
 
 use crate::commands::generate::registry::load_generation_registry;
 
-/// Uninstall airis from the current workspace by removing shims, hooks, and generated files.
+/// Uninstall airis from the current workspace by removing hooks and generated files.
 pub fn uninstall() -> Result<()> {
     println!(
         "{}",
@@ -27,7 +27,6 @@ pub fn uninstall() -> Result<()> {
     println!();
     println!("{}", "✅ Workspace uninstalled successfully.".green());
     println!("   Note: Your manifest.toml and .airis/backups remain untouched.");
-    println!("   To remove global shims, run: airis guards uninstall --global");
 
     Ok(())
 }

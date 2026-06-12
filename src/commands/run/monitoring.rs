@@ -50,14 +50,6 @@ pub fn print_health_summary(_manifest: &Manifest) -> Result<()> {
     };
     println!("   {:<12} {}", "Hygiene:".dimmed(), hygiene_status);
 
-    let has_guards = Path::new(".airis/bin").exists();
-    let guard_status = if has_guards {
-        "✔ ACTIVE (command guards installed)".green()
-    } else {
-        "⚠ UNPROTECTED (guards missing)".red().bold()
-    };
-    println!("   {:<12} {}", "Guards:".dimmed(), guard_status);
-
     let sync_status = if Path::new("pnpm-lock.yaml").exists() {
         "✔ LOCKED (via pnpm-lock.yaml)".green()
     } else {
@@ -65,7 +57,7 @@ pub fn print_health_summary(_manifest: &Manifest) -> Result<()> {
     };
     println!("   {:<12} {}", "Sync:".dimmed(), sync_status);
 
-    if has_node_modules || !has_guards {
+    if has_node_modules {
         println!();
         println!(
             "   {} Run {} to heal your workspace.",
