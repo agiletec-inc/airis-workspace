@@ -7,7 +7,7 @@ use predicates::prelude::*;
 
 fn airis() -> Command {
     #[allow(deprecated)]
-    Command::cargo_bin("airis").unwrap()
+    Command::cargo_bin("airis-workspace").unwrap()
 }
 
 #[test]

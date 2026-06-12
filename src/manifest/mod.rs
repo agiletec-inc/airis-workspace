@@ -389,16 +389,16 @@ impl Manifest {
         rule.insert(
             "verify".to_string(),
             RuleConfig {
-                commands: vec!["airis lint".to_string(), "airis test".to_string()],
+                commands: vec!["pnpm lint".to_string(), "pnpm test".to_string()],
             },
         );
         rule.insert(
             "ci".to_string(),
             RuleConfig {
                 commands: vec![
-                    "airis lint".to_string(),
-                    "airis test".to_string(),
-                    "airis build".to_string(),
+                    "pnpm lint".to_string(),
+                    "pnpm test".to_string(),
+                    "pnpm build".to_string(),
                 ],
             },
         );
@@ -414,26 +414,16 @@ impl Manifest {
                 dependencies: IndexMap::new(),
                 dev_dependencies: IndexMap::new(),
                 optional_dependencies: IndexMap::new(),
-                scripts: {
-                    let mut scripts = IndexMap::new();
-                    scripts.insert("dev".to_string(), "echo 'Run: airis dev'".to_string());
-                    scripts.insert("build".to_string(), "echo 'Run: airis build'".to_string());
-                    scripts.insert("lint".to_string(), "echo 'Run: airis lint'".to_string());
-                    scripts.insert("test".to_string(), "echo 'Run: airis test'".to_string());
-                    scripts
-                },
+                scripts: IndexMap::new(),
                 engines: IndexMap::new(),
                 pnpm: PnpmConfig::default(),
             },
             app: vec![],
         };
-        // Alias bare `docker compose up/down` to airis lifecycle commands.
-        // Do NOT remap `pnpm install` / `pnpm dev` here: install/dev runtime is
-        // workload-dependent (Workers/edge/native run host-native), so forcing
-        // them into `airis up` bakes in the retracted Docker-first default.
-        let mut remap = IndexMap::new();
-        remap.insert("docker compose up".to_string(), "airis up".to_string());
-        remap.insert("docker compose down".to_string(), "airis down".to_string());
+        // No default command remapping: the Docker wrapper subcommands were
+        // removed, so `docker compose up/down` and package-manager commands
+        // are used directly.
+        let remap = IndexMap::new();
 
         Manifest {
             version: 1,

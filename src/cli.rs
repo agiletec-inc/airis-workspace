@@ -1,24 +1,25 @@
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "airis")]
-#[command(about = "Convention engine for polyglot monorepos (Docker dev-env is one module)")]
+#[command(name = "airis-workspace")]
+#[command(about = "Convention engine for polyglot monorepos")]
 #[command(long_about = "\
 A workspace orchestrator for monorepos.
 
 Generates compose.yaml, tsconfig.json, and AI rule files from manifest.toml. \
-Drives Docker Compose for local dev. Stays out of your way for everything else.")]
+Stays out of your way for everything else.
+
+Invoked through the airis dispatcher as `airis workspace <cmd>`.")]
 #[command(after_help = "\
 QUICK REFERENCE:
-  airis up                  Start the environment (via manifest.toml or compose.yml)
-  airis run <task>          Run a task (defined in manifest or delegated to Docker)
-  airis shell               Enter workspace container shell
-  airis doctor              Diagnose and fix workspace issues
+  airis workspace gen           Regenerate workspace files from manifest.toml
+  airis workspace doctor        Diagnose and fix workspace issues
+  airis workspace clean         Remove build artifacts (dry-run by default)
+  airis workspace validate all  Validate workspace configuration
 
 CONVENTIONS:
-  airis automatically discovers projects in apps/* and libs/*. Use manifest.toml
-  only for overrides. If no manifest.toml is present, airis falls back to
-  standard Docker Compose behavior.")]
+  airis-workspace automatically discovers projects in apps/* and libs/*.
+  Use manifest.toml only for overrides.")]
 pub struct Cli {
     /// Print version
     #[arg(short = 'V', long = "version")]
@@ -26,15 +27,6 @@ pub struct Cli {
 
     #[command(subcommand)]
     pub command: Option<Commands>,
-}
-
-/// Test level for `airis test --level`
-#[derive(Clone, Debug, clap::ValueEnum)]
-pub enum TestLevel {
-    Unit,
-    Integration,
-    E2e,
-    Smoke,
 }
 
 #[derive(Subcommand)]
@@ -85,52 +77,6 @@ pub enum Commands {
         truth_json: bool,
     },
 
-    /// Execute a command defined in manifest.toml [commands], or delegate to Docker if compose.yml exists.
-    Run {
-        /// Task name (e.g., build, test)
-        task: String,
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Start the entire Docker-first workspace (via manifest.toml or compose.yml)
-    Up {
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Stop Docker services
-    Down {
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Enter workspace container shell
-    Shell {
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run tests
-    Test {
-        /// Test level: unit, integration, e2e, smoke
-        #[arg(long, value_enum)]
-        level: Option<TestLevel>,
-        /// Check coverage threshold
-        #[arg(long)]
-        coverage_check: bool,
-        /// Minimum coverage percentage
-        #[arg(long, default_value = "80")]
-        min_coverage: u8,
-        /// Extra arguments
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
     /// Clean build artifacts
     Clean {
         /// Preview only (default)
@@ -151,79 +97,6 @@ pub enum Commands {
         /// Extra arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
-    },
-
-    /// Show current workspace status
-    Status {
-        /// Show a concise one-line status (for shell prompts)
-        #[arg(long, short = 's')]
-        short: bool,
-    },
-
-    /// Run linting
-    Lint {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run code formatting
-    Format {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Run type checking
-    Typecheck {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// Show Docker container status
-    Ps {
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        extra_args: Vec<String>,
-    },
-
-    /// View Docker logs
-    Logs {
-        service: Option<String>,
-        #[arg(short, long)]
-        follow: bool,
-        #[arg(short = 'n', long)]
-        tail: Option<u32>,
-    },
-
-    /// Execute a command in a workspace service container.
-    ///
-    /// Service is auto-resolved from the command's runtime family
-    /// (pnpm/npm/node → workspace, python/uv → workspace, cargo → workspace).
-    /// Override with `--service`, or pass a service name as the first
-    /// positional argument for backward compatibility:
-    ///
-    /// ```text
-    /// airis exec pnpm install              # auto-route
-    /// airis exec --service api ls          # explicit
-    /// airis exec workspace pnpm install    # legacy positional form
-    /// ```
-    Exec {
-        /// Explicit service to exec into (takes precedence over auto-routing).
-        #[arg(long, short = 's')]
-        service: Option<String>,
-        /// Skip the auto-up that runs when the resolved service is stopped.
-        #[arg(long)]
-        no_auto_up: bool,
-        /// Command and its arguments.
-        #[arg(trailing_var_arg = true, required = true, allow_hyphen_values = true)]
-        cmd: Vec<String>,
-    },
-
-    /// Restart Docker services
-    Restart { service: Option<String> },
-
-    /// Docker network management
-    Network {
-        #[command(subcommand)]
-        action: NetworkCommands,
     },
 
     /// Create new app, service, or library
@@ -282,18 +155,12 @@ pub enum Commands {
         stat: bool,
     },
 
-    /// Upgrade airis
+    /// Upgrade airis-workspace
     Upgrade {
         #[arg(long)]
         check: bool,
         #[arg(long)]
         version: Option<String>,
-    },
-
-    /// Initialize shell integration (prompt, etc.)
-    InitShell {
-        #[arg(value_enum)]
-        shell: clap_complete::Shell,
     },
 
     /// Generate shell completion scripts
@@ -391,15 +258,6 @@ pub enum GenerateCommands {
         #[arg(short, long, default_value = "libs/types")]
         output: String,
     },
-}
-
-#[derive(Subcommand)]
-pub enum NetworkCommands {
-    Init,
-    Setup,
-    List,
-    #[command(name = "rm")]
-    Remove,
 }
 
 #[derive(Subcommand)]

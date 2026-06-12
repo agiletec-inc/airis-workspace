@@ -87,7 +87,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
             "tools": [
                 {
                     "name": "workspace_init",
-                    "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). After applying the proposed manifest with 'manifest_apply', it is highly recommended to run 'airis clean --purge --force' via shell to remove the legacy configuration files and complete the consolidation.",
+                    "description": "Initialize or sync manifest.toml with the current repository state. Detects existing apps, libs, and legacy docker-compose files (v1), proposing a normalized manifest.toml that follows the latest airis best practices and standardizes on compose.yaml (v2). After applying the proposed manifest with 'manifest_apply', it is highly recommended to run 'airis workspace clean --purge --force' via shell to remove the legacy configuration files and complete the consolidation.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {}
@@ -126,7 +126,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 },
                 {
                     "name": "manifest_apply",
-                    "description": "Write manifest.toml to disk and optionally run 'airis gen' to update the environment.",
+                    "description": "Write manifest.toml to disk and optionally run 'airis workspace gen' to update the environment.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -136,7 +136,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                             },
                             "run_gen": {
                                 "type": "boolean",
-                                "description": "Whether to run 'airis gen' immediately after writing",
+                                "description": "Whether to run 'airis workspace gen' immediately after writing",
                                 "default": true
                             }
                         },
@@ -171,7 +171,7 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 },
                 {
                     "name": "workspace_gen",
-                    "description": "Regenerate workspace files (package.json, pnpm-workspace.yaml, compose.yaml, CI workflows) from manifest.toml. Run after manifest_apply or manifest.toml edits to propagate changes. Equivalent to the 'airis gen' CLI command.",
+                    "description": "Regenerate workspace files (package.json, pnpm-workspace.yaml, compose.yaml, CI workflows) from manifest.toml. Run after manifest_apply or manifest.toml edits to propagate changes. Equivalent to the 'airis workspace gen' CLI command.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -208,135 +208,8 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                     }
                 },
                 {
-                    "name": "workspace_status",
-                    "description": "Show running Docker services (equivalent to 'docker compose ps'). Use to confirm which containers are up before further actions.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
-                    "name": "workspace_up",
-                    "description": "Start the Docker workspace (airis up). Builds images if needed and starts all services. Call before any exec/run/test commands when the workspace is not running.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
-                    "name": "workspace_down",
-                    "description": "Stop all Docker services in the workspace (airis down).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
-                    "name": "workspace_restart",
-                    "description": "Restart one or all Docker services (airis restart [service]).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "service": {
-                                "type": "string",
-                                "description": "Service name to restart. Omit to restart all services."
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "workspace_logs",
-                    "description": "Fetch Docker service logs (airis logs [service]). Use to debug runtime errors.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "service": {
-                                "type": "string",
-                                "description": "Service name. Omit for all services."
-                            },
-                            "tail": {
-                                "type": "integer",
-                                "description": "Number of log lines to return (default: 50).",
-                                "default": 50
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "workspace_install",
-                    "description": "Install dependencies inside the Docker workspace (airis install). Run after adding packages to package.json.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
-                    "name": "workspace_run",
-                    "description": "Run a task defined in manifest.toml [commands] or delegate to the Docker workspace (airis run <task>).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "task": {
-                                "type": "string",
-                                "description": "Task name (e.g. build, migrate, seed)"
-                            },
-                            "extra_args": {
-                                "type": "array",
-                                "items": { "type": "string" },
-                                "description": "Additional arguments forwarded to the task"
-                            }
-                        },
-                        "required": ["task"]
-                    }
-                },
-                {
-                    "name": "workspace_exec",
-                    "description": "Execute an arbitrary command inside the Docker workspace container (airis exec <cmd>). Auto-routes to the correct service based on the command's runtime.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "cmd": {
-                                "type": "array",
-                                "items": { "type": "string" },
-                                "description": "Command and arguments to run inside the container (e.g. [\"pnpm\", \"add\", \"zod\"])"
-                            }
-                        },
-                        "required": ["cmd"]
-                    }
-                },
-                {
-                    "name": "workspace_test",
-                    "description": "Run the test suite inside Docker (airis test). Equivalent to the project's test script.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "extra_args": {
-                                "type": "array",
-                                "items": { "type": "string" },
-                                "description": "Additional arguments forwarded to the test runner"
-                            }
-                        }
-                    }
-                },
-                {
-                    "name": "workspace_lint",
-                    "description": "Run linting inside Docker (airis lint).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
-                    "name": "workspace_typecheck",
-                    "description": "Run type checking inside Docker (airis typecheck).",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                },
-                {
                     "name": "workspace_clean",
-                    "description": "Remove build artifacts from the workspace (airis clean). Defaults to dry-run; pass force=true to actually delete.",
+                    "description": "Remove build artifacts from the workspace (airis workspace clean). Defaults to dry-run; pass force=true to actually delete.",
                     "inputSchema": {
                         "type": "object",
                         "properties": {
@@ -371,17 +244,6 @@ fn handle_request(request: McpRequest) -> Result<McpResponse> {
                 "workspace_validate_all" => handle_workspace_validate_all()?,
                 "workspace_doctor" => handle_workspace_doctor()?,
                 "workspace_verify" => handle_workspace_verify()?,
-                "workspace_status" => handle_workspace_status()?,
-                "workspace_up" => handle_workspace_up()?,
-                "workspace_down" => handle_workspace_down()?,
-                "workspace_restart" => handle_workspace_restart(arguments)?,
-                "workspace_logs" => handle_workspace_logs(arguments)?,
-                "workspace_install" => handle_workspace_install()?,
-                "workspace_run" => handle_workspace_run(arguments)?,
-                "workspace_exec" => handle_workspace_exec(arguments)?,
-                "workspace_test" => handle_workspace_test(arguments)?,
-                "workspace_lint" => handle_workspace_lint()?,
-                "workspace_typecheck" => handle_workspace_typecheck()?,
                 "workspace_clean" => handle_workspace_clean(arguments)?,
                 _ => json!({
                     "content": [
@@ -486,7 +348,7 @@ fn handle_workspace_cleanup() -> Result<Value> {
 
     let list = legacy_files.join("\n");
     let response = format!(
-        "The following legacy artifacts and unneeded files were found:\n\n{}\n\nYou can use 'migration_execute' to remove these files, or run 'airis clean --purge --force' from the shell.",
+        "The following legacy artifacts and unneeded files were found:\n\n{}\n\nYou can use 'migration_execute' to remove these files, or run 'airis workspace clean --purge --force' from the shell.",
         list
     );
 
@@ -582,9 +444,9 @@ fn handle_manifest_apply(arguments: &Value) -> Result<Value> {
         // Load the manifest we just wrote to ensure we're using the latest
         let _manifest = Manifest::load(Path::new("manifest.toml"))?;
         crate::commands::generate::run(false, false, false)?;
-        response_text.push_str("\nEnvironment updated with 'airis gen'.");
+        response_text.push_str("\nEnvironment updated with 'airis workspace gen'.");
     } else {
-        response_text.push_str("\nRun 'airis gen' to update the environment.");
+        response_text.push_str("\nRun 'airis workspace gen' to update the environment.");
     }
 
     Ok(json!({
@@ -676,82 +538,6 @@ fn handle_workspace_gen(arguments: &Value) -> Result<Value> {
     run_airis_subprocess(&args)
 }
 
-fn handle_workspace_up() -> Result<Value> {
-    run_airis_subprocess(&["up"])
-}
-
-fn handle_workspace_down() -> Result<Value> {
-    run_airis_subprocess(&["down"])
-}
-
-fn handle_workspace_restart(arguments: &Value) -> Result<Value> {
-    let mut args = vec!["restart".to_string()];
-    if let Some(service) = arguments["service"].as_str() {
-        args.push(service.to_string());
-    }
-    run_airis_subprocess_dyn(args)
-}
-
-fn handle_workspace_logs(arguments: &Value) -> Result<Value> {
-    let tail = arguments["tail"].as_u64().unwrap_or(50);
-    let tail_str = tail.to_string();
-    let mut args = vec!["logs", "--tail", &tail_str];
-    let service_owned;
-    if let Some(service) = arguments["service"].as_str() {
-        service_owned = service.to_string();
-        args.push(&service_owned);
-    }
-    run_airis_subprocess(&args)
-}
-
-fn handle_workspace_install() -> Result<Value> {
-    run_airis_subprocess(&["install"])
-}
-
-fn handle_workspace_run(arguments: &Value) -> Result<Value> {
-    let task = arguments["task"].as_str().context("Missing task name")?;
-    let mut args = vec!["run".to_string(), task.to_string()];
-    if let Some(extra) = arguments["extra_args"].as_array() {
-        for v in extra {
-            if let Some(s) = v.as_str() {
-                args.push(s.to_string());
-            }
-        }
-    }
-    run_airis_subprocess_dyn(args)
-}
-
-fn handle_workspace_exec(arguments: &Value) -> Result<Value> {
-    let cmd = arguments["cmd"].as_array().context("Missing cmd array")?;
-    let mut args = vec!["exec".to_string()];
-    for v in cmd {
-        if let Some(s) = v.as_str() {
-            args.push(s.to_string());
-        }
-    }
-    run_airis_subprocess_dyn(args)
-}
-
-fn handle_workspace_test(arguments: &Value) -> Result<Value> {
-    let mut args = vec!["test".to_string()];
-    if let Some(extra) = arguments["extra_args"].as_array() {
-        for v in extra {
-            if let Some(s) = v.as_str() {
-                args.push(s.to_string());
-            }
-        }
-    }
-    run_airis_subprocess_dyn(args)
-}
-
-fn handle_workspace_lint() -> Result<Value> {
-    run_airis_subprocess(&["lint"])
-}
-
-fn handle_workspace_typecheck() -> Result<Value> {
-    run_airis_subprocess(&["typecheck"])
-}
-
 fn handle_workspace_clean(arguments: &Value) -> Result<Value> {
     let force = arguments["force"].as_bool().unwrap_or(false);
     let purge = arguments["purge"].as_bool().unwrap_or(false);
@@ -775,31 +561,6 @@ fn handle_workspace_doctor() -> Result<Value> {
 
 fn handle_workspace_verify() -> Result<Value> {
     run_airis_subprocess(&["verify"])
-}
-
-fn handle_workspace_status() -> Result<Value> {
-    let output = Command::new("docker")
-        .args(["compose", "ps"])
-        .output()
-        .context("Failed to run 'docker compose ps'")?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-    let success = output.status.success();
-
-    let text = match (stdout.is_empty(), stderr.is_empty()) {
-        (true, true) => format!("docker compose ps exited with status {}", output.status),
-        (false, true) => stdout,
-        (true, false) => stderr,
-        (false, false) => format!("{stdout}\n--- stderr ---\n{stderr}"),
-    };
-
-    Ok(json!({
-        "content": [
-            { "type": "text", "text": text }
-        ],
-        "isError": !success
-    }))
 }
 
 /// Workspace resources advertised over MCP. Each entry is a project-relative

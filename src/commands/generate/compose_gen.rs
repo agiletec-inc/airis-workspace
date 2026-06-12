@@ -264,7 +264,7 @@ pub fn generate_workspace_compose(manifest: &Manifest) -> Result<()> {
         services.insert(name.clone(), svc);
     }
 
-    // Workspace runner (for `airis run`/`airis exec`)
+    // Workspace runner (dev container for `docker compose exec workspace ...`)
     services.insert(
         "workspace".to_string(),
         ComposeService {

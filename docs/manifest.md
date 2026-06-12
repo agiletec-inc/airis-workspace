@@ -1,7 +1,8 @@
 # manifest.toml Configuration Reference
 
-Complete reference for the `manifest.toml` file used by the airis CLI — a polyglot
-convention-unification engine with an optional Docker workspace module.
+Complete reference for the `manifest.toml` file used by the `airis-workspace` CLI
+(`airis workspace <cmd>` via the dispatcher) — a polyglot convention-unification
+engine with an optional Docker workspace module.
 
 `manifest.toml` is the **thin source of truth** for workspace tooling. airis uses
 **Convention over Configuration**: projects are discovered from repository structure
@@ -9,7 +10,7 @@ convention-unification engine with an optional Docker workspace module.
 
 Generated files (`compose.yaml`, `tsconfig.json` / `tsconfig.base.json`, and the AI
 adapter files `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`) carry `DO NOT EDIT` markers —
-change `manifest.toml` (or `docs/ai/*.md` for the adapters) and run `airis gen`.
+change `manifest.toml` (or `docs/ai/*.md` for the adapters) and run `airis workspace gen`.
 Per-project `package.json` dependencies/scripts and `pnpm-workspace.yaml` are
 **user-owned**; airis reads them but never overwrites your edits.
 
@@ -99,7 +100,7 @@ Core workspace settings for Docker Compose integration and cleanup behavior.
 
 ### [workspace.clean]
 
-Cleanup targets used by `airis clean`.
+Cleanup targets used by `airis workspace clean`.
 
 | Field       | Type     | Default                                                        | Description                                    |
 |-------------|----------|----------------------------------------------------------------|------------------------------------------------|
@@ -124,15 +125,15 @@ recursive = ["node_modules"]
 
 ## [dev]
 
-Development environment configuration. Controls app discovery, infrastructure compose files, post-startup hooks, and URL display after `airis up`.
+Development environment configuration. Controls app discovery, infrastructure compose files, post-startup hooks, and URL display after workspace startup.
 
 | Field          | Type                      | Default                          | Description                                       |
 |----------------|---------------------------|----------------------------------|---------------------------------------------------|
 | `apps_pattern` | string                    | `"apps/*/docker-compose.yml"`    | Glob pattern for auto-discovering app compose files. |
 | `supabase`     | string[]?                 | `null`                           | Paths to Supabase compose files.                  |
 | `traefik`      | string?                   | `null`                           | Path to Traefik compose file.                     |
-| `urls`         | object?                   | `null`                           | URLs to display after `airis up`.                 |
-| `post_up`      | string[]                  | `[]`                             | Commands to run after `airis up` (e.g., DB migrations). |
+| `urls`         | object?                   | `null`                           | URLs to display after workspace startup.          |
+| `post_up`      | string[]                  | `[]`                             | Commands to run after workspace startup (e.g., DB migrations). |
 
 ### [dev.urls]
 
@@ -203,7 +204,7 @@ Define reusable technology stacks. Stacks automate Docker volume isolation, envi
 | `image`     | string?              | `null`  | Base Docker image for this stack.                          |
 | `artifacts` | string[]             | `[]`    | Local directories to isolate in named volumes (e.g., `.next`). |
 | `volumes`   | map<string,string>   | `{}`    | Global cache volumes (e.g., `pnpm-store`).                 |
-| `verify`    | string[]             | `[]`    | Verification commands for `airis verify`.                  |
+| `verify`    | string[]             | `[]`    | Verification commands for `airis workspace verify`.        |
 | `gpu`       | bool                 | `false` | Enable NVIDIA GPU resource reservation.                    |
 | `scripts`   | map<string,string>   | `{}`    | npm scripts to inject into `package.json`.                 |
 
@@ -272,7 +273,7 @@ Docker module configuration. This section is **optional** — non-containerized 
 
 ### [[docker.routes]]
 
-Command routing rules that map glob patterns to specific services and working directories (used by `airis exec`).
+Command routing rules that map glob patterns to specific services and working directories.
 
 | Field     | Type   | Description                                              |
 |-----------|--------|----------------------------------------------------------|
@@ -361,9 +362,9 @@ scripts = { dev = "next dev", build = "next build" }
 
 ## [commands]
 
-User-defined commands executed via `airis run <name>`. The built-in aliases
-(`airis up`, `airis down`, `airis shell`, `airis lint`, `airis format`,
-`airis typecheck`) delegate to keys here.
+User-defined commands documenting the repo's canonical tasks. Surfaced to AI
+agents and tooling (e.g. via `airis workspace doctor --truth`); run them with
+your shell or task runner.
 
 ```toml
 [commands]
@@ -380,22 +381,21 @@ lint = "docker compose exec workspace pnpm lint"
 
 ## [remap]
 
-Command translation for `airis run`. When a remapped command goes through airis,
-the safe replacement defined here is used instead. Remap is opt-in per repo and
-ships no defaults, since install/dev runtime is workload-dependent.
+Command translation hints for AI agents (e.g. mapping a generic command to the
+repo's preferred equivalent). Remap is opt-in per repo and ships no defaults,
+since install/dev runtime is workload-dependent.
 
 ```toml
 [remap]
-"docker compose up" = "airis up"
-"docker compose down" = "airis down"
-"docker exec" = "airis shell"
+"npm install" = "pnpm install"
+"docker-compose up" = "docker compose up -d"
 ```
 
 ---
 
 ## [versioning]
 
-Version management strategy. Used by `airis bump-version`.
+Version management strategy. Used by `airis workspace bump-version`.
 
 | Field      | Type   | Default     | Description                                  |
 |------------|--------|-------------|----------------------------------------------|
@@ -406,9 +406,9 @@ Strategies:
 
 | Strategy               | Behavior                                                  |
 |------------------------|-----------------------------------------------------------|
-| `manual`               | Version bumps only when explicitly requested (`airis bump-version --major/--minor/--patch`). |
-| `auto`                 | `airis bump-version --auto` defaults to a minor bump.     |
-| `conventional-commits` | `airis bump-version --auto` parses the latest commit message to determine bump type (major/minor/patch). |
+| `manual`               | Version bumps only when explicitly requested (`airis workspace bump-version --major/--minor/--patch`). |
+| `auto`                 | `airis workspace bump-version --auto` defaults to a minor bump. |
+| `conventional-commits` | `airis workspace bump-version --auto` parses the latest commit message to determine bump type (major/minor/patch). |
 
 ```toml
 [versioning]
@@ -420,7 +420,7 @@ source = "1.56.0"
 
 ## [docs]
 
-AI documentation publication. Controls how airis generates vendor adapter files from shared project docs (`airis docs sync`).
+AI documentation publication. Controls how airis generates vendor adapter files from shared project docs (`airis workspace docs sync`).
 
 | Field           | Type     | Default  | Description |
 |----------------|----------|----------|-------------|
@@ -469,7 +469,7 @@ rules_dir = ".claude/rules/generated/"
 
 ## [templates]
 
-Template definitions for `airis new`. Organized by category. Each category is a map of template names to their configurations.
+Template definitions for `airis workspace new`. Organized by category. Each category is a map of template names to their configurations.
 
 Categories: `api`, `web`, `worker`, `cli`, `lib`, `edge`, `supabase-trigger`, `supabase-realtime`.
 
@@ -499,7 +499,7 @@ package_config = "package.json"
 
 ## [runtimes]
 
-Runtime alias configuration for `airis new`. Provides short names that map to template identifiers.
+Runtime alias configuration for `airis workspace new`. Provides short names that map to template identifiers.
 
 | Field   | Type              | Default | Description                                |
 |---------|-------------------|---------|--------------------------------------------|
@@ -516,7 +516,7 @@ rs = "rust-axum"
 
 ## [env]
 
-Environment variable validation. Checked by `airis doctor` and `airis validate`.
+Environment variable validation. Checked by `airis workspace doctor` and `airis workspace validate`.
 
 | Field      | Type     | Default | Description                              |
 |------------|----------|---------|------------------------------------------|
@@ -548,7 +548,7 @@ example = "postgresql://user:pass@localhost:5432/mydb"
 
 ## [secrets]
 
-Secret provider configuration. When configured, `airis up` wraps Docker Compose with the provider CLI to inject environment variables automatically.
+Secret provider configuration. When configured, `airis workspace gen` wraps its container-based lockfile sync with the provider CLI to inject environment variables automatically.
 
 | Field      | Type    | Default | Description                                      |
 |------------|---------|---------|--------------------------------------------------|
@@ -572,7 +572,7 @@ project = "my-project"
 config = "dev"
 ```
 
-When configured, `airis up` becomes `doppler run --project my-project --config dev -- docker compose up ...`.
+When configured, container commands run as `doppler run --project my-project --config dev -- docker compose ...`.
 
 ---
 
@@ -586,10 +586,10 @@ Named rule chains that execute a sequence of commands. Useful for defining compo
 
 ```toml
 [rule.verify]
-commands = ["airis lint", "airis test"]
+commands = ["pnpm lint", "pnpm test"]
 
 [rule.ci]
-commands = ["airis lint", "airis test", "airis typecheck"]
+commands = ["pnpm lint", "pnpm test", "pnpm typecheck"]
 ```
 
 ---
@@ -627,7 +627,7 @@ default_external = false
 
 ## [policy]
 
-Code governance policy, checked by `airis policy check` / `airis policy enforce`.
+Code governance policy, checked by `airis workspace policy check` / `airis workspace policy enforce`.
 
 ```toml
 [policy.testing]

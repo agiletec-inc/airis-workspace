@@ -81,9 +81,9 @@ pub fn print_notification() {
         println!(
             "{}  {} v{} is available! Run {} to update.",
             "✨".yellow(),
-            "airis".bold(),
+            "airis-workspace".bold(),
             latest.green(),
-            "airis upgrade".cyan()
+            "airis workspace upgrade".cyan()
         );
     }
 }
@@ -104,13 +104,13 @@ pub fn run(target_version: Option<String>) -> Result<()> {
         if status.success() {
             println!(
                 "{}",
-                "✅ Successfully synced and updated airis via cargo!".green()
+                "✅ Successfully synced and updated airis-workspace via cargo!".green()
             );
             return Ok(());
         }
     }
 
-    println!("{}", "🚀 Upgrading airis...".bright_blue());
+    println!("{}", "🚀 Upgrading airis-workspace...".bright_blue());
     println!();
 
     let current = env!("CARGO_PKG_VERSION");
@@ -145,26 +145,28 @@ pub fn run(target_version: Option<String>) -> Result<()> {
         return Ok(());
     }
 
-    // Detect platform
-    let (os, arch) = detect_platform()?;
-    println!("Platform: {}-{}", os, arch);
+    // Detect platform (Rust target triple, matching cargo-dist asset naming)
+    let target_triple = detect_target_triple()?;
+    println!("Platform: {}", target_triple);
     println!();
 
     // Fetch release info for target version
     let release = fetch_release(&target)?;
 
-    // Find matching asset
-    let asset_name = format!("airis-{}-{}", os, arch);
+    // Find matching asset. cargo-dist names release archives
+    // `airis-workspace-{target-triple}.tar.xz` (`.zip` on Windows).
+    let asset_stem = format!("airis-workspace-{}", target_triple);
     let asset = release
         .assets
         .iter()
-        .find(|a| a.name.starts_with(&asset_name) || a.name == format!("{}.tar.gz", asset_name))
+        .find(|a| {
+            a.name == format!("{}.tar.xz", asset_stem) || a.name == format!("{}.zip", asset_stem)
+        })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "No binary found for platform {}-{}\n\
+                "No binary found for platform {}\n\
                  Available assets: {:?}",
-                os,
-                arch,
+                target_triple,
                 release.assets.iter().map(|a| &a.name).collect::<Vec<_>>()
             )
         })?;
@@ -176,14 +178,17 @@ pub fn run(target_version: Option<String>) -> Result<()> {
     let download_path = temp_dir.join(&asset.name);
     download_file(&asset.browser_download_url, &download_path)?;
 
-    // Extract if needed
-    let binary_path = if asset.name.ends_with(".tar.gz") {
-        println!("Extracting...");
-        extract_tar_gz(&download_path, &temp_dir)?;
-        temp_dir.join("airis")
+    // Extract. cargo-dist archives contain a single directory named after
+    // the archive stem with the binary inside.
+    println!("Extracting...");
+    extract_archive(&download_path, &temp_dir)?;
+    let binary_name = if cfg!(windows) {
+        "airis-workspace.exe"
     } else {
-        download_path.clone()
+        "airis-workspace"
     };
+    let extracted_dir = temp_dir.join(&asset_stem);
+    let binary_path = extracted_dir.join(binary_name);
 
     // Make executable
     #[cfg(unix)]
@@ -236,9 +241,7 @@ pub fn run(target_version: Option<String>) -> Result<()> {
 
     // Clean up temp files
     let _ = fs::remove_file(&download_path);
-    if asset.name.ends_with(".tar.gz") {
-        let _ = fs::remove_file(temp_dir.join("airis"));
-    }
+    let _ = fs::remove_dir_all(&extracted_dir);
 
     println!();
     println!(
@@ -343,11 +346,12 @@ fn download_file(url: &str, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Extract a .tar.gz file
-fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
+/// Extract an archive (.tar.xz or .zip) using `tar`, which auto-detects
+/// the compression format (bsdtar also handles zip).
+fn extract_archive(archive: &Path, dest: &Path) -> Result<()> {
     let output = Command::new("tar")
         .args([
-            "-xzf",
+            "-xf",
             &archive.to_string_lossy(),
             "-C",
             &dest.to_string_lossy(),
@@ -363,22 +367,17 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Detect current platform (os, arch)
-fn detect_platform() -> Result<(String, String)> {
-    let os = match env::consts::OS {
-        "macos" => "darwin",
-        "linux" => "linux",
-        "windows" => "windows",
-        other => anyhow::bail!("Unsupported OS: {}", other),
-    };
-
-    let arch = match env::consts::ARCH {
-        "x86_64" => "x86_64",
-        "aarch64" => "aarch64",
-        other => anyhow::bail!("Unsupported architecture: {}", other),
-    };
-
-    Ok((os.to_string(), arch.to_string()))
+/// Detect the Rust target triple for the current platform.
+/// Must match the `targets` list in dist-workspace.toml.
+fn detect_target_triple() -> Result<&'static str> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
+        ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
+        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
+        ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
+        ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
+        (os, arch) => anyhow::bail!("Unsupported platform: {}-{}", os, arch),
+    }
 }
 
 /// Compare versions (returns true if v1 > v2)
@@ -414,12 +413,9 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_platform() {
-        // Just verify it doesn't panic
-        let result = detect_platform();
-        assert!(result.is_ok());
-        let (os, arch) = result.unwrap();
-        assert!(!os.is_empty());
-        assert!(!arch.is_empty());
+    fn test_detect_target_triple() {
+        // Dev/CI platforms must resolve to a supported cargo-dist target.
+        let triple = detect_target_triple().unwrap();
+        assert!(triple.contains(env::consts::ARCH));
     }
 }

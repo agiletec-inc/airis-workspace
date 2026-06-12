@@ -110,16 +110,31 @@ impl WorkspaceTruth {
             pm_full.clone()
         };
 
-        // Build recommended commands
+        // Build recommended commands. The Docker wrapper subcommands were
+        // removed from the CLI, so recommendations point at docker compose
+        // and the package manager directly.
+        let pm = if package_manager.is_empty() {
+            "pnpm".to_string()
+        } else {
+            package_manager.clone()
+        };
+        let service = if manifest.workspace.service.is_empty() {
+            "workspace".to_string()
+        } else {
+            manifest.workspace.service.clone()
+        };
         let mut recommended_commands = IndexMap::new();
-        recommended_commands.insert("up".to_string(), "airis up".to_string());
-        recommended_commands.insert("down".to_string(), "airis down".to_string());
-        recommended_commands.insert("install".to_string(), "airis install".to_string());
-        recommended_commands.insert("dev".to_string(), "airis dev".to_string());
-        recommended_commands.insert("shell".to_string(), "airis shell".to_string());
-        recommended_commands.insert("build".to_string(), "airis build".to_string());
-        recommended_commands.insert("test".to_string(), "airis test".to_string());
-        recommended_commands.insert("lint".to_string(), "airis lint".to_string());
+        recommended_commands.insert("up".to_string(), format!("{} up -d", compose_command));
+        recommended_commands.insert("down".to_string(), format!("{} down", compose_command));
+        recommended_commands.insert("install".to_string(), format!("{} install", pm));
+        recommended_commands.insert("dev".to_string(), format!("{} run dev", pm));
+        recommended_commands.insert(
+            "shell".to_string(),
+            format!("{} exec {} sh", compose_command, service),
+        );
+        recommended_commands.insert("build".to_string(), format!("{} run build", pm));
+        recommended_commands.insert("test".to_string(), format!("{} test", pm));
+        recommended_commands.insert("lint".to_string(), format!("{} run lint", pm));
 
         Ok(WorkspaceTruth {
             format: "airis.manifest.v1",
@@ -266,15 +281,15 @@ name = "test"
             let truth = WorkspaceTruth::from_manifest(&manifest).unwrap();
             assert_eq!(
                 truth.recommended_commands.get("up"),
-                Some(&"airis up".to_string())
+                Some(&"docker compose up -d".to_string())
             );
             assert_eq!(
                 truth.recommended_commands.get("dev"),
-                Some(&"airis dev".to_string())
+                Some(&"pnpm run dev".to_string())
             );
             assert_eq!(
                 truth.recommended_commands.get("shell"),
-                Some(&"airis shell".to_string())
+                Some(&"docker compose exec workspace sh".to_string())
             );
         });
 
