@@ -9,6 +9,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking Changes
 
+- **Binary renamed: `airis` → `airis-workspace` (v4.0.0).** The AIRIS suite
+  moves to git-style dispatch: a thin `airis` dispatcher execs `airis-<tool>`
+  binaries. Install the `airis` dispatcher and call `airis workspace <cmd>`
+  (the binary also works standalone as `airis-workspace <cmd>`). Release
+  archives were already named `airis-workspace-{target}`, so installer/asset
+  naming is unchanged.
+- **Docker wrapper subcommands removed (15):** `run`, `up`, `down`, `shell`,
+  `test`, `lint`, `format`, `typecheck`, `ps`, `logs`, `exec`, `restart`,
+  `network`, `status`, `init-shell`. Run `docker compose` and your native
+  toolchain (pnpm/cargo/uv/...) directly. The auto-up machinery
+  (`AIRIS_NO_AUTO_UP`) and pre-command hooks went with them.
+- **MCP tools reduced 22 → 11.** Removed the Docker-wrapper tools
+  (`workspace_up`, `workspace_down`, `workspace_restart`, `workspace_logs`,
+  `workspace_install`, `workspace_run`, `workspace_exec`, `workspace_test`,
+  `workspace_lint`, `workspace_typecheck`, `workspace_status`). Remaining:
+  `workspace_init`, `workspace_cleanup`, `workspace_discover`,
+  `manifest_validate`, `manifest_apply`, `migration_execute`,
+  `workspace_gen`, `workspace_validate_all`, `workspace_doctor`,
+  `workspace_verify`, `workspace_clean`.
+- **Self-upgrade discontinuity.** Binaries older than this release look for
+  release assets under the old `airis-{os}-{arch}` naming and cannot
+  self-upgrade across the rename. Reinstall via Homebrew
+  (`brew install agiletec-inc/tap/airis-workspace`), `cargo install
+  airis-workspace`, or the installer script instead. From this release on,
+  `upgrade` follows cargo-dist asset naming
+  (`airis-workspace-{target-triple}`).
+
+### Migration Guide (binary rename + wrapper removal)
+
+- `airis clean` → `airis workspace clean` (all other surviving subcommands
+  likewise: `airis gen` → `airis workspace gen`, `airis doctor` →
+  `airis workspace doctor`, ...).
+- Wrapper subcommands → run the underlying tools directly:
+  `airis up`/`down`/`logs`/`ps`/`restart` → `docker compose up -d` / `down` /
+  `logs` / `ps` / `restart`; `airis shell`/`exec` →
+  `docker compose exec workspace <cmd>`; `airis test`/`lint`/`format`/
+  `typecheck`/`run <task>` → the package-manager or toolchain command
+  (e.g. `pnpm test`).
+- `airis doctor --truth` (`recommended_commands`) now reports docker compose /
+  package-manager commands instead of the removed wrappers.
+
+### Breaking Changes (earlier, unreleased)
+
 - **`airis init` CLI subcommand removed.** Initialization (repo scan → manifest.toml
   proposal) is now exclusively an LLM-assisted flow through the MCP server. Invoke
   `workspace_init` via Claude Code (or the `/airis:init` slash command), then

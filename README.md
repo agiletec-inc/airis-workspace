@@ -27,9 +27,15 @@ It is a **Rust-powered, polyglot convention-unification engine** for the AI codi
 - **Convention core** — applies to *every* repo, polyglot (Node / Python / Rust / edge / native):
   `gen`, `docs`, `new`, `validate`, `doctor`, `bump-version`, `verify`. These keep AI adapters,
   shared docs, `tsconfig.json`, the version scheme, and scaffolding consistent across repos.
-- **Docker module** — *only* for containerized repos: `up` / `down` / `exec` / `shell` / `run`,
-  plus `compose.yaml` + named-volume generation inside `gen`. The `[docker]` manifest section is
-  optional (`#[serde(default)]`), so non-containerized repos use airis without it.
+- **Docker module** — *only* for containerized repos: `compose.yaml` + named-volume generation
+  inside `gen`. The `[docker]` manifest section is optional (`#[serde(default)]`), so
+  non-containerized repos use airis without it. You drive the containers with
+  `docker compose` directly.
+
+> **v4.0.0**: the binary is named `airis-workspace` and is normally invoked through the
+> `airis` dispatcher as `airis workspace <cmd>`. The Docker wrapper subcommands
+> (`up` / `exec` / `run` / `shell` / ...) were removed — run `docker compose` and your
+> native toolchain directly. See [CHANGELOG.md](CHANGELOG.md) for the migration guide.
 
 ### Pick the runtime that matches where the code ships
 
@@ -39,16 +45,16 @@ airis does **not** force everything into Docker. Match the development runtime t
 |---|---|
 | Cloudflare Workers / edge (incl. Next.js on OpenNext) | **host-native** (`pnpm dev`, `wrangler dev`, `pnpm cf-preview`) |
 | Native desktop (macOS / Swift / Tauri / Rust CLI) | **host** (`cargo`, `xcodebuild`, …) |
-| Long-running container workloads (k3s daemons, Playwright) | **Docker** (`airis up` / `airis exec`) |
+| Long-running container workloads (k3s daemons, Playwright) | **Docker** (`docker compose up -d` / `docker compose exec`) |
 | Python / GPU (CUDA, ML, video) | **Docker** |
-| Tests (all workloads) | **Docker** (`airis test`, for CI parity) |
+| Tests (all workloads) | **Docker** (for CI parity) |
 
-For containerized repos, run your usual tools through the workspace so they never touch the host:
+For containerized repos, run your usual tools inside the workspace container so they never touch the host:
 
 ```bash
-airis exec pnpm install      # → docker compose exec workspace pnpm install
-airis exec pnpm dev          # → docker compose exec workspace pnpm dev
-airis exec python main.py    # → docker compose exec workspace python main.py
+docker compose exec workspace pnpm install
+docker compose exec workspace pnpm dev
+docker compose exec workspace python main.py
 ```
 
 For Workers / edge / native repos, run host-native — airis stays out of the runtime and just
@@ -73,8 +79,8 @@ AIRIS works with plain Docker Compose projects.
 If your repository already has a `compose.yml`, AIRIS can use it as the workspace boundary.  
 **No manifest required. No migration required. No monorepo rewrite required.**
 
-Start by routing commands through `airis exec` / `airis run`. Grow into manifest-driven
-orchestration later.
+Start with `airis workspace clean` / `airis workspace doctor` for hygiene. Grow into
+manifest-driven generation (`airis workspace gen`) later.
 
 ### Install AIRIS
 
@@ -97,41 +103,19 @@ cargo install airis-workspace
 
 ### Use Your Repo as Normal
 
-Go to any project with a `compose.yml` and route your usual commands through airis:
+Go to any project with a `compose.yml` and run your usual commands inside the workspace
+container:
 
 ```bash
-airis exec pnpm install   # runs inside the workspace container
-airis exec pnpm dev       # runs inside the workspace container
-airis run <task>          # runs a task defined in manifest.toml [commands]
+docker compose up -d
+docker compose exec workspace pnpm install
+docker compose exec workspace pnpm dev
 ```
 
-If the workspace container is not running, `airis exec` automatically starts it via `airis up`.
-
-> Earlier versions shipped a **guard-shim** subsystem that transparently intercepted bare
-> `pnpm` / `python` / `cargo` calls on the host. That subsystem has been removed: routing is now
-> explicit (`airis exec` / `airis run`), which is simpler and avoids surprising host commands.
-
----
-
-## How It Works: Command Routing
-
-### `airis exec` / `airis run` → Service Resolution
-
-When you run `airis exec pnpm install` (or `airis run <task>` that delegates to Docker):
-
-1. **Service resolution** classifies the command by runtime family:
-   - `node`, `npm`, `pnpm`, `yarn`, `bun`, `tsc`, `tsx`, `next`, `vite` → Node family → `workspace` service
-   - `python`, `python3`, `pip`, `uv`, `poetry`, `ruff`, `mypy`, `pytest` → Python family → `workspace` service
-   - `cargo`, `rustc`, `rustup`, `clippy-driver`, `rustfmt` → Rust family → `workspace` service
-2. **Executes** `docker compose exec <service> <command>`
-3. **Auto-up**: if the resolved service is not running, `airis exec` runs `airis up` first
-
-### Command remapping (`[remap]`)
-
-A repo's `manifest.toml` may declare a `[remap]` table that rewrites convenience commands when
-they go through `airis run` — for example aliasing `docker compose up` → `airis up`. Remap is
-opt-in per repo and deliberately does **not** ship default `pnpm dev` / `pnpm install` → `airis up`
-entries, since install/dev runtime is workload-dependent.
+> Earlier versions shipped a **guard-shim** subsystem (host command interception) and later
+> Docker wrapper subcommands (`airis exec` / `airis run` / `airis up` / ...). Both have been
+> removed: you run `docker compose` and your toolchain directly, which is simpler and avoids
+> surprising indirection.
 
 ---
 
@@ -160,17 +144,14 @@ When you need more structure, a `manifest.toml` becomes the source of truth for:
 - **Runtimes**: Node.js, Python, Rust — per project
 - **Docker workspace generation**: Automated `compose.yaml` from declarations (containerized repos)
 - **Named volumes**: Keep `node_modules`, `target/`, `.venv` inside containers
-- **Command policies**: Define `airis run <task>` shortcuts and `[remap]` aliases
 - **AI agent rules**: Shared guidance synced into `CLAUDE.md` / `AGENTS.md` / `GEMINI.md`
 - **Generated config**: Synced `package.json`, `tsconfig.json`, Justfile
 
 Start simple. Add manifest later.
 
 ```bash
-airis gen              # Generate compose.yaml and other configs from manifest.toml
-airis up               # Start the Docker workspace (containerized repos)
-airis shell            # Enter the workspace container
-airis run <task>       # Run custom tasks (defined in manifest.toml [commands])
+airis workspace gen        # Generate compose.yaml and other configs from manifest.toml
+docker compose up -d       # Start the Docker workspace (containerized repos)
 ```
 
 ---
@@ -182,7 +163,7 @@ AIRIS integrates with Claude Code through the **MCP (Model Context Protocol)**.
 ### Setup
 
 ```bash
-airis claude setup
+airis workspace claude setup
 ```
 
 This:
@@ -200,97 +181,69 @@ Inside Claude Code:
 ### Status & Cleanup
 
 ```bash
-airis claude status      # Check Claude integration status
-airis claude uninstall  # Remove Claude configuration
+airis workspace claude status     # Check Claude integration status
+airis workspace claude uninstall  # Remove Claude configuration
 ```
 
 ---
 
 ## Commands Reference
 
-### Core Execution
-
-```bash
-airis exec <cmd>          # Run a command with automatic service routing (e.g., airis exec pnpm install)
-airis run <task>          # Run a task defined in manifest.toml [commands]
-airis up                  # Start Docker workspace (alias for airis run up)
-airis down                # Stop all services (alias for airis run down)
-airis shell               # Enter the workspace container interactive shell
-```
+All commands are invoked through the `airis` dispatcher as `airis workspace <cmd>`
+(or directly as `airis-workspace <cmd>`).
 
 ### Claude & AI Integration
 
 ```bash
-airis claude setup       # Sync Claude Code configuration to ~/.claude/
-airis claude status      # Check Claude Code integration status
-airis claude uninstall   # Remove Claude Code configuration
-airis mcp                # Start the MCP server (used by airis-mcp-gateway)
+airis workspace claude setup      # Sync Claude Code configuration to ~/.claude/
+airis workspace claude status     # Check Claude Code integration status
+airis workspace claude uninstall  # Remove Claude Code configuration
+airis workspace mcp               # Start the MCP server (used by airis-mcp-gateway)
 ```
 
 ### Configuration & Diagnostics
 
 ```bash
-airis gen                # Generate compose.yaml and derived files from manifest.toml
-airis manifest json      # Print manifest.toml as JSON
-airis validate <type>    # Validate manifest, ports, networks, env, dependencies, architecture, or all
-airis verify             # Run system health checks
-airis doctor             # Diagnose workspace issues
-airis doctor --fix       # Auto-repair issues
-airis doctor --truth     # Print the resolved startup truth (where each setting came from)
-airis status             # Show current workspace status
-airis ps                 # Show Docker container status
-airis logs [service]     # Tail Docker logs
+airis workspace gen               # Generate compose.yaml and derived files from manifest.toml
+airis workspace manifest json     # Print manifest.toml as JSON
+airis workspace validate <type>   # Validate manifest, ports, networks, env, dependencies, architecture, or all
+airis workspace verify            # Run system health checks
+airis workspace doctor            # Diagnose workspace issues
+airis workspace doctor --fix      # Auto-repair issues
+airis workspace doctor --truth    # Print the resolved startup truth (where each setting came from)
 ```
 
-### Build, Test & Release
+### Build & Release
 
 ```bash
-airis run build          # Run the "build" task (defined in manifest or delegated to Docker)
-airis test [--level unit|integration|e2e|smoke]
-airis lint               # Run linting
-airis format             # Run code formatting
-airis typecheck          # Run type checking
-airis deps               # Visualize the dependency graph
-airis diff               # Preview changes before applying gen
-airis bump-version       # Bump the package version
-airis upgrade            # Upgrade the airis binary
+airis workspace deps              # Visualize the dependency graph
+airis workspace diff              # Preview changes before applying gen
+airis workspace policy check      # Run policy gates
+airis workspace bump-version      # Bump the package version
+airis workspace upgrade           # Upgrade the airis-workspace binary
 ```
 
 ### Workspace Lifecycle
 
 ```bash
-airis new <kind> <name>    # Create a new app, service, or library
-airis workspace uninstall  # Remove AIRIS-generated files from a repo
-airis docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
-airis docs list            # List managed adapter files
-airis init-shell           # Print the shell-integration snippet (prompt)
-airis completion <shell>   # Generate shell completion scripts
+airis workspace new <kind> <name>    # Create a new app, service, or library
+airis workspace clean                # Remove build artifacts (dry-run by default; --force to delete)
+airis workspace workspace uninstall  # Remove AIRIS-generated files from a repo
+airis workspace docs sync            # Regenerate CLAUDE.md / AGENTS.md / GEMINI.md from docs/ai/*
+airis workspace docs list            # List managed adapter files
+airis workspace completion <shell>   # Generate shell completion scripts
 ```
 
-### Direct Container Access
+### Container Access
+
+Drive containers with Docker Compose directly:
 
 ```bash
-airis shell                  # Open an interactive shell in the workspace container
-airis exec <cmd>             # Run any command in the resolved service (auto-up if down)
-airis run <task>             # Run a task defined in manifest.toml [commands]
-airis restart [service]      # Restart Docker services
-airis network <subcommand>   # Manage Docker networks
+docker compose up -d                   # Start the workspace
+docker compose exec workspace <cmd>    # Run a command inside the workspace container
+docker compose logs [service]          # Tail logs
+docker compose down                    # Stop services
 ```
-
----
-
-## Auto-Up Behavior
-
-When using `airis exec`, if the resolved service is not running, AIRIS automatically brings it up.
-
-### Suppression
-
-Auto-up is suppressed in these cases:
-
-- **Recent `airis down`**: Within 30 seconds of running `airis down`, auto-up is skipped (prevents racing `airis exec` from relaunching a stack you just tore down)
-- **Explicit suppression**: `AIRIS_NO_AUTO_UP=1 airis exec pnpm install` disables auto-up for that invocation
-
-This design ensures that stopping a workspace does not automatically restart it on the next command.
 
 ---
 

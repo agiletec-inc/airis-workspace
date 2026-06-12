@@ -4,7 +4,7 @@
 
 [package]
 name = "airis-workspace"
-version = "3.21.2"
+version = "4.0.0"
 edition = "2024"
 authors = ["kazuki <kazuki.nakai@agiletec.net>"]
 description = "Polyglot convention-unification engine for the AI coding era"
