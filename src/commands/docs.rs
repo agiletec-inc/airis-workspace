@@ -57,7 +57,7 @@ pub fn sync(force: bool) -> Result<()> {
 
     if targets.is_empty() {
         bail!(
-            "No documentation targets configured. Use `airis docs wrap AGENTS.md` or add [docs.vendors]/[docs.targets]."
+            "No documentation targets configured. Use `airis workspace docs wrap AGENTS.md` or add [docs.vendors]/[docs.targets]."
         );
     }
 

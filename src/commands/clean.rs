@@ -36,6 +36,26 @@ fn is_project_root(dir: &Path) -> bool {
         .any(|name| dir.join(name).exists())
 }
 
+/// Find the compose file in the current directory.
+/// Checks in Docker's official priority order:
+/// compose.yaml > compose.yml > docker-compose.yaml > docker-compose.yml
+fn find_compose_file() -> Option<&'static str> {
+    if Path::new("compose.yaml").exists() {
+        return Some("compose.yaml");
+    }
+    if Path::new("compose.yml").exists() {
+        return Some("compose.yml");
+    }
+    // Legacy naming (backwards compatibility)
+    if Path::new("docker-compose.yaml").exists() {
+        return Some("docker-compose.yaml");
+    }
+    if Path::new("docker-compose.yml").exists() {
+        return Some("docker-compose.yml");
+    }
+    None
+}
+
 /// Construct an empty Manifest entirely from `#[serde(default)]` fields.
 ///
 /// Used when `manifest.toml` is absent so `airis clean` can still operate on
@@ -74,7 +94,8 @@ pub fn run(dry_run: bool, purge: bool, allow_anywhere: bool) -> Result<()> {
         return Err(anyhow!(
             "--purge requires manifest.toml so user-managed compose files \
              (orchestration.dev) can be protected from deletion. \
-             Run `airis init` first, or omit --purge to clean only build artifacts."
+             Create manifest.toml first (see docs/manifest.md), or omit --purge \
+             to clean only build artifacts."
         ));
     }
 
@@ -83,7 +104,7 @@ pub fn run(dry_run: bool, purge: bool, allow_anywhere: bool) -> Result<()> {
     } else {
         println!(
             "{}",
-            "⚠️  manifest.toml not found — using default clean rules. Run `airis init` to customize."
+            "⚠️  manifest.toml not found — using default clean rules. Create manifest.toml to customize."
                 .yellow()
         );
         default_manifest()
@@ -150,7 +171,7 @@ pub fn run(dry_run: bool, purge: bool, allow_anywhere: bool) -> Result<()> {
         }
 
         // Also protect root compose if detected by find_compose_file
-        if let Some(root_compose) = crate::commands::run::compose::find_compose_file() {
+        if let Some(root_compose) = find_compose_file() {
             managed_files.push(root_compose.to_string());
         }
 
@@ -276,7 +297,10 @@ pub fn run(dry_run: bool, purge: bool, allow_anywhere: bool) -> Result<()> {
             skipped
         );
         println!();
-        println!("Run {} to actually clean.", "airis clean".bright_cyan());
+        println!(
+            "Run {} to actually clean.",
+            "airis workspace clean --force".bright_cyan()
+        );
     } else {
         println!(
             "{} Cleaned {} item(s), {} skipped, {} errors",

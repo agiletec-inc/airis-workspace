@@ -4,7 +4,7 @@ use colored::Colorize;
 
 use airis_workspace::cli::{
     ClaudeCommands, Cli, Commands, DepsCommands, DocsCommands, GenerateCommands, ManifestCommands,
-    NetworkCommands, NewCommands, PolicyCommands, TestLevel, ValidateCommands, WorkspaceCommands,
+    NewCommands, PolicyCommands, ValidateCommands, WorkspaceCommands,
 };
 use airis_workspace::commands;
 
@@ -112,33 +112,6 @@ fn dispatch(command: Commands) -> Result<()> {
                 commands::doctor::run(fix)?;
             }
         }
-        Commands::Run { task, extra_args } => commands::run::run(&task, &extra_args)?,
-        Commands::Up { extra_args } => commands::run::run("up", &extra_args)?,
-        Commands::Down { extra_args } => commands::run::run_down(&extra_args)?,
-        Commands::Shell { extra_args } => commands::run::run("shell", &extra_args)?,
-        Commands::Test {
-            level,
-            coverage_check,
-            min_coverage,
-            extra_args,
-        } => {
-            if let Some(lvl) = level {
-                let task = match lvl {
-                    TestLevel::Unit => "test:unit",
-                    TestLevel::Integration => "test:integration",
-                    TestLevel::E2e => "test:e2e",
-                    TestLevel::Smoke => "test:smoke",
-                };
-                commands::run::run(task, &extra_args)?;
-            } else if coverage_check {
-                commands::run::run_test_coverage(min_coverage)?;
-            } else {
-                commands::run::run("test", &extra_args)?;
-            }
-        }
-        Commands::Status { short } => {
-            commands::status::run(short)?;
-        }
         Commands::Clean {
             dry_run,
             purge,
@@ -150,33 +123,6 @@ fn dispatch(command: Commands) -> Result<()> {
             let actual_dry_run = if force { false } else { dry_run };
             commands::clean::run(actual_dry_run, purge, allow_anywhere)?;
         }
-        Commands::Lint { extra_args } => commands::run::run("lint", &extra_args)?,
-        Commands::Format { extra_args } => commands::run::run("format", &extra_args)?,
-        Commands::Typecheck { extra_args } => commands::run::run("typecheck", &extra_args)?,
-        Commands::Ps { extra_args } => {
-            if extra_args.is_empty() {
-                commands::run::run_ps()?;
-            } else {
-                commands::run::run("ps", &extra_args)?;
-            }
-        }
-        Commands::Logs {
-            service,
-            follow,
-            tail,
-        } => commands::run::run_logs(service.as_deref(), follow, tail)?,
-        Commands::Exec {
-            service,
-            no_auto_up,
-            cmd,
-        } => commands::run::run_exec(service.as_deref(), &cmd, !no_auto_up)?,
-        Commands::Restart { service } => commands::run::run_restart(service.as_deref())?,
-        Commands::Network { action } => match action {
-            NetworkCommands::Init => commands::network::init()?,
-            NetworkCommands::Setup => commands::network::setup()?,
-            NetworkCommands::List => commands::network::list()?,
-            NetworkCommands::Remove => commands::network::remove()?,
-        },
         Commands::New { template } => match template {
             NewCommands::Api { name, runtime } => {
                 commands::new_cmd::run_with_runtime("api", &name, &runtime)?;
@@ -271,9 +217,6 @@ fn dispatch(command: Commands) -> Result<()> {
             }
         }
 
-        Commands::InitShell { shell } => {
-            commands::init_shell::run(shell)?;
-        }
         Commands::Completion { shell } => {
             commands::completion::run(shell)?;
         }

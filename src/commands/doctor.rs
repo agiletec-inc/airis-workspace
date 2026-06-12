@@ -74,7 +74,7 @@ pub fn run_truth(json_output: bool) -> Result<()> {
         println!("{}", "━".repeat(44).dimmed());
         println!(
             "{}",
-            "Use `airis doctor --truth-json` for machine-readable output.".dimmed()
+            "Use `airis workspace doctor --truth-json` for machine-readable output.".dimmed()
         );
     }
 
@@ -159,7 +159,7 @@ pub fn run(fix: bool) -> Result<()> {
     } else {
         println!(
             "{}",
-            "💡 Run `airis doctor --fix` to auto-repair issues and enforce boundaries."
+            "💡 Run `airis workspace doctor --fix` to auto-repair issues and enforce boundaries."
                 .bright_yellow()
         );
     }
@@ -370,8 +370,8 @@ fn check_host_artifacts(issues: &mut Vec<Issue>) -> Result<()> {
 
             let severity = artifact_severity(&name);
             let hint = match severity {
-                Severity::Error => "run `airis clean && airis install`",
-                Severity::Warning => "run `airis clean`",
+                Severity::Error => "run `airis workspace clean --force` and reinstall dependencies",
+                Severity::Warning => "run `airis workspace clean`",
             };
 
             issues.push(Issue {

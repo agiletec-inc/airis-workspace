@@ -43,7 +43,10 @@ pub fn run(host: &str, port: &str, database: &str, output: &str) -> Result<()> {
     if let Ok(output) = pg_ready {
         if !output.status.success() {
             eprintln!("   {} Supabase database is not running!", "❌".red());
-            eprintln!("   {} Please start Supabase first: airis up", "💡".yellow());
+            eprintln!(
+                "   {} Please start Supabase first: docker compose up -d",
+                "💡".yellow()
+            );
             anyhow::bail!("Supabase database is not running");
         }
     } else {

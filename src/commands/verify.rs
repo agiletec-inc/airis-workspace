@@ -28,7 +28,7 @@ pub fn run() -> Result<()> {
         );
         println!(
             "   Run {} to enable full container-based verification.",
-            "airis up".cyan()
+            "docker compose up -d".cyan()
         );
         false
     } else {

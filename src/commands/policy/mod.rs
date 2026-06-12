@@ -102,7 +102,7 @@ impl PolicyConfig {
     /// Generate default policies.toml template
     pub fn template() -> String {
         r#"# Policy Gates Configuration
-# Run: airis policy check
+# Run: airis workspace policy check
 
 [gates]
 # Require clean git working directory before bundle/deploy

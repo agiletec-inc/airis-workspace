@@ -48,10 +48,10 @@ pub struct Manifest {
     /// Pre-command hooks (e.g., auto-install before test/build)
     #[serde(default)]
     pub hooks: PreCommandHooks,
-    /// User-defined commands (airis run <task>)
+    /// User-defined task commands
     #[serde(default)]
     pub commands: IndexMap<String, String>,
-    /// LLM command remapping (e.g., "npm install" → "airis install")
+    /// LLM command remapping (e.g., "npm install" → "pnpm install")
     #[serde(default)]
     pub remap: IndexMap<String, String>,
     /// Version management configuration
@@ -293,13 +293,13 @@ pub struct HooksSection {
     /// Traefik compose file (e.g., "traefik/compose.yml")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub traefik: Option<String>,
-    /// URLs to display after `airis up` (optional, dynamic from apps if not specified)
+    /// URLs to display after workspace startup (optional, dynamic from apps if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub urls: Option<ServiceUrls>,
-    /// Commands to run after `airis up` (e.g., DB migration)
+    /// Commands to run after workspace startup (e.g., DB migration)
     #[serde(default)]
     pub post_up: Vec<String>,
-    /// Timeout in seconds for service reachability checks after `airis up`.
+    /// Timeout in seconds for service reachability checks after workspace startup.
     /// Services are polled every 2s until reachable or this timeout expires.
     /// Default: 30 seconds. Set to 0 to skip waiting.
     #[serde(default = "default_reachability_timeout")]
@@ -509,7 +509,7 @@ pub struct RuleConfig {
 }
 
 /// Pre-command hooks configuration.
-/// Runs a command before each `airis run <task>` invocation.
+/// Runs a command before each task invocation.
 /// Cache key avoids re-running when dependencies haven't changed.
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct PreCommandHooks {
@@ -1792,7 +1792,7 @@ pub struct TemplateConfig {
 /// Two responsibilities live here:
 /// 1. `alias` — short aliases consumed by `airis new` (e.g., "py" -> "fastapi").
 /// 2. `node` / `python` / `rust` — declarative runtime versions consumed by
-///    workspace Dockerfile generation and `airis exec` cmd→service routing
+///    workspace Dockerfile generation
 ///    (Phase 1 onward; see docs/ai/IDEAL_STATE.md §2 and the eager-floating-book plan).
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct RuntimesSection {

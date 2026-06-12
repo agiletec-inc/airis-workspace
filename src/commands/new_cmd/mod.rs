@@ -130,10 +130,14 @@ pub fn run_with_runtime(category: &str, name: &str, runtime: &str) -> Result<()>
     println!();
     println!("{}", "Next steps:".bright_yellow());
     println!(
-        "  1. Run {} to analyze and sync workspace",
-        "airis up".cyan()
+        "  1. Run {} to regenerate workspace files",
+        "airis workspace gen".cyan()
     );
-    println!("     (This will automatically sync manifest, install deps, and start services)");
+    println!(
+        "  2. Install dependencies and start services (e.g. {} / {})",
+        "pnpm install".cyan(),
+        "docker compose up -d".cyan()
+    );
 
     Ok(())
 }
