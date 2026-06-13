@@ -22,26 +22,26 @@ cargo clippy -- -D warnings
 
 Unit tests live next to the code under `src/` (`#[cfg(test)] mod tests` blocks). Integration tests live in `tests/cli_test.rs` and exercise the built `airis` binary end-to-end via `assert_cmd`.
 
-`airis verify` is a convenience wrapper, but it **skips `cargo check`/`clippy`/`fmt --check`/`test` when the workspace container is offline** and still prints a green summary. Before pushing, run the `cargo` commands above directly (or `airis up` first) so CI is not the first thing to catch a regression.
+Run the `cargo` commands above directly — that is the host-native default for this Rust CLI. `airis workspace gen` only writes `compose.yaml` / `tsconfig.json` / AI-rule files and does not run tests, so it is no substitute for running the checks above before pushing.
 
 ## Documentation Sync
 
 `docs/ai/*.md` is the source of truth for `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` adapters at the repo root. After editing any shared doc:
 
 ```bash
-airis docs sync           # regenerate all vendor adapter files from docs/ai/*
-airis docs sync --force   # overwrite even when [docs.mode = "warn"]
-airis docs list           # show which adapter files are managed
+airis workspace docs sync           # regenerate all vendor adapter files from docs/ai/*
+airis workspace docs sync --force   # overwrite even when [docs.mode = "warn"]
+airis workspace docs list           # show which adapter files are managed
 ```
 
-Never hand-edit the `<!-- BEGIN GENERATED airis gen -->` block in the adapter files — `airis docs sync` rewrites it.
+Never hand-edit the `<!-- BEGIN GENERATED airis gen -->` block in the adapter files — `airis workspace docs sync` rewrites it.
 
 ## Module Boundary
 
 airis is a convention-unification engine; Docker is one module within it, not the whole tool.
 
 - **Convention core** (applies to every repo, polyglot): `gen`, `docs`, `claude`, `new`, `validate`, `doctor`, `bump-version`, `verify`. These keep AI adapters, docs, `tsconfig.json`, version scheme, and scaffolding consistent.
-- **Docker module** (only for containerized repos): `up` / `down` / `exec` / `ps` / `logs` / `restart` / `network` / `run`, plus `compose.yaml` + volume-hygiene generation inside `gen`. The `[docker]` manifest section is optional (`#[serde(default)]`), so non-containerized repos (Edge/Workers, native desktop) use airis without it.
+- **Docker module** (only for containerized repos): `compose.yaml` + volume-hygiene generation inside `gen`. airis writes the compose file but does not run containers for you — execution stays host-native by default (`~/.claude/rules/runtime-workflow.md`). The `[docker]` manifest section is optional (`#[serde(default)]`), so non-containerized repos (host-native CLI/Edge/Workers, native desktop) use airis without it.
 
 ## Important Paths
 
