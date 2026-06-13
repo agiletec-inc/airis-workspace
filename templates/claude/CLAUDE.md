@@ -2,11 +2,13 @@
 
 日本語で回答する。コードコメントは英語。
 
-## Docker-First
+## Runtime — host-native default
 
-全てDockerコンテナ内で実行する。ホストでパッケージマネージャやランタイムを直接実行しない。設計・構成・コマンドの詳細は `~/.claude/rules/docker-first.md` を参照。
+開発機(Mac)は **host-native 既定**。ビルド・実行・テストはホストの native toolchain を直接使う(リポの種別に従い `cargo` / `pnpm` / `pytest` 等)。Docker は ①ローカルの stateful infra(DB など) ②デプロイ先との parity 検証 のときだけ。GPU / k3s 常駐ワークロードはクラスタで動かす。判断軸は「このコードが本番で動くランタイムは何か」。詳細と全社マトリクスは `~/.claude/rules/runtime-workflow.md`(SSoT)を参照。
 
-OrbStack 固有の挙動(自動 `*.orb.local` DNS、ローカル image を k8s から registry なしで参照、`/mnt/mac` 共有など)は `~/.claude/rules/orbstack.md` を参照。
+per-repo の override が優先 — 各リポの `CLAUDE.md` / `docs/ai/` の指定がこの既定に勝つ。
+
+Docker を使う場合の OrbStack 固有の挙動(自動 `*.orb.local` DNS、ローカル image を k8s から registry なしで参照、`/mnt/mac` 共有など)は `~/.claude/rules/orbstack.md` を参照。
 
 ## Safety
 
@@ -47,7 +49,7 @@ infra 固有値(サーバー名、IP、Tailscale、ホストパスなど)は **r
 
 - 「実装しました」で終わりにせず、Playwrightまたはブラウザで自分の目で動作確認する
 - ユーザーの元の問題が実際に解決していることを確認してから報告する
-- push前に `airis test` を実行してエラー0を確認する（.husky/pre-push hook でも lint + typecheck は強制される）
+- push前に各リポの native runner で test / lint / typecheck を実行しエラー0を確認する(Rust なら `cargo test` + `cargo clippy`、Node なら `pnpm test` + `pnpm lint` 等)。`airis test` は v4.0.0 で廃止済みで存在しない。pre-push hook がある場合はそれも通す
 - push後は `gh run watch` でCI完了を待ち、失敗したら `gh run view --log-failed` で原因を確認して自分で修正・re-pushする。CIが通るまでタスク完了を報告しない
 - deployワークフローがトリガーされたら `gh run watch` でデプロイ完了を待ち、失敗したら原因を確認して修正する。特にDockerfileの依存不足に注意
 - デプロイ後のヘルスチェックで問題を発見した場合、原因が今回の変更かどうかに関わらず修復すること。「今回の変更とは無関係」を理由にスキップしてはならない。ユーザーにとってはサービスが動いてるか動いてないかだけが重要
